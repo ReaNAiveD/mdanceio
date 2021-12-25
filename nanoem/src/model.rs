@@ -561,8 +561,7 @@ impl ModelBone {
             bone.global_bone_index = buffer.read_i32_little_endian()?;
         }
         if bone.flags.has_constraint {
-            // TODO: Parse Constraint
-            bone.constraint = None;
+            bone.constraint = Some(Box::new(ModelConstraint::parse_pmx(parent_model, buffer)?))
         }
         Ok(bone)
     }
@@ -611,7 +610,6 @@ pub struct ModelConstraint {
 impl ModelConstraint {
     fn parse_pmx(
         parent_model: &Model,
-        bone: &ModelBone,
         buffer: &mut Buffer,
     ) -> Result<ModelConstraint, Status> {
         let bone_index_size = parent_model.info.bone_index_size as usize;
