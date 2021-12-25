@@ -258,6 +258,21 @@ pub struct ModelMaterialFlags {
     is_line_draw_enabled: bool,
 }
 
+impl ModelMaterialFlags {
+    fn from_u8(value: u8) -> ModelMaterialFlags {
+        return ModelMaterialFlags {
+            is_culling_disabled: value % 2 != 0,
+            is_casting_shadow_enabled: (value / 2) % 2 != 0,
+            is_casting_shadow_map_enabled: (value / 4) % 2 != 0,
+            is_shadow_map_enabled: (value / 8) % 2 != 0,
+            is_edge_enabled: (value / 16) % 2 != 0,
+            is_vertex_color_enabled: (value / 32) % 2 != 0,
+            is_point_draw_enabled: (value / 64) % 2 != 0,
+            is_line_draw_enabled: (value / 128) % 2 != 0,
+        };
+    }
+}
+
 pub enum ModelMaterialSpheremapTextureType {
     Unknown = -1,
     TypeNone,
@@ -302,8 +317,7 @@ pub struct ModelMaterial {
     sphere_map_texture_type: ModelMaterialSpheremapTextureType,
     is_toon_shared: bool,
     num_vertex_indices: usize,
-    u_raw: u8,
-    u: ModelMaterialFlags,
+    flags: ModelMaterialFlags,
     sphere_map_texture_sph: Option<Box<ModelTexture>>,
     sphere_map_texture_spa: Option<Box<ModelTexture>>,
     diffuse_texture: Option<Box<ModelTexture>>,
@@ -326,7 +340,7 @@ impl ModelMaterial {
             specular_color: buffer.read_f32_3_little_endian()?,
             specular_power: buffer.read_f32_little_endian()?,
             ambient_color: buffer.read_f32_3_little_endian()?,
-            u_raw: buffer.read_byte()?,
+            flags: ModelMaterialFlags::from_u8(buffer.read_byte()?),
             edge_color: buffer.read_f32_3_little_endian()?,
             edge_opacity: buffer.read_f32_little_endian()?,
             edge_size: buffer.read_f32_little_endian()?,
@@ -336,12 +350,18 @@ impl ModelMaterial {
             sphere_map_texture_type: ModelMaterialSpheremapTextureType::default(),
             is_toon_shared: bool::default(),
             num_vertex_indices: usize::default(),
-            u: ModelMaterialFlags::default(),
             sphere_map_texture_sph: None,
             sphere_map_texture_spa: None,
             diffuse_texture: None,
             clob: String::default(),
         };
+        if material.flags.is_point_draw_enabled {
+            material.flags.is_casting_shadow_enabled = false;
+            material.flags.is_casting_shadow_map_enabled = false;
+            material.flags.is_shadow_map_enabled = false;
+        } else if material.flags.is_line_draw_enabled {
+            material.flags.is_edge_enabled = false;
+        }
         let sphere_map_texture_type_raw = buffer.read_byte()?;
         let sphere_map_texture_type = if sphere_map_texture_type_raw == 0xffu8 {
             ModelMaterialSpheremapTextureType::TypeNone
@@ -401,7 +421,7 @@ struct ModelBoneFlags {
     has_inherent_orientation: bool,
     has_inherent_translation: bool,
     has_fixed_axis: bool,
-    has_local_axis: bool,
+    has_local_axes: bool,
     is_affected_by_physics_simulation: bool,
     has_external_parent_bone: bool,
 }
@@ -437,7 +457,7 @@ impl ModelBoneFlags {
             has_inherent_orientation: (u / 256) % 2 != 0,
             has_inherent_translation: (u / 512) % 2 != 0,
             has_fixed_axis: (u / 1024) % 2 != 0,
-            has_local_axis: (u / 2048) % 2 != 0,
+            has_local_axes: (u / 2048) % 2 != 0,
             is_affected_by_physics_simulation: (u / 4096) % 2 != 0,
             has_external_parent_bone: (u / 8192) % 2 != 0,
         }
@@ -470,18 +490,20 @@ pub struct ModelBone {
     global_bone_index: i32,
     stage_index: i32,
     typ: ModelBoneType,
-    u: ModelBoneFlags,
+    flags: ModelBoneFlags,
 }
 
 impl ModelBone {
     fn compare_pmx(&self, other: &Self) -> i32 {
-        if self.u.is_affected_by_physics_simulation == other.u.is_affected_by_physics_simulation {
+        if self.flags.is_affected_by_physics_simulation
+            == other.flags.is_affected_by_physics_simulation
+        {
             if self.stage_index == other.stage_index {
                 return self.base.index - other.base.index;
             }
             return self.stage_index - other.stage_index;
         }
-        return if other.u.is_affected_by_physics_simulation {
+        return if other.flags.is_affected_by_physics_simulation {
             -1
         } else {
             1
@@ -490,7 +512,7 @@ impl ModelBone {
 
     fn parse_pmx(parent_model: &Model, buffer: &mut Buffer) -> Result<ModelBone, Status> {
         let bone_index_size = parent_model.info.bone_index_size;
-        let bone = ModelBone {
+        let mut bone = ModelBone {
             base: ModelObject {
                 index: -1,
                 user_data: None,
@@ -510,10 +532,39 @@ impl ModelBone {
             global_bone_index: i32::default(),
             stage_index: buffer.read_i32_little_endian()?,
             typ: ModelBoneType::Unknown,
-            u: ModelBoneFlags::from_raw(buffer.read_u16_little_endian()?),
-            constraint: todo!(),
+            flags: ModelBoneFlags::from_raw(buffer.read_u16_little_endian()?),
+            constraint: None,
         };
-        Err(Status::Unknown)
+        if bone.flags.has_destination_bone_index {
+            bone.target_bone_index = buffer.read_integer_nullable(bone_index_size as usize)?;
+        } else {
+            bone.destination_origin = buffer.read_f32_3_little_endian()?;
+        }
+        if bone.flags.has_inherent_orientation || bone.flags.has_inherent_translation {
+            bone.parent_inherent_bone_index =
+                buffer.read_integer_nullable(bone_index_size as usize)?;
+            bone.inherent_coefficient = buffer.read_f32_little_endian()?;
+        } else {
+            bone.inherent_coefficient = 1.0f32;
+        }
+        if bone.flags.has_fixed_axis {
+            bone.fixed_axis = buffer.read_f32_3_little_endian()?;
+        }
+        if bone.flags.has_local_axes {
+            bone.local_x_axis = buffer.read_f32_3_little_endian()?;
+            bone.local_z_axis = buffer.read_f32_3_little_endian()?;
+        } else {
+            bone.local_x_axis.0[0] = 1.0f32;
+            bone.local_z_axis.0[2] = 1.0f32;
+        }
+        if bone.flags.has_external_parent_bone {
+            bone.global_bone_index = buffer.read_i32_little_endian()?;
+        }
+        if bone.flags.has_constraint {
+            // TODO: Parse Constraint
+            bone.constraint = None;
+        }
+        Ok(bone)
     }
 
     // fn create(model: &Model) -> Result<&ModelVertex, Status> {
@@ -555,6 +606,43 @@ pub struct ModelConstraint {
     num_iterations: i32,
     angle_limit: f32,
     joints: Vec<ModelConstraintJoint>,
+}
+
+impl ModelConstraint {
+    fn parse_pmx(
+        parent_model: &Model,
+        bone: &ModelBone,
+        buffer: &mut Buffer,
+    ) -> Result<ModelConstraint, Status> {
+        let bone_index_size = parent_model.info.bone_index_size as usize;
+        let mut constraint = ModelConstraint {
+            base: ModelObject {
+                index: -1,
+                user_data: None,
+            },
+            effector_bone_index: buffer.read_integer_nullable(bone_index_size)?,
+            target_bone_index: i32::default(),
+            num_iterations: buffer.read_i32_little_endian()?,
+            angle_limit: buffer.read_f32_little_endian()?,
+            joints: vec![],
+        };
+        let num_joints = buffer.read_len()?;
+        for i in 0..num_joints {
+            let mut joint = ModelConstraintJoint {
+                base: ModelObject { index: -1, user_data: None },
+                bone_index: buffer.read_integer_nullable(bone_index_size)?,
+                has_angle_limit: buffer.read_byte()? != (0 as u8),
+                lower_limit: F128::default(),
+                upper_limit: F128::default(),
+            };
+            if joint.has_angle_limit {
+                joint.lower_limit = buffer.read_f32_3_little_endian()?;
+                joint.upper_limit = buffer.read_f32_3_little_endian()?;
+            }
+            constraint.joints.push(joint);
+        }
+        Ok(constraint)
+    }
 }
 
 pub struct ModelMorphBone {
