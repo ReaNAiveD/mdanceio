@@ -29,7 +29,7 @@ pub struct Model {
     vertex_indices: Vec<u32>,
     materials: Vec<ModelMaterial>,
     bones: Vec<Rc<RefCell<ModelBone>>>,
-    ordered_bones: Vec<ModelBone>,
+    ordered_bones: Vec<Rc<RefCell<ModelBone>>>,
     constraints: Vec<ModelConstraint>,
     textures: Vec<ModelTexture>,
     morphs: Vec<Rc<RefCell<ModelMorph>>>,
@@ -115,6 +115,106 @@ impl Model {
     }
 
     fn parse_bone_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+        let num_bones = buffer.read_len()?;
+        if num_bones > 0 {
+            self.bones.clear();
+            for i in 0..num_bones {
+                let mut bone = ModelBone::parse_pmx(self, buffer)?;
+                bone.base.index = i as i32;
+                // bone.constraint = bone.constraint.map(|mut b| {b.target_bone_index = i as i32; b});
+                if let Some(ref mut constraint) = bone.constraint {
+                    constraint.target_bone_index = i as i32;
+                }
+                self.bones.push(Rc::new(RefCell::new(bone)));
+                self.ordered_bones.push(self.bones[i].clone());
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_morph_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+        let num_morphs = buffer.read_len()?;
+        if num_morphs > 0 {
+            self.morphs.clear();
+            for i in 0..num_morphs {
+                let mut morph = ModelMorph::parse_pmx(self, buffer)?;
+                morph.base.index = i as i32;
+                self.morphs.push(Rc::new(RefCell::new(morph)));
+            }
+        }
+        Ok(())
+    }
+    
+    fn parse_label_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+        let num_labels = buffer.read_len()?;
+        if num_labels > 0 {
+            self.labels.clear();
+            for i in 0..num_labels {
+                let mut label = ModelLabel::parse_pmx(self, buffer)?;
+                label.base.index = i as i32;
+                self.labels.push(label);
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_rigid_body_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+        let num_rigid_bodies = buffer.read_len()?;
+        if num_rigid_bodies > 0 {
+            self.rigid_bodies.clear();
+            for i in 0..num_rigid_bodies {
+                let mut rigid_body = ModelRigidBody::parse_pmx(self, buffer)?;
+                rigid_body.base.index = i as i32;
+                self.rigid_bodies.push(rigid_body);
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_joint_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+        let num_joints = buffer.read_len()?;
+        if num_joints > 0 {
+            self.joints.clear();
+            for i in 0..num_joints {
+                let mut joint = ModelJoint::parse_pmx(self, buffer)?;
+                joint.base.index = i as i32;
+                self.joints.push(joint);
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_soft_body_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+        let num_soft_bodies = buffer.read_len()?;
+        if num_soft_bodies > 0 {
+            self.soft_bodies.clear();
+            for i in 0..num_soft_bodies {
+                let mut soft_body = ModelSoftBody::parse_pmx(self, buffer)?;
+                soft_body.base.index = i as i32;
+                self.soft_bodies.push(soft_body);
+            }
+        }
+        Ok(())
+    }
+
+    fn parse_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+        self.parse_vertex_block_pmx(buffer)?;
+        self.parse_vertex_index_block_pmx(buffer)?;
+        self.parse_texture_block_pmx(buffer)?;
+        self.parse_material_block_pmx(buffer)?;
+        self.parse_bone_block_pmx(buffer)?;
+        self.parse_morph_block_pmx(buffer)?;
+        self.parse_label_block_pmx(buffer)?;
+        self.parse_rigid_body_block_pmx(buffer)?;
+        self.parse_joint_block_pmx(buffer)?;
+        if self.version > 2.0f32 && !buffer.is_end() {
+            self.parse_soft_body_block_pmx(buffer)?;
+        }
+        if buffer.is_end() { Ok(()) } else { Err(Status::ErrorBufferNotEnd) }
+    }
+
+    fn load_from_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+        let signature = buffer.read_u32_little_endian()?;
         Ok(())
     }
 

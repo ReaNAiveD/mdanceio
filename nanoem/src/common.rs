@@ -10,6 +10,7 @@ pub enum Status {
     ErrorBufferEnd,  //< Buffer is end
     ErrorDecodeUnicodeStringFailed, //< Failed to decode unicode string
     ErrorEncodeUnicodeStringFailed, //< Failed to encode unicode string
+    ErrorBufferNotEnd,  //< Costum, Finish Loading but Buffer is not End
     ErrorInvalidSignature = 100, //< Invalid signature
     ErrorModelVertexCorrupted, //< Vertex data is corrupted
     ErrorModelFaceCorrupted, //< Face (Indices) data is corrupted
