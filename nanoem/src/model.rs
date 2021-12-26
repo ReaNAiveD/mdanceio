@@ -1,10 +1,12 @@
-use core::num;
 use std::{
     cell::RefCell,
     rc::{Rc, Weak},
 };
 
-use crate::common::{Buffer, Status, UserData, F128};
+use crate::{
+    common::{Buffer, LanguageType, Status, UserData, F128},
+    utils::fourcc,
+};
 
 struct Info {
     codec_type: u8,
@@ -15,6 +17,42 @@ struct Info {
     bone_index_size: u8,
     morph_index_size: u8,
     rigid_body_index_size: u8,
+}
+
+pub enum ModelFormatType {
+    Unknown = -1,
+    Pmd1_0,
+    Pmx2_0,
+    Pmx2_1,
+}
+
+impl From<i32> for ModelFormatType {
+    fn from(value: i32) -> Self {
+        match value {
+            10 => ModelFormatType::Pmd1_0,
+            20 => ModelFormatType::Pmx2_0,
+            21 => ModelFormatType::Pmx2_1,
+            _ => ModelFormatType::Unknown,
+        }
+    }
+}
+
+pub enum CodecType {
+    Unknown = -1,
+    Sjis,
+    Utf8,
+    Utf16,
+}
+
+impl From<i32> for CodecType {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => CodecType::Sjis,
+            1 => CodecType::Utf8,
+            2 => CodecType::Utf16,
+            _ => CodecType::Unknown,
+        }
+    }
 }
 
 pub struct Model {
@@ -37,7 +75,7 @@ pub struct Model {
     rigid_bodies: Vec<ModelRigidBody>,
     joints: Vec<ModelJoint>,
     soft_bodies: Vec<ModelSoftBody>,
-    user_data: Rc<RefCell<UserData>>,
+    user_data: Option<Rc<RefCell<UserData>>>,
 }
 
 impl Model {
@@ -144,7 +182,7 @@ impl Model {
         }
         Ok(())
     }
-    
+
     fn parse_label_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
         let num_labels = buffer.read_len()?;
         if num_labels > 0 {
@@ -210,12 +248,144 @@ impl Model {
         if self.version > 2.0f32 && !buffer.is_end() {
             self.parse_soft_body_block_pmx(buffer)?;
         }
-        if buffer.is_end() { Ok(()) } else { Err(Status::ErrorBufferNotEnd) }
+        if buffer.is_end() {
+            Ok(())
+        } else {
+            Err(Status::ErrorBufferNotEnd)
+        }
     }
 
     fn load_from_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
         let signature = buffer.read_u32_little_endian()?;
-        Ok(())
+        if signature == fourcc('P' as u8, 'M' as u8, 'X' as u8, ' ' as u8)
+            || signature == fourcc('P' as u8, 'M' as u8, 'X' as u8, 0xA0u8)
+        {
+            self.version = buffer.read_f32_little_endian()?;
+            self.info_length = buffer.read_byte()?;
+            if self.info_length == 8u8 {
+                self.info.codec_type = buffer.read_byte()?;
+                self.info.additional_uv_size = buffer.read_byte()?;
+                self.info.vertex_index_size = buffer.read_byte()?;
+                self.info.texture_index_size = buffer.read_byte()?;
+                self.info.material_index_size = buffer.read_byte()?;
+                self.info.bone_index_size = buffer.read_byte()?;
+                self.info.morph_index_size = buffer.read_byte()?;
+                self.info.rigid_body_index_size = buffer.read_byte()?;
+                self.name_ja = self.get_string_pmx(buffer)?;
+                self.name_en = self.get_string_pmx(buffer)?;
+                self.comment_ja = self.get_string_pmx(buffer)?;
+                self.comment_en = self.get_string_pmx(buffer)?;
+                self.parse_pmx(buffer)?;
+            }
+            Ok(())
+        } else {
+            Err(Status::ErrorInvalidSignature)
+        }
+    }
+
+    fn load_from_buffer(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+        let result = self.load_from_pmx(buffer);
+        if result.err() == Some(Status::ErrorInvalidSignature) {
+            Err(Status::ErrorNoSupportForPMD)
+        } else {
+            result
+        }
+    }
+
+    pub fn get_format_type(&self) -> ModelFormatType {
+        ((self.version * 10f32) as i32).into()
+    }
+
+    pub fn get_codec_type(&self) -> CodecType {
+        let major_version = self.version as i32;
+        if major_version >= 2 && self.info.codec_type != 0 {
+            CodecType::Utf8
+        } else if major_version >= 2 {
+            CodecType::Utf16
+        } else if major_version == 1 {
+            CodecType::Sjis
+        } else {
+            CodecType::Unknown
+        }
+    }
+
+    pub fn get_additional_uv_size(&self) -> usize {
+        self.info.additional_uv_size.into()
+    }
+
+    pub fn get_name(&self, language_type: LanguageType) -> String {
+        match language_type {
+            LanguageType::Japanese => self.name_ja.clone(),
+            LanguageType::English => self.name_en.clone(),
+            LanguageType::Unknown => "".into(),
+        }
+    }
+
+    pub fn get_comment(&self, language_type: LanguageType) -> String {
+        match language_type {
+            LanguageType::Japanese => self.comment_ja.clone(),
+            LanguageType::English => self.comment_en.clone(),
+            LanguageType::Unknown => "".into(),
+        }
+    }
+
+    pub fn get_all_vertex_objects(&self) -> &Vec<ModelVertex> {
+        &self.vertices
+    }
+
+    pub fn get_all_vertex_indices(&self) -> &Vec<u32> {
+        &self.vertex_indices
+    }
+
+    pub fn get_all_material_objects(&self) -> &Vec<ModelMaterial> {
+        &self.materials
+    }
+
+    pub fn get_all_bone_objects(&self) -> Vec<Weak<RefCell<ModelBone>>> {
+        self.bones.iter().map(|rc| Rc::downgrade(&rc)).collect()
+    }
+
+    pub fn get_all_ordered_bone_object(&self) -> Vec<Weak<RefCell<ModelBone>>> {
+        self.ordered_bones
+            .iter()
+            .map(|rc| Rc::downgrade(&rc))
+            .collect()
+    }
+
+    pub fn get_all_constraint_objects(&self) -> &Vec<ModelConstraint> {
+        &self.constraints
+    }
+
+    pub fn get_all_texture_objects(&self) -> &Vec<ModelTexture> {
+        &self.textures
+    }
+
+    pub fn get_all_morph_objects(&self) -> Vec<Weak<RefCell<ModelMorph>>> {
+        self.morphs.iter().map(|rc| Rc::downgrade(&rc)).collect()
+    }
+
+    pub fn get_all_label_objects(&self) -> &Vec<ModelLabel> {
+        &self.labels
+    }
+
+    pub fn get_all_rigid_body_objects(&self) -> &Vec<ModelRigidBody> {
+        &self.rigid_bodies
+    }
+
+    pub fn get_all_joint_objects(&self) -> &Vec<ModelJoint> {
+        &self.joints
+    }
+
+    pub fn get_all_soft_body_objects(&self) -> &Vec<ModelSoftBody> {
+        &self.soft_bodies
+    }
+
+    pub fn get_user_data(&self) -> Option<Rc<RefCell<UserData>>> {
+        self.user_data.clone()
+    }
+
+    pub fn set_user_data(&mut self, user_data: Rc<RefCell<UserData>>) {
+        self.user_data = Some(user_data.clone())
     }
 
     fn get_one_bone_object(&self, index: i32) -> Option<Rc<RefCell<ModelBone>>> {
@@ -1531,7 +1701,9 @@ impl ModelSoftBody {
         }
         let num_pin_vertex_indices = buffer.read_len()?;
         for _ in 0..num_pin_vertex_indices {
-            soft_body.pinned_vertex_indices.push(buffer.read_integer(vertex_index_size)? as u32);
+            soft_body
+                .pinned_vertex_indices
+                .push(buffer.read_integer(vertex_index_size)? as u32);
         }
         Ok(soft_body)
     }
