@@ -624,10 +624,7 @@ pub struct ModelConstraint {
 }
 
 impl ModelConstraint {
-    fn parse_pmx(
-        parent_model: &Model,
-        buffer: &mut Buffer,
-    ) -> Result<ModelConstraint, Status> {
+    fn parse_pmx(parent_model: &Model, buffer: &mut Buffer) -> Result<ModelConstraint, Status> {
         let bone_index_size = parent_model.info.bone_index_size as usize;
         let mut constraint = ModelConstraint {
             base: ModelObject {
@@ -1130,6 +1127,42 @@ impl ModelLabel {
     }
 }
 
+pub enum ModelRigidBodyShapeType {
+    Unknown = -1,
+    Sphere,
+    Box,
+    Capsule,
+}
+
+impl From<u8> for ModelRigidBodyShapeType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => ModelRigidBodyShapeType::Sphere,
+            1 => ModelRigidBodyShapeType::Box,
+            2 => ModelRigidBodyShapeType::Capsule,
+            _ => ModelRigidBodyShapeType::Unknown,
+        }
+    }
+}
+
+pub enum ModelRigidBodyTransformType {
+    Unknown = -1,
+    FromBoneToSimulation,
+    FromSimulationToBone,
+    FromBoneOrientationAndSimulationToBone,
+}
+
+impl From<u8> for ModelRigidBodyTransformType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => ModelRigidBodyTransformType::FromBoneToSimulation,
+            1 => ModelRigidBodyTransformType::FromSimulationToBone,
+            2 => ModelRigidBodyTransformType::FromBoneOrientationAndSimulationToBone,
+            _ => ModelRigidBodyTransformType::Unknown,
+        }
+    }
+}
+
 pub struct ModelRigidBody {
     base: ModelObject,
     name_ja: String,
@@ -1137,7 +1170,7 @@ pub struct ModelRigidBody {
     bone_index: i32,
     collision_group_id: i32,
     collision_mask: i32,
-    shape_type: i32,
+    shape_type: ModelRigidBodyShapeType,
     size: F128,
     origin: F128,
     orientation: F128,
@@ -1146,32 +1179,60 @@ pub struct ModelRigidBody {
     angular_damping: f32,
     restitution: f32,
     friction: f32,
-    transform_type: i32,
+    transform_type: ModelRigidBodyTransformType,
     is_bone_relative: bool,
 }
 
 impl ModelRigidBody {
     fn parse_pmx(parent_model: &Model, buffer: &mut Buffer) -> Result<ModelRigidBody, Status> {
+        // TODO: not process Unknown for shpe_type and transform_type
         let mut rigid_body = ModelRigidBody {
-            base: ModelObject { index: -1, user_data: None },
+            base: ModelObject {
+                index: -1,
+                user_data: None,
+            },
             name_ja: parent_model.get_string_pmx(buffer)?,
             name_en: parent_model.get_string_pmx(buffer)?,
             bone_index: buffer.read_integer_nullable(parent_model.info.bone_index_size as usize)?,
             collision_group_id: buffer.read_byte()? as i32,
             collision_mask: buffer.read_i16_little_endian()? as i32,
-            shape_type: todo!(),
-            size: todo!(),
-            origin: todo!(),
-            orientation: todo!(),
-            mass: todo!(),
-            linear_damping: todo!(),
-            angular_damping: todo!(),
-            restitution: todo!(),
-            friction: todo!(),
-            transform_type: todo!(),
-            is_bone_relative: todo!(),
+            shape_type: buffer.read_byte()?.into(),
+            size: buffer.read_f32_3_little_endian()?,
+            origin: buffer.read_f32_3_little_endian()?,
+            orientation: buffer.read_f32_3_little_endian()?,
+            mass: buffer.read_f32_little_endian()?,
+            linear_damping: buffer.read_f32_little_endian()?,
+            angular_damping: buffer.read_f32_little_endian()?,
+            restitution: buffer.read_f32_little_endian()?,
+            friction: buffer.read_f32_little_endian()?,
+            transform_type: buffer.read_byte()?.into(),
+            is_bone_relative: false,
         };
         Ok(rigid_body)
+    }
+}
+
+pub enum ModelJointType {
+    Unknown = -1,
+    Generic6dofSpringConstraint,
+    Generic6dofConstraint,
+    Point2pointConstraint,
+    ConeTwistConstraint,
+    SliderConstraint,
+    HingeConstraint,
+}
+
+impl From<u8> for ModelJointType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => ModelJointType::Generic6dofSpringConstraint,
+            1 => ModelJointType::Generic6dofConstraint,
+            2 => ModelJointType::Point2pointConstraint,
+            3 => ModelJointType::ConeTwistConstraint,
+            4 => ModelJointType::SliderConstraint,
+            5 => ModelJointType::HingeConstraint,
+            _ => ModelJointType::Unknown,
+        }
     }
 }
 
@@ -1181,7 +1242,7 @@ pub struct ModelJoint {
     name_en: String,
     rigid_body_a_index: i32,
     rigid_body_b_index: i32,
-    typ: i32,
+    typ: ModelJointType,
     origin: F128,
     orientation: F128,
     linear_lower_limit: F128,
@@ -1190,6 +1251,70 @@ pub struct ModelJoint {
     angular_upper_limit: F128,
     linear_stiffness: F128,
     angular_stiffness: F128,
+}
+
+impl ModelJoint {
+    fn parse_pmx(parent_model: &Model, buffer: &mut Buffer) -> Result<ModelJoint, Status> {
+        let rigid_body_index_size = parent_model.info.rigid_body_index_size as usize;
+        let mut joint = ModelJoint {
+            base: ModelObject {
+                index: -1,
+                user_data: None,
+            },
+            name_ja: parent_model.get_string_pmx(buffer)?,
+            name_en: parent_model.get_string_pmx(buffer)?,
+            typ: buffer.read_byte()?.into(),
+            rigid_body_a_index: buffer.read_integer_nullable(rigid_body_index_size)?,
+            rigid_body_b_index: buffer.read_integer_nullable(rigid_body_index_size)?,
+            origin: buffer.read_f32_3_little_endian()?,
+            orientation: buffer.read_f32_3_little_endian()?,
+            linear_lower_limit: buffer.read_f32_3_little_endian()?,
+            linear_upper_limit: buffer.read_f32_3_little_endian()?,
+            angular_lower_limit: buffer.read_f32_3_little_endian()?,
+            angular_upper_limit: buffer.read_f32_3_little_endian()?,
+            linear_stiffness: buffer.read_f32_3_little_endian()?,
+            angular_stiffness: buffer.read_f32_3_little_endian()?,
+        };
+        Ok(joint)
+    }
+}
+
+pub enum ModelSoftBodyShapeType {
+    Unknown = -1,
+    TriMesh,
+    Rope,
+}
+
+impl From<u8> for ModelSoftBodyShapeType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => ModelSoftBodyShapeType::TriMesh,
+            1 => ModelSoftBodyShapeType::Rope,
+            _ => ModelSoftBodyShapeType::Unknown,
+        }
+    }
+}
+
+pub enum ModelSoftBodyAeroModelType {
+    Unknown = -1,
+    VertexPoint,
+    VertexTwoSided,
+    VertexOneSided,
+    FaceTwoSided,
+    FaceOneSided,
+}
+
+impl From<i32> for ModelSoftBodyAeroModelType {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => ModelSoftBodyAeroModelType::VertexPoint,
+            1 => ModelSoftBodyAeroModelType::VertexTwoSided,
+            2 => ModelSoftBodyAeroModelType::VertexOneSided,
+            3 => ModelSoftBodyAeroModelType::FaceTwoSided,
+            4 => ModelSoftBodyAeroModelType::FaceOneSided,
+            _ => ModelSoftBodyAeroModelType::Unknown,
+        }
+    }
 }
 
 struct ModelSoftBodyAnchor {
@@ -1203,7 +1328,7 @@ pub struct ModelSoftBody {
     base: ModelObject,
     name_ja: String,
     name_en: String,
-    shape_type: i32,
+    shape_type: ModelSoftBodyShapeType,
     material_index: i32,
     collision_group_id: u8,
     collision_mask: u16,
@@ -1212,7 +1337,7 @@ pub struct ModelSoftBody {
     cluster_count: i32,
     total_mass: f32,
     collision_margin: f32,
-    aero_model: i32,
+    aero_model: ModelSoftBodyAeroModelType,
     velocity_correction_factor: f32,
     damping_coefficient: f32,
     drag_coefficient: f32,
@@ -1240,6 +1365,76 @@ pub struct ModelSoftBody {
     volume_stiffness_coefficient: f32,
     anchors: Vec<ModelSoftBodyAnchor>,
     pinned_vertex_indices: Vec<u32>,
+}
+
+impl ModelSoftBody {
+    fn parse_pmx(parent_model: &Model, buffer: &mut Buffer) -> Result<ModelSoftBody, Status> {
+        let material_index_size = parent_model.info.material_index_size as usize;
+        let rigid_body_index_size = parent_model.info.rigid_body_index_size as usize;
+        let vertex_index_size = parent_model.info.vertex_index_size as usize;
+        let mut soft_body = ModelSoftBody {
+            base: ModelObject {
+                index: -1,
+                user_data: None,
+            },
+            name_ja: parent_model.get_string_pmx(buffer)?,
+            name_en: parent_model.get_string_pmx(buffer)?,
+            shape_type: buffer.read_byte()?.into(),
+            material_index: buffer.read_integer_nullable(material_index_size)?,
+            collision_group_id: buffer.read_byte()?,
+            collision_mask: buffer.read_u16_little_endian()?,
+            flags: buffer.read_byte()?.into(),
+            bending_constraints_distance: buffer.read_i32_little_endian()?,
+            cluster_count: buffer.read_i32_little_endian()?,
+            total_mass: buffer.read_f32_little_endian()?,
+            collision_margin: buffer.read_f32_little_endian()?,
+            aero_model: buffer.read_i32_little_endian()?.into(),
+            velocity_correction_factor: buffer.read_f32_little_endian()?,
+            damping_coefficient: buffer.read_f32_little_endian()?,
+            drag_coefficient: buffer.read_f32_little_endian()?,
+            lift_coefficient: buffer.read_f32_little_endian()?,
+            pressure_coefficient: buffer.read_f32_little_endian()?,
+            volume_convenrsation_coefficient: buffer.read_f32_little_endian()?,
+            dynamic_friction_coefficient: buffer.read_f32_little_endian()?,
+            pose_matching_coefficient: buffer.read_f32_little_endian()?,
+            rigid_contact_hardness: buffer.read_f32_little_endian()?,
+            kinetic_contact_hardness: buffer.read_f32_little_endian()?,
+            soft_contact_hardness: buffer.read_f32_little_endian()?,
+            anchor_hardness: buffer.read_f32_little_endian()?,
+            soft_vs_rigid_hardness: buffer.read_f32_little_endian()?,
+            soft_vs_kinetic_hardness: buffer.read_f32_little_endian()?,
+            soft_vs_soft_hardness: buffer.read_f32_little_endian()?,
+            soft_vs_rigid_impulse_split: buffer.read_f32_little_endian()?,
+            soft_vs_kinetic_impulse_split: buffer.read_f32_little_endian()?,
+            soft_vs_soft_impulse_split: buffer.read_f32_little_endian()?,
+            velocity_solver_iterations: buffer.read_i32_little_endian()?,
+            positions_solver_iterations: buffer.read_i32_little_endian()?,
+            drift_solver_iterations: buffer.read_i32_little_endian()?,
+            cluster_solver_iterations: buffer.read_i32_little_endian()?,
+            linear_stiffness_coefficient: buffer.read_f32_little_endian()?,
+            angular_stiffness_coefficient: buffer.read_f32_little_endian()?,
+            volume_stiffness_coefficient: buffer.read_f32_little_endian()?,
+            anchors: vec![],
+            pinned_vertex_indices: vec![],
+        };
+        let num_anchors = buffer.read_len()?;
+        for _ in 0..num_anchors {
+            soft_body.anchors.push(ModelSoftBodyAnchor {
+                base: ModelObject {
+                    index: -1,
+                    user_data: None,
+                },
+                rigid_body_index: buffer.read_integer_nullable(rigid_body_index_size)?,
+                vertex_index: buffer.read_integer_nullable(vertex_index_size)?,
+                is_near_enabled: buffer.read_byte()? != 0,
+            })
+        }
+        let num_pin_vertex_indices = buffer.read_len()?;
+        for _ in 0..num_pin_vertex_indices {
+            soft_body.pinned_vertex_indices.push(buffer.read_integer(vertex_index_size)? as u32);
+        }
+        Ok(soft_body)
+    }
 }
 
 pub struct ModelTexture {
