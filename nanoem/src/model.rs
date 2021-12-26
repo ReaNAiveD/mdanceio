@@ -28,11 +28,11 @@ pub struct Model {
     vertices: Vec<ModelVertex>,
     vertex_indices: Vec<u32>,
     materials: Vec<ModelMaterial>,
-    bones: Vec<ModelBone>,
+    bones: Vec<Rc<RefCell<ModelBone>>>,
     ordered_bones: Vec<ModelBone>,
     constraints: Vec<ModelConstraint>,
     textures: Vec<ModelTexture>,
-    morphs: Vec<ModelMorph>,
+    morphs: Vec<Rc<RefCell<ModelMorph>>>,
     labels: Vec<ModelLabel>,
     rigid_bodies: Vec<ModelRigidBody>,
     joints: Vec<ModelJoint>,
@@ -116,6 +116,22 @@ impl Model {
 
     fn parse_bone_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
         Ok(())
+    }
+
+    fn get_one_bone_object(&self, index: i32) -> Option<Rc<RefCell<ModelBone>>> {
+        if index < 0 {
+            None
+        } else {
+            self.bones.get(index as usize).map(|rc| rc.clone())
+        }
+    }
+
+    fn get_one_morph_object(&self, index: i32) -> Option<Rc<RefCell<ModelMorph>>> {
+        if index < 0 {
+            None
+        } else {
+            self.morphs.get(index as usize).map(|rc| rc.clone())
+        }
     }
 }
 
@@ -629,7 +645,10 @@ impl ModelConstraint {
         let num_joints = buffer.read_len()?;
         for i in 0..num_joints {
             let mut joint = ModelConstraintJoint {
-                base: ModelObject { index: -1, user_data: None },
+                base: ModelObject {
+                    index: -1,
+                    user_data: None,
+                },
                 bone_index: buffer.read_integer_nullable(bone_index_size)?,
                 has_angle_limit: buffer.read_byte()? != (0 as u8),
                 lower_limit: F128::default(),
@@ -652,16 +671,83 @@ pub struct ModelMorphBone {
     orientation: F128,
 }
 
+impl ModelMorphBone {
+    fn parse_pmx(
+        bone_index_size: usize,
+        buffer: &mut Buffer,
+    ) -> Result<Vec<ModelMorphBone>, Status> {
+        let num_objects = buffer.read_len()?;
+        let mut vec = vec![];
+        for _ in 0..num_objects {
+            let item = ModelMorphBone {
+                base: ModelObject {
+                    index: -1,
+                    user_data: None,
+                },
+                bone_index: buffer.read_integer_nullable(bone_index_size)?,
+                translation: buffer.read_f32_3_little_endian()?,
+                orientation: buffer.read_f32_3_little_endian()?,
+            };
+            vec.push(item);
+        }
+        Ok(vec)
+    }
+}
+
 pub struct ModelMorphGroup {
     base: ModelObject,
     morph_index: i32,
     weight: f32,
 }
 
+impl ModelMorphGroup {
+    fn parse_pmx(
+        morph_index_size: usize,
+        buffer: &mut Buffer,
+    ) -> Result<Vec<ModelMorphGroup>, Status> {
+        let num_objects = buffer.read_len()?;
+        let mut vec = vec![];
+        for _ in 0..num_objects {
+            let item = ModelMorphGroup {
+                base: ModelObject {
+                    index: -1,
+                    user_data: None,
+                },
+                morph_index: buffer.read_integer_nullable(morph_index_size)?,
+                weight: buffer.read_f32_little_endian()?,
+            };
+            vec.push(item);
+        }
+        Ok(vec)
+    }
+}
+
 pub struct ModelMorphFlip {
     base: ModelObject,
     morph_index: i32,
     weight: f32,
+}
+
+impl ModelMorphFlip {
+    fn parse_pmx(
+        morph_index_size: usize,
+        buffer: &mut Buffer,
+    ) -> Result<Vec<ModelMorphFlip>, Status> {
+        let num_objects = buffer.read_len()?;
+        let mut vec = vec![];
+        for i in 0..num_objects {
+            let item = ModelMorphFlip {
+                base: ModelObject {
+                    index: -1,
+                    user_data: None,
+                },
+                morph_index: buffer.read_integer_nullable(morph_index_size)?,
+                weight: buffer.read_f32_little_endian()?,
+            };
+            vec.push(item);
+        }
+        Ok(vec)
+    }
 }
 
 pub struct ModelMorphImpulse {
@@ -672,10 +758,50 @@ pub struct ModelMorphImpulse {
     torque: F128,
 }
 
+impl ModelMorphImpulse {
+    fn parse_pmx(
+        rigid_body_index_size: usize,
+        buffer: &mut Buffer,
+    ) -> Result<Vec<ModelMorphImpulse>, Status> {
+        let num_objects = buffer.read_len()?;
+        let mut vec = vec![];
+        for _ in 0..num_objects {
+            let item = ModelMorphImpulse {
+                base: ModelObject {
+                    index: -1,
+                    user_data: None,
+                },
+                rigid_body_index: buffer.read_integer_nullable(rigid_body_index_size)?,
+                is_local: buffer.read_byte()? != 0,
+                velocity: buffer.read_f32_3_little_endian()?,
+                torque: buffer.read_f32_3_little_endian()?,
+            };
+            vec.push(item);
+        }
+        Ok(vec)
+    }
+}
+
+pub enum ModelMorphMaterialOperationType {
+    Unknown = -1,
+    Multiply,
+    Add,
+}
+
+impl From<u8> for ModelMorphMaterialOperationType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => ModelMorphMaterialOperationType::Multiply,
+            1 => ModelMorphMaterialOperationType::Add,
+            _ => ModelMorphMaterialOperationType::Unknown,
+        }
+    }
+}
+
 pub struct ModelMorphMaterial {
     base: ModelObject,
     material_index: i32,
-    operation: i32,
+    operation: ModelMorphMaterialOperationType,
     diffuse_color: F128,
     diffuse_opacity: f32,
     specular_color: F128,
@@ -689,10 +815,65 @@ pub struct ModelMorphMaterial {
     toon_texture_blend: F128,
 }
 
+impl ModelMorphMaterial {
+    fn parse_pmx(
+        material_index_size: usize,
+        buffer: &mut Buffer,
+    ) -> Result<Vec<ModelMorphMaterial>, Status> {
+        let num_objects = buffer.read_len()?;
+        let mut vec = vec![];
+        for _ in 0..num_objects {
+            let item = ModelMorphMaterial {
+                base: ModelObject {
+                    index: -1,
+                    user_data: None,
+                },
+                material_index: buffer.read_integer_nullable(material_index_size)?,
+                operation: buffer.read_byte()?.into(),
+                diffuse_color: buffer.read_f32_3_little_endian()?,
+                diffuse_opacity: buffer.read_f32_little_endian()?,
+                specular_color: buffer.read_f32_3_little_endian()?,
+                specular_power: buffer.read_f32_little_endian()?,
+                ambient_color: buffer.read_f32_3_little_endian()?,
+                edge_color: buffer.read_f32_3_little_endian()?,
+                edge_opacity: buffer.read_f32_little_endian()?,
+                edge_size: buffer.read_f32_little_endian()?,
+                diffuse_texture_blend: buffer.read_f32_4_little_endian()?,
+                sphere_map_texture_blend: buffer.read_f32_4_little_endian()?,
+                toon_texture_blend: buffer.read_f32_4_little_endian()?,
+            };
+            vec.push(item);
+        }
+        Ok(vec)
+    }
+}
+
 pub struct ModelMorphUv {
     base: ModelObject,
     vertex_index: i32,
     position: F128,
+}
+
+impl ModelMorphUv {
+    fn parse_pmx(
+        vertex_index_size: usize,
+        buffer: &mut Buffer,
+    ) -> Result<Vec<ModelMorphUv>, Status> {
+        let num_objects = buffer.read_len()?;
+        let mut vec = vec![];
+        for _ in 0..num_objects {
+            let item = ModelMorphUv {
+                base: ModelObject {
+                    index: -1,
+                    user_data: None,
+                },
+                vertex_index: buffer.read_integer(vertex_index_size)?,
+                position: buffer.read_f32_4_little_endian()?,
+            };
+            vec.push(item);
+        }
+        Ok(vec)
+    }
 }
 
 pub struct ModelMorphVertex {
@@ -700,6 +881,29 @@ pub struct ModelMorphVertex {
     vertex_index: i32,
     relative_index: i32,
     position: F128,
+}
+
+impl ModelMorphVertex {
+    fn parse_pmx(
+        vertex_index_size: usize,
+        buffer: &mut Buffer,
+    ) -> Result<Vec<ModelMorphVertex>, Status> {
+        let num_objects = buffer.read_len()?;
+        let mut vec = vec![];
+        for _ in 0..num_objects {
+            let item = ModelMorphVertex {
+                base: ModelObject {
+                    index: -1,
+                    user_data: None,
+                },
+                vertex_index: buffer.read_integer(vertex_index_size)?,
+                relative_index: -1,
+                position: buffer.read_f32_3_little_endian()?,
+            };
+            vec.push(item);
+        }
+        Ok(vec)
+    }
 }
 
 pub enum ModelMorphU {
@@ -712,23 +916,162 @@ pub enum ModelMorphU {
     IMPULSES(Vec<ModelMorphImpulse>),
 }
 
+pub enum ModelMorphCategory {
+    Unknown = -1,
+    Base,
+    Eyebrow,
+    Eye,
+    Lip,
+    Other,
+}
+
+impl From<u8> for ModelMorphCategory {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => ModelMorphCategory::Base,
+            1 => ModelMorphCategory::Eyebrow,
+            2 => ModelMorphCategory::Eye,
+            3 => ModelMorphCategory::Lip,
+            4 => ModelMorphCategory::Other,
+            _ => ModelMorphCategory::Unknown,
+        }
+    }
+}
+
+pub enum ModelMorphType {
+    Unknown = -1,
+    Group,
+    Vertex,
+    Bone,
+    Texture,
+    Uva1,
+    Uva2,
+    Uva3,
+    Uva4,
+    Material,
+    Flip,
+    Impulse,
+}
+
+impl From<u8> for ModelMorphType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => ModelMorphType::Group,
+            1 => ModelMorphType::Vertex,
+            2 => ModelMorphType::Bone,
+            3 => ModelMorphType::Texture,
+            4 => ModelMorphType::Uva1,
+            5 => ModelMorphType::Uva2,
+            6 => ModelMorphType::Uva3,
+            7 => ModelMorphType::Uva4,
+            8 => ModelMorphType::Material,
+            9 => ModelMorphType::Flip,
+            10 => ModelMorphType::Impulse,
+            _ => ModelMorphType::Unknown,
+        }
+    }
+}
+
 pub struct ModelMorph {
     base: ModelObject,
     name_ja: String,
     name_en: String,
-    typ: i32,
-    category: i32,
+    typ: ModelMorphType,
+    category: ModelMorphCategory,
     u: ModelMorphU,
 }
 
+impl ModelMorph {
+    fn parse_pmx(parent_model: &Model, buffer: &mut Buffer) -> Result<ModelMorph, Status> {
+        let mut morph = ModelMorph {
+            base: ModelObject {
+                index: -1,
+                user_data: None,
+            },
+            name_ja: parent_model.get_string_pmx(buffer)?,
+            name_en: parent_model.get_string_pmx(buffer)?,
+            category: ModelMorphCategory::from(buffer.read_byte()?),
+            typ: ModelMorphType::from(buffer.read_byte()?),
+            u: ModelMorphU::BONES(vec![]),
+        };
+        match morph.typ {
+            ModelMorphType::Bone => {
+                morph.u = ModelMorphU::BONES(ModelMorphBone::parse_pmx(
+                    parent_model.info.bone_index_size as usize,
+                    buffer,
+                )?)
+            }
+            ModelMorphType::Flip => {
+                morph.u = ModelMorphU::FLIPS(ModelMorphFlip::parse_pmx(
+                    parent_model.info.morph_index_size as usize,
+                    buffer,
+                )?)
+            }
+            ModelMorphType::Group => {
+                morph.u = ModelMorphU::GROUPS(ModelMorphGroup::parse_pmx(
+                    parent_model.info.morph_index_size as usize,
+                    buffer,
+                )?)
+            }
+            ModelMorphType::Impulse => {
+                morph.u = ModelMorphU::IMPULSES(ModelMorphImpulse::parse_pmx(
+                    parent_model.info.rigid_body_index_size as usize,
+                    buffer,
+                )?)
+            }
+            ModelMorphType::Material => {
+                morph.u = ModelMorphU::MATERIALS(ModelMorphMaterial::parse_pmx(
+                    parent_model.info.material_index_size as usize,
+                    buffer,
+                )?)
+            }
+            ModelMorphType::Texture
+            | ModelMorphType::Uva1
+            | ModelMorphType::Uva2
+            | ModelMorphType::Uva3
+            | ModelMorphType::Uva4 => {
+                morph.u = ModelMorphU::UVS(ModelMorphUv::parse_pmx(
+                    parent_model.info.vertex_index_size as usize,
+                    buffer,
+                )?)
+            }
+            ModelMorphType::Vertex => {
+                morph.u = ModelMorphU::VERTICES(ModelMorphVertex::parse_pmx(
+                    parent_model.info.vertex_index_size as usize,
+                    buffer,
+                )?)
+            }
+            ModelMorphType::Unknown => return Err(Status::ErrorModelMorphCorrupted),
+        }
+        Ok(morph)
+    }
+}
+
+enum ModelLabelItemType {
+    Unknown = -1,
+    Bone,
+    Morph,
+}
+
+impl From<u8> for ModelLabelItemType {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => ModelLabelItemType::Bone,
+            1 => ModelLabelItemType::Morph,
+            _ => ModelLabelItemType::Unknown,
+        }
+    }
+}
+
+/// TODO: need option really?
 enum ModelLabelItemU {
-    BONE(Weak<RefCell<ModelBone>>),
-    MORPH(Weak<RefCell<ModelMorph>>),
+    BONE(Option<Weak<RefCell<ModelBone>>>),
+    MORPH(Option<Weak<RefCell<ModelMorph>>>),
 }
 
 struct ModelLabelItem {
     base: ModelObject,
-    typ: i32,
+    typ: ModelLabelItemType,
     u: ModelLabelItemU,
 }
 
@@ -738,6 +1081,55 @@ pub struct ModelLabel {
     name_en: String,
     is_special: bool,
     items: Vec<ModelLabelItem>,
+}
+
+impl ModelLabel {
+    fn parse_pmx(parent_model: &Model, buffer: &mut Buffer) -> Result<ModelLabel, Status> {
+        let bone_index_size = parent_model.info.bone_index_size as usize;
+        let morph_index_size = parent_model.info.morph_index_size as usize;
+        let mut label = ModelLabel {
+            base: ModelObject {
+                index: -1,
+                user_data: None,
+            },
+            name_ja: parent_model.get_string_pmx(buffer)?,
+            name_en: parent_model.get_string_pmx(buffer)?,
+            is_special: buffer.read_byte()? != 0,
+            items: vec![],
+        };
+        let num_items = buffer.read_len()?;
+        for _ in 0..num_items {
+            let item_type = ModelLabelItemType::from(buffer.read_byte()?);
+            match item_type {
+                ModelLabelItemType::Bone => label.items.push(ModelLabelItem {
+                    base: ModelObject {
+                        index: -1,
+                        user_data: None,
+                    },
+                    typ: ModelLabelItemType::Bone,
+                    u: ModelLabelItemU::BONE(
+                        parent_model
+                            .get_one_bone_object(buffer.read_integer_nullable(bone_index_size)?)
+                            .map(|rc| Rc::downgrade(&rc)),
+                    ),
+                }),
+                ModelLabelItemType::Morph => label.items.push(ModelLabelItem {
+                    base: ModelObject {
+                        index: -1,
+                        user_data: None,
+                    },
+                    typ: ModelLabelItemType::Morph,
+                    u: ModelLabelItemU::MORPH(
+                        parent_model
+                            .get_one_morph_object(buffer.read_integer_nullable(morph_index_size)?)
+                            .map(|rc| Rc::downgrade(&rc)),
+                    ),
+                }),
+                ModelLabelItemType::Unknown => return Err(Status::ErrorModelLabelCorrupted),
+            }
+        }
+        Ok(label)
+    }
 }
 
 pub struct ModelRigidBody {
@@ -758,6 +1150,31 @@ pub struct ModelRigidBody {
     friction: f32,
     transform_type: i32,
     is_bone_relative: bool,
+}
+
+impl ModelRigidBody {
+    fn parse_pmx(parent_model: &Model, buffer: &mut Buffer) -> Result<ModelRigidBody, Status> {
+        let mut rigid_body = ModelRigidBody {
+            base: ModelObject { index: -1, user_data: None },
+            name_ja: parent_model.get_string_pmx(buffer)?,
+            name_en: parent_model.get_string_pmx(buffer)?,
+            bone_index: buffer.read_integer_nullable(parent_model.info.bone_index_size as usize)?,
+            collision_group_id: buffer.read_byte()? as i32,
+            collision_mask: buffer.read_i16_little_endian()? as i32,
+            shape_type: todo!(),
+            size: todo!(),
+            origin: todo!(),
+            orientation: todo!(),
+            mass: todo!(),
+            linear_damping: todo!(),
+            angular_damping: todo!(),
+            restitution: todo!(),
+            friction: todo!(),
+            transform_type: todo!(),
+            is_bone_relative: todo!(),
+        };
+        Ok(rigid_body)
+    }
 }
 
 pub struct ModelJoint {
