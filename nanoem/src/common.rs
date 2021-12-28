@@ -10,6 +10,7 @@ pub enum Status {
     ErrorBufferEnd,                                    //< Buffer is end
     ErrorDecodeUnicodeStringFailed,                    //< Failed to decode unicode string
     ErrorEncodeUnicodeStringFailed,                    //< Failed to encode unicode string
+    ErrorDecodeJisStringFailed,                        //< Costum, Failed to decode jis string
     ErrorBufferNotEnd,              //< Costum, Finish Loading but Buffer is not End
     ErrorInvalidSignature = 100,    //< Invalid signature
     ErrorModelVertexCorrupted,      //< Vertex data is corrupted
@@ -219,6 +220,10 @@ impl Buffer {
         self.data.len()
     }
 
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
+
     fn can_read_len_internal(&self, len: usize) -> bool {
         self.len() >= self.offset && self.len() - self.offset >= len
     }
@@ -323,6 +328,35 @@ impl Buffer {
             Err(Status::ErrorBufferEnd)
         }
     }
+
+    pub fn try_get_string_with_byte_len(&self, len: usize) -> (&[u8], usize) {
+        let remaining_len = self.len() - self.offset;
+        let read_len = usize::min(len, remaining_len);
+        let str_raw = &self.data[self.offset..self.offset + read_len];
+        (str_raw, read_len)
+        // let (cow, _, had_errors)  = encoding_rs::UTF_8.decode(str_raw);
+        // if had_errors {
+        //     return Err(Status::ErrorDecodeUnicodeStringFailed);
+        // }
+        // Ok(cow.into())
+    }
+
+    pub fn read_string_from_cp932(&mut self, max_capacity: usize) -> Result<String, Status> {
+        if self.can_read_len(max_capacity) {
+            let mut src = self.read_buffer(max_capacity)?;
+            if let Some(pos) = src.iter().position(|c| *c == 0u8) {
+                src = src.split_at(pos).0;
+            }
+            let (cow, _, had_errors) = encoding_rs::SHIFT_JIS.decode(src);
+            if had_errors {
+                Err(Status::ErrorDecodeJisStringFailed)
+            } else {
+                Ok(cow.into())
+            }
+        } else {
+            Err(Status::ErrorBufferEnd)
+        }
+    }
 }
 
 #[test]
@@ -341,4 +375,20 @@ fn test_buffer_read_primitive() {
     assert_eq!(Ok(1), buffer.read_byte());
     assert_eq!(Ok((3 << 8) | 2), buffer.read_u16_little_endian());
     println!("{}", buffer.read_i32_little_endian().expect("Expect Error"));
+}
+
+#[test]
+fn test_u8_to_string_too_short() {
+    let mut v = vec!['a' as u8, 0u8, 0u8, 'b' as u8];
+    let (cow, encoding_used, had_errors) = encoding_rs::UTF_8.decode(&v[0..4]);
+    assert_eq!(false, had_errors);
+    println!("{}", &cow);
+}
+
+#[test]
+fn test_u8_to_string_len0() {
+    let mut v = vec![];
+    let (cow, encoding_used, had_errors) = encoding_rs::UTF_8.decode(&v[0..0]);
+    assert_eq!(false, had_errors);
+    println!("{}", &cow);
 }
