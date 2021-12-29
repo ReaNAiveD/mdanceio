@@ -93,6 +93,11 @@ impl Motion {
             .resolve_id(name, &mut self.local_bone_motion_track_allocated_id)
     }
 
+    fn resolve_local_morph_track_id(&mut self, name: String) -> (i32, Option<String>) {
+        self.local_morph_motion_track_bundle
+            .resolve_id(name, &mut self.local_morph_motion_track_allocated_id)
+    }
+
     fn parse_bone_keyframe_block_vmd(
         &mut self,
         buffer: &mut Buffer,
@@ -124,8 +129,14 @@ enum MotionEffectParameterValue {
     VECTOR4(F128),
 }
 
+impl Default for MotionEffectParameterValue {
+    fn default() -> Self {
+        MotionEffectParameterValue::BOOL(false)
+    }
+}
+
 enum MotionParentKeyframe {
-    ACCESSARY(Weak<RefCell<MotionAccessoryKeyframe>>),
+    ACCESSORY(Weak<RefCell<MotionAccessoryKeyframe>>),
     CAMERA(Weak<RefCell<MotionCameraKeyframe>>),
     MODEL(Weak<RefCell<MotionModelKeyframe>>),
 }
@@ -136,11 +147,66 @@ struct MotionEffectParameter {
     value: MotionEffectParameterValue,
 }
 
+impl MotionEffectParameter {
+    fn create_from_accessory_keyframe(
+        keyframe: Rc<RefCell<MotionAccessoryKeyframe>>,
+    ) -> Result<MotionEffectParameter, Status> {
+        Ok(MotionEffectParameter {
+            parameter_id: 0,
+            keyframe: MotionParentKeyframe::ACCESSORY(Rc::downgrade(&keyframe)),
+            value: MotionEffectParameterValue::default(),
+        })
+    }
+
+    fn create_from_model_keyframe(
+        keyframe: Rc<RefCell<MotionModelKeyframe>>,
+    ) -> Result<MotionEffectParameter, Status> {
+        Ok(MotionEffectParameter {
+            parameter_id: 0,
+            keyframe: MotionParentKeyframe::MODEL(Rc::downgrade(&keyframe)),
+            value: MotionEffectParameterValue::default(),
+        })
+    }
+}
+
 struct MotionOutsideParent {
     keyframe: MotionParentKeyframe,
     global_model_track_index: i32,
     global_bone_track_index: i32,
     local_bone_track_index: i32,
+}
+
+impl MotionOutsideParent {
+    fn create_from_accessory_keyframe(
+        keyframe: Rc<RefCell<MotionAccessoryKeyframe>>,
+    ) -> Result<MotionOutsideParent, Status> {
+        Ok(MotionOutsideParent {
+            keyframe: MotionParentKeyframe::ACCESSORY(Rc::downgrade(&keyframe)),
+            global_model_track_index: 0,
+            global_bone_track_index: 0,
+            local_bone_track_index: 0,
+        })
+    }
+    fn create_from_camera_keyframe(
+        keyframe: Rc<RefCell<MotionCameraKeyframe>>,
+    ) -> Result<MotionOutsideParent, Status> {
+        Ok(MotionOutsideParent {
+            keyframe: MotionParentKeyframe::CAMERA(Rc::downgrade(&keyframe)),
+            global_model_track_index: 0,
+            global_bone_track_index: 0,
+            local_bone_track_index: 0,
+        })
+    }
+    fn create_from_model_keyframe(
+        keyframe: Rc<RefCell<MotionModelKeyframe>>,
+    ) -> Result<MotionOutsideParent, Status> {
+        Ok(MotionOutsideParent {
+            keyframe: MotionParentKeyframe::MODEL(Rc::downgrade(&keyframe)),
+            global_model_track_index: 0,
+            global_bone_track_index: 0,
+            local_bone_track_index: 0,
+        })
+    }
 }
 
 struct MotionKeyframeBase {
@@ -162,7 +228,31 @@ struct MotionAccessoryKeyframe {
     visible: bool,
     effect_parameters: Vec<MotionEffectParameter>,
     accessary_id: i32,
-    outside_parent: Weak<RefCell<MotionOutsideParent>>,
+    outside_parent: Option<MotionOutsideParent>,
+}
+
+impl MotionAccessoryKeyframe {
+    fn create() -> MotionAccessoryKeyframe {
+        MotionAccessoryKeyframe {
+            base: MotionKeyframeBase {
+                index: 0,
+                frame_index: 0,
+                is_selected: false,
+                user_data: None,
+                annotations: HashMap::new(),
+            },
+            translation: F128::default(),
+            orientation: F128::default(),
+            scale_factor: f32::default(),
+            opacity: f32::default(),
+            is_add_blending_enabled: bool::default(),
+            is_shadow_enabled: true,
+            visible: true,
+            effect_parameters: vec![],
+            accessary_id: 0,
+            outside_parent: None,
+        }
+    }
 }
 
 const VMD_BONE_KEYFRAME_NAME_LENGTH: usize = 15;
@@ -298,7 +388,7 @@ struct MotionCameraKeyframe {
     interplation: MotionCameraKeyframeInterpolation,
     is_perspective_view: bool,
     stage_index: u32,
-    outside_parent: Option<Weak<RefCell<MotionOutsideParent>>>,
+    outside_parent: Option<MotionOutsideParent>,
 }
 
 impl MotionCameraKeyframe {
@@ -373,7 +463,7 @@ struct MotionModelKeyframe {
     visible: bool,
     constraint_states: Vec<MotionModelKeyframeConstraintState>,
     effect_parameters: Vec<MotionEffectParameter>,
-    outside_parents: Vec<Weak<RefCell<MotionOutsideParent>>>,
+    outside_parents: Vec<MotionOutsideParent>,
     has_edge_option: bool,
     edge_scale_factor: f32,
     edge_color: F128,
@@ -423,14 +513,86 @@ impl MotionModelKeyframe {
     }
 }
 
+const VMD_MORPH_KEYFRAME_NAME_LENGTH: usize = 15;
+
 struct MotionMorphKeyframe {
     base: MotionKeyframeBase,
     weight: f32,
     morph_id: i32,
 }
 
+impl MotionMorphKeyframe {
+    fn parse_vmd(
+        parent_motion: &mut Motion,
+        buffer: &mut Buffer,
+        cache: &mut StringCache,
+        offset: u32,
+    ) -> Result<Rc<RefCell<MotionMorphKeyframe>>, Status> {
+        let mut keyframe_morph_id = 0;
+        let (str, _) = buffer.try_get_string_with_byte_len(VMD_MORPH_KEYFRAME_NAME_LENGTH);
+        let mut name: Option<String> = None;
+        if str.len() > 0 && str[0] != 0u8 {
+            let key = u8_slice_get_string(str).unwrap_or_default();
+            if let Some(morph_id) = cache.0.get(&key) {
+                buffer.skip(VMD_MORPH_KEYFRAME_NAME_LENGTH)?;
+                name = parent_motion
+                    .local_morph_motion_track_bundle
+                    .resolve_name(*morph_id);
+                keyframe_morph_id = *morph_id;
+            } else {
+                name = Some(buffer.read_string_from_cp932(VMD_MORPH_KEYFRAME_NAME_LENGTH)?);
+                let (morph_id, found_name) =
+                    parent_motion.resolve_local_morph_track_id(name.clone().unwrap_or_default());
+                keyframe_morph_id = morph_id;
+                if let Some(found_name) = found_name {
+                    name = Some(found_name);
+                }
+                cache.0.insert(key, keyframe_morph_id);
+            }
+        } else {
+            buffer.skip(VMD_MORPH_KEYFRAME_NAME_LENGTH)?;
+        }
+        let frame_index = buffer.read_u32_little_endian()? + offset;
+        let motion_morph_keyframe = MotionMorphKeyframe {
+            base: MotionKeyframeBase {
+                index: 0,
+                frame_index,
+                is_selected: false,
+                user_data: None,
+                annotations: HashMap::new(),
+            },
+            weight: buffer.read_f32_little_endian()?,
+            morph_id: keyframe_morph_id,
+        };
+        let rc = Rc::new(RefCell::new(motion_morph_keyframe));
+        parent_motion.local_morph_motion_track_bundle.add_keyframe(
+            MotionKeyframeObject::Morph(rc.clone()),
+            frame_index,
+            name.unwrap_or_default(),
+        );
+        Ok(rc)
+    }
+}
+
 struct MotionSelfShadowKeyframe {
     base: MotionKeyframeBase,
     distance: f32,
     mode: i32,
+}
+
+impl MotionSelfShadowKeyframe {
+    fn parse_vmd(buffer: &mut Buffer, offset: u32) -> Result<MotionSelfShadowKeyframe, Status> {
+        let self_shadow_keyframe = MotionSelfShadowKeyframe {
+            base: MotionKeyframeBase {
+                index: 0,
+                frame_index: buffer.read_u32_little_endian()? + offset,
+                is_selected: false,
+                user_data: None,
+                annotations: HashMap::new(),
+            },
+            mode: buffer.read_byte()? as i32,
+            distance: buffer.read_f32_little_endian()?,
+        };
+        Ok(self_shadow_keyframe)
+    }
 }
