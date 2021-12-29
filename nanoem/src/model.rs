@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     common::{Buffer, LanguageType, Status, UserData, F128},
-    utils::fourcc,
+    utils::{fourcc, CodecType},
 };
 
 struct Info {
@@ -33,24 +33,6 @@ impl From<i32> for ModelFormatType {
             20 => ModelFormatType::Pmx2_0,
             21 => ModelFormatType::Pmx2_1,
             _ => ModelFormatType::Unknown,
-        }
-    }
-}
-
-pub enum CodecType {
-    Unknown = -1,
-    Sjis,
-    Utf8,
-    Utf16,
-}
-
-impl From<i32> for CodecType {
-    fn from(value: i32) -> Self {
-        match value {
-            0 => CodecType::Sjis,
-            1 => CodecType::Utf8,
-            2 => CodecType::Utf16,
-            _ => CodecType::Unknown,
         }
     }
 }
@@ -401,6 +383,34 @@ impl Model {
             None
         } else {
             self.morphs.get(index as usize).map(|rc| rc.clone())
+        }
+    }
+
+    pub fn is_pmx(&self) -> bool {
+        (self.version * 10f32) as i32 >= 20
+    }
+
+    pub fn is_pmx21(&self) -> bool {
+        (self.version * 10f32) as i32 >= 21
+    }
+
+    pub fn get_vertex_index_size(size: usize) -> usize {
+        if size <= 0xff {
+            return 1usize;
+        } else if size <= 0xffff {
+            return 2usize;
+        } else {
+            return 4usize;
+        }
+    }
+
+    pub fn get_object_index_size(size: usize) -> usize {
+        if size <= 0x7f {
+            return 1usize;
+        } else if size <= 0x7fff {
+            return 2usize;
+        } else {
+            return 4usize;
         }
     }
 }
@@ -876,7 +886,7 @@ impl ModelBone {
     // }
 }
 
-struct ModelConstraintJoint {
+pub struct ModelConstraintJoint {
     base: ModelObject,
     bone_index: i32,
     has_angle_limit: bool,
@@ -1334,7 +1344,7 @@ enum ModelLabelItemU {
     MORPH(Option<Weak<RefCell<ModelMorph>>>),
 }
 
-struct ModelLabelItem {
+pub struct ModelLabelItem {
     base: ModelObject,
     typ: ModelLabelItemType,
     u: ModelLabelItemU,
@@ -1587,7 +1597,7 @@ impl From<i32> for ModelSoftBodyAeroModelType {
     }
 }
 
-struct ModelSoftBodyAnchor {
+pub struct ModelSoftBodyAnchor {
     base: ModelObject,
     rigid_body_index: i32,
     vertex_index: i32,

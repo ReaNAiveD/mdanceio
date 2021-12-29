@@ -65,7 +65,7 @@ impl MotionTrackBundle {
     }
 }
 
-struct Motion {
+pub struct Motion {
     annotations: HashMap<String, String>,
     target_model_name: String,
     accessory_keyframes: Vec<MotionAccessoryKeyframe>,
@@ -141,7 +141,7 @@ enum MotionParentKeyframe {
     MODEL(Weak<RefCell<MotionModelKeyframe>>),
 }
 
-struct MotionEffectParameter {
+pub struct MotionEffectParameter {
     parameter_id: i32,
     keyframe: MotionParentKeyframe,
     value: MotionEffectParameterValue,
@@ -168,8 +168,7 @@ impl MotionEffectParameter {
         })
     }
 }
-
-struct MotionOutsideParent {
+pub struct MotionOutsideParent {
     keyframe: MotionParentKeyframe,
     global_model_track_index: i32,
     global_bone_track_index: i32,
@@ -217,7 +216,7 @@ struct MotionKeyframeBase {
     annotations: HashMap<String, String>,
 }
 
-struct MotionAccessoryKeyframe {
+pub struct MotionAccessoryKeyframe {
     base: MotionKeyframeBase,
     translation: F128,
     orientation: F128,
@@ -277,7 +276,7 @@ impl Default for MotionBoneKeyframeInterpolation {
     }
 }
 
-struct MotionBoneKeyframe {
+pub struct MotionBoneKeyframe {
     base: MotionKeyframeBase,
     translation: F128,
     orientation: F128,
@@ -379,7 +378,7 @@ impl Default for MotionCameraKeyframeInterpolation {
     }
 }
 
-struct MotionCameraKeyframe {
+pub struct MotionCameraKeyframe {
     base: MotionKeyframeBase,
     look_at: F128,
     angle: F128,
@@ -428,7 +427,7 @@ impl MotionCameraKeyframe {
     }
 }
 
-struct MotionLightKeyframe {
+pub struct MotionLightKeyframe {
     base: MotionKeyframeBase,
     color: F128,
     direction: F128,
@@ -453,12 +452,12 @@ impl MotionLightKeyframe {
 
 const PMD_BONE_NAME_LENGTH: usize = 20;
 
-struct MotionModelKeyframeConstraintState {
+pub struct MotionModelKeyframeConstraintState {
     bone_id: i32,
     enabled: bool,
 }
 
-struct MotionModelKeyframe {
+pub struct MotionModelKeyframe {
     base: MotionKeyframeBase,
     visible: bool,
     constraint_states: Vec<MotionModelKeyframeConstraintState>,
@@ -515,7 +514,7 @@ impl MotionModelKeyframe {
 
 const VMD_MORPH_KEYFRAME_NAME_LENGTH: usize = 15;
 
-struct MotionMorphKeyframe {
+pub struct MotionMorphKeyframe {
     base: MotionKeyframeBase,
     weight: f32,
     morph_id: i32,
@@ -574,7 +573,7 @@ impl MotionMorphKeyframe {
     }
 }
 
-struct MotionSelfShadowKeyframe {
+pub struct MotionSelfShadowKeyframe {
     base: MotionKeyframeBase,
     distance: f32,
     mode: i32,

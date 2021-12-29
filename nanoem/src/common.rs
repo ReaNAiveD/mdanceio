@@ -12,6 +12,7 @@ pub enum Status {
     ErrorEncodeUnicodeStringFailed,                    //< Failed to encode unicode string
     ErrorDecodeJisStringFailed,                        //< Costum, Failed to decode jis string
     ErrorBufferNotEnd,              //< Costum, Finish Loading but Buffer is not End
+    ErrorIllegalBufferWriteOffset,  //< Costum, Illegal pos to write byte to mutable buffer
     ErrorInvalidSignature = 100,    //< Invalid signature
     ErrorModelVertexCorrupted,      //< Vertex data is corrupted
     ErrorModelFaceCorrupted,        //< Face (Indices) data is corrupted
@@ -177,7 +178,7 @@ struct F128Components {
     w: f32,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 #[repr(align(16))]
 pub struct F128(pub [f32; 4]);
 
@@ -208,7 +209,7 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    pub fn new(data: Vec<u8>) -> Buffer {
+    pub fn create(data: Vec<u8>) -> Buffer {
         Buffer {
             data,
             idx: 0,
@@ -371,7 +372,7 @@ fn test_from_le_to_u16() {
 
 #[test]
 fn test_buffer_read_primitive() {
-    let mut buffer = Buffer::new(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    let mut buffer = Buffer::create(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
     assert_eq!(Ok(1), buffer.read_byte());
     assert_eq!(Ok((3 << 8) | 2), buffer.read_u16_little_endian());
     println!("{}", buffer.read_i32_little_endian().expect("Expect Error"));
