@@ -8,7 +8,9 @@ use crate::{
     utils::{fourcc, CodecType},
 };
 
-struct Info {
+pub static NANOEM_MODEL_OBJECT_NOT_FOUND: i32 = -1;
+
+pub struct Info {
     codec_type: u8,
     additional_uv_size: u8,
     vertex_index_size: u8,
@@ -411,6 +413,145 @@ impl Model {
             return 2usize;
         } else {
             return 4usize;
+        }
+    }
+}
+
+
+fn mutable_model_object_apply_change_object_index(target: &mut i32, object_index: i32, delta: i32) {
+    let dest_object_index = *target;
+    if dest_object_index != NANOEM_MODEL_OBJECT_NOT_FOUND {
+        if delta < 0 && dest_object_index == object_index {
+            *target = NANOEM_MODEL_OBJECT_NOT_FOUND
+        } else if dest_object_index >= object_index {
+            *target = dest_object_index + delta
+        }
+    }
+}
+
+impl Model {
+    fn apply_change_all_object_indices(&mut self, vertex_index: i32, delta: i32) {
+        for morph in &self.morphs {
+            let mut morph_mut = morph.borrow_mut();
+            match &mut morph_mut.u {
+                ModelMorphU::VERTICES(vertices) => {
+                    for morph_vertex in vertices {
+                        mutable_model_object_apply_change_object_index(&mut morph_vertex.vertex_index, vertex_index, delta)
+                    }
+                },
+                ModelMorphU::UVS(uvs) => {
+                    for morph_uv in uvs {
+                        mutable_model_object_apply_change_object_index(&mut morph_uv.vertex_index, vertex_index, delta)
+                    }
+                },
+                _ => {}
+            }
+        }
+        for soft_body in &mut self.soft_bodies {
+            for anchor in &mut soft_body.anchors {
+                mutable_model_object_apply_change_object_index(&mut anchor.vertex_index, vertex_index, delta)
+            }
+        }
+    }
+
+    fn material_apply_change_all_object_indices(&mut self, material_index: i32, delta: i32) {
+        for morph in &self.morphs {
+            let mut morph_mut = morph.borrow_mut();
+            match &mut morph_mut.u {
+                ModelMorphU::MATERIALS(materials) => {
+                    for morph_material in materials {
+                        mutable_model_object_apply_change_object_index(&mut morph_material.material_index, material_index, delta)
+                    }
+                },
+                _ => {}
+            }
+        }
+        for soft_body in &mut self.soft_bodies {
+            mutable_model_object_apply_change_object_index(&mut soft_body.material_index, material_index, delta)
+        }
+    }
+
+    fn bone_apply_change_all_object_indices(&mut self, bone_index: i32, delta: i32) {
+        for vertex in &mut self.vertices {
+            for vertex_bone_index in &mut vertex.bone_indices {
+                mutable_model_object_apply_change_object_index(vertex_bone_index, bone_index, delta);
+            }
+        }
+        for constraint in &mut self.constraints {
+            mutable_model_object_apply_change_object_index(&mut constraint.effector_bone_index, bone_index, delta);
+            mutable_model_object_apply_change_object_index(&mut constraint.target_bone_index, bone_index, delta);
+            for joint in &mut constraint.joints {
+                mutable_model_object_apply_change_object_index(&mut joint.bone_index, bone_index, delta);
+            }
+        }
+        for morph in &self.morphs {
+            let mut morph = morph.borrow_mut();
+            if let ModelMorphU::BONES(bones) = &mut morph.u {
+                for bone in bones {
+                    mutable_model_object_apply_change_object_index(&mut bone.bone_index, bone_index, delta);
+                }
+            }
+        }
+        for bone in &self.bones {
+            let mut bone = bone.borrow_mut();
+            mutable_model_object_apply_change_object_index(&mut bone.parent_bone_index, bone_index, delta);
+            mutable_model_object_apply_change_object_index(&mut bone.parent_inherent_bone_index, bone_index, delta);
+            mutable_model_object_apply_change_object_index(&mut bone.effector_bone_index, bone_index, delta);
+            mutable_model_object_apply_change_object_index(&mut bone.target_bone_index, bone_index, delta);
+            if let Some(constraint) = &mut bone.constraint {
+                mutable_model_object_apply_change_object_index(&mut constraint.effector_bone_index, bone_index, delta);
+                for joint in &mut constraint.joints {
+                    mutable_model_object_apply_change_object_index(&mut joint.bone_index, bone_index, delta);
+                }
+            }
+        }
+        for rigid_body in &mut self.rigid_bodies {
+            mutable_model_object_apply_change_object_index(&mut rigid_body.bone_index, bone_index, delta);
+        }
+    }
+
+    fn morph_apply_change_all_object_indices(&mut self, morph_index: i32, delta: i32) {
+        for morph in &self.morphs {
+            let mut morph = morph.borrow_mut();
+            if let ModelMorphU::GROUPS(groups) = &mut morph.u {
+                for group in groups {
+                    mutable_model_object_apply_change_object_index(&mut group.morph_index, morph_index, delta);
+                }
+            } else if let ModelMorphU::FLIPS(flips) = &mut morph.u {
+                for flip in flips {
+                    mutable_model_object_apply_change_object_index(&mut flip.morph_index, morph_index, delta);
+                }
+            }
+        }
+    }
+
+    fn rigid_body_apply_change_all_object_indices(&mut self, rigid_body_index: i32, delta: i32) {
+        for morph in &self.morphs {
+            let mut morph = morph.borrow_mut();
+            if let ModelMorphU::IMPULSES(impulses) = &mut morph.u {
+                for impulse in impulses {
+                    mutable_model_object_apply_change_object_index(&mut impulse.rigid_body_index, rigid_body_index, delta);
+                }
+            }
+        }
+        for joint in &mut self.joints {
+            mutable_model_object_apply_change_object_index(&mut joint.rigid_body_a_index, rigid_body_index, delta);
+            mutable_model_object_apply_change_object_index(&mut joint.rigid_body_b_index, rigid_body_index, delta);
+        }
+        for soft_body in &mut self.soft_bodies {
+            for anchor in &mut soft_body.anchors {
+                mutable_model_object_apply_change_object_index(&mut anchor.rigid_body_index, rigid_body_index, delta);
+            }
+        }
+    }
+
+    fn texture_apply_change_all_object_indices(&mut self, texture_index: i32, delta: i32) {
+        for material in &mut self.materials {
+            mutable_model_object_apply_change_object_index(&mut material.diffuse_texture_index, texture_index, delta);
+            mutable_model_object_apply_change_object_index(&mut material.sphere_map_texture_index, texture_index, delta);
+            if !material.is_toon_shared {
+                mutable_model_object_apply_change_object_index(&mut material.toon_texture_index, texture_index, delta);
+            }
         }
     }
 }

@@ -9,6 +9,8 @@ use crate::{
     utils::u8_slice_get_string,
 };
 
+static NANOEM_MOTION_OBJECT_NOT_FOUND: i32 = -1;
+
 #[derive(Clone, Default)]
 struct StringCache(HashMap<String, i32>);
 
@@ -96,6 +98,11 @@ impl Motion {
     fn resolve_local_morph_track_id(&mut self, name: String) -> (i32, Option<String>) {
         self.local_morph_motion_track_bundle
             .resolve_id(name, &mut self.local_morph_motion_track_allocated_id)
+    }
+
+    fn resolve_global_track_id(&mut self, name: String) -> (i32, Option<String>) {
+        self.global_motion_track_bundle
+            .resolve_id(name, &mut self.global_motion_track_allocated_id)
     }
 
     fn parse_bone_keyframe_block_vmd(
