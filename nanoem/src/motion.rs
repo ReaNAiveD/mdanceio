@@ -6,6 +6,7 @@ use std::{
 
 use crate::{
     common::{Buffer, Status, UserData, F128},
+    mutable::common::MutableBuffer,
     utils::u8_slice_get_string,
 };
 
@@ -20,7 +21,7 @@ struct MotionTrack {
     keyframes: HashMap<u32, MotionKeyframeObject>,
 }
 
-struct MotionTrackBundle {
+pub struct MotionTrackBundle {
     tracks_by_name: HashMap<String, MotionTrack>,
 }
 
@@ -65,14 +66,20 @@ impl MotionTrackBundle {
             track.keyframes.insert(frame_index, keyframe);
         }
     }
+
+    fn remove_keyframe(&mut self, frame_index: u32, name: String) {
+        if let Some(track) = self.get_mut_by_name(name) {
+            track.keyframes.remove(&frame_index);
+        }
+    }
 }
 
 pub struct Motion {
     annotations: HashMap<String, String>,
     target_model_name: String,
     accessory_keyframes: Vec<MotionAccessoryKeyframe>,
-    bone_keyframes: Vec<MotionBoneKeyframe>,
-    morph_keyframes: Vec<MotionMorphKeyframe>,
+    bone_keyframes: Vec<Rc<RefCell<MotionBoneKeyframe>>>,
+    morph_keyframes: Vec<Rc<RefCell<MotionMorphKeyframe>>>,
     camera_keyframes: Vec<MotionCameraKeyframe>,
     light_keyframes: Vec<MotionLightKeyframe>,
     model_keyframes: Vec<MotionModelKeyframe>,
@@ -105,6 +112,12 @@ impl Motion {
             .resolve_id(name, &mut self.global_motion_track_allocated_id)
     }
 
+    fn set_max_frame_index(&mut self, base: &MotionKeyframeBase) {
+        if base.frame_index > self.max_frame_index {
+            self.max_frame_index = base.frame_index;
+        }
+    }
+
     fn parse_bone_keyframe_block_vmd(
         &mut self,
         buffer: &mut Buffer,
@@ -112,10 +125,170 @@ impl Motion {
     ) -> Result<(), Status> {
         let num_bone_keyframes = buffer.read_len()?;
         if num_bone_keyframes > 0 {
-            let cache = StringCache::default();
+            let mut cache = StringCache::default();
             self.bone_keyframes.clear();
+            for i in 0..num_bone_keyframes {
+                let mut keyframe = MotionBoneKeyframe::parse_vmd(self, buffer, &mut cache, offset)?;
+                {
+                    self.set_max_frame_index(&keyframe.borrow().base);
+                }
+                keyframe.borrow_mut().base.index = i as i32;
+                self.bone_keyframes.push(keyframe);
+            }
+            self.bone_keyframes
+                .sort_by(|a, b| MotionKeyframeBase::compare(&a.borrow().base, &b.borrow().base));
         }
         Ok(())
+    }
+
+    fn parse_morph_keyframe_block_vmd(
+        &mut self,
+        buffer: &mut Buffer,
+        offset: u32,
+    ) -> Result<(), Status> {
+        let num_morph_keyframes = buffer.read_len()?;
+        if num_morph_keyframes > 0 {
+            let mut cache = StringCache::default();
+            for i in 0..num_morph_keyframes {
+                let mut keyframe =
+                    MotionMorphKeyframe::parse_vmd(self, buffer, &mut cache, offset)?;
+                {
+                    self.set_max_frame_index(&keyframe.borrow().base);
+                }
+                keyframe.borrow_mut().base.index = i as i32;
+                self.morph_keyframes.push(keyframe);
+            }
+            self.morph_keyframes
+                .sort_by(|a, b| MotionKeyframeBase::compare(&a.borrow().base, &b.borrow().base));
+        }
+        Ok(())
+    }
+
+    fn parse_camera_keyframe_block_vmd(
+        &mut self,
+        buffer: &mut Buffer,
+        offset: u32,
+    ) -> Result<(), Status> {
+        let num_camera_keyframes = buffer.read_len()?;
+        if num_camera_keyframes > 0 {
+            for i in 0..num_camera_keyframes {
+                let mut keyframe = MotionCameraKeyframe::parse_vmd(self, buffer, offset)?;
+                self.set_max_frame_index(&keyframe.base);
+                keyframe.base.index = i as i32;
+                self.camera_keyframes.push(keyframe);
+            }
+            self.camera_keyframes
+                .sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
+        }
+        Ok(())
+    }
+
+    fn parse_light_keyframe_block_vmd(
+        &mut self,
+        buffer: &mut Buffer,
+        offset: u32,
+    ) -> Result<(), Status> {
+        let num_light_keyframes = buffer.read_len()?;
+        if num_light_keyframes > 0 {
+            for i in 0..num_light_keyframes {
+                let mut keyframe = MotionLightKeyframe::parse_vmd(buffer, offset)?;
+                self.set_max_frame_index(&keyframe.base);
+                keyframe.base.index = i as i32;
+                self.light_keyframes.push(keyframe);
+            }
+            self.light_keyframes
+                .sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base))
+        }
+        Ok(())
+    }
+
+    fn parse_self_shadow_keyframe_block_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
+        let num_self_shadow_keyframes = buffer.read_len()?;
+        if num_self_shadow_keyframes > 0 {
+            for i in 0..num_self_shadow_keyframes {
+                let mut keyframe = MotionSelfShadowKeyframe::parse_vmd(buffer, offset)?;
+                self.set_max_frame_index(&keyframe.base);
+                keyframe.base.index = i as i32;
+                self.self_shadow_keyframes.push(keyframe);
+            }
+            self.self_shadow_keyframes
+                .sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base))
+        }
+        Ok(())
+    }
+
+    fn parse_model_keyframe_block_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
+        let num_model_keyframes = buffer.read_len()?;
+        if num_model_keyframes > 0 {
+            for i in 0..num_model_keyframes {
+                let mut keyframe = MotionModelKeyframe::parse_vmd(self, buffer, offset)?;
+                self.set_max_frame_index(&keyframe.base);
+                keyframe.base.index = i as i32;
+                self.model_keyframes.push(keyframe);
+            }
+            self.model_keyframes
+                .sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base))
+        }
+        Ok(())
+    }
+
+    fn parse_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
+        self.parse_bone_keyframe_block_vmd(buffer, offset)?;
+        self.parse_morph_keyframe_block_vmd(buffer, offset)?;
+        if buffer.is_end() { return Ok(()) }
+        self.parse_camera_keyframe_block_vmd(buffer, offset)?;
+        if buffer.is_end() { return Ok(()) }
+        self.parse_light_keyframe_block_vmd(buffer, offset)?;
+        if buffer.is_end() { return Ok(()) }
+        self.parse_self_shadow_keyframe_block_vmd(buffer, offset)?;
+        if buffer.is_end() { return Ok(()) }
+        self.parse_model_keyframe_block_vmd(buffer, offset)?;
+        if buffer.is_end() { return Ok(()) } else { return Err(Status::ErrorBufferNotEnd) }
+    }
+
+    fn save_to_buffer_bone_keyframe_block_vmd(&mut self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_u32_little_endian(self.bone_keyframes.len() as u32)?;
+        for keyframe in &self.bone_keyframes {
+            keyframe.borrow().save_to_buffer(&mut self.local_bone_motion_track_bundle, buffer)?;
+        }
+        Ok(())
+    }
+
+    fn save_to_buffer_morph_keyframe_block_vmd(&mut self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_u32_little_endian(self.morph_keyframes.len() as u32)?;
+        for keyframe in &self.morph_keyframes {
+            keyframe.borrow().save_to_buffer(&mut self.local_morph_motion_track_bundle, buffer)?;
+        }
+        Ok(())
+    }
+
+    fn save_to_buffer_light_keyframe_block_vmd(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_u32_little_endian(self.light_keyframes.len() as u32)?;
+        for keyframe in &self.light_keyframes {
+            keyframe.save_to_buffer(buffer)?;
+        }
+        Ok(())
+    }
+
+    fn save_to_buffer_self_shadow_keyframe_block_vmd(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_u32_little_endian(self.self_shadow_keyframes.len() as u32)?;
+        for keyframe in &self.self_shadow_keyframes {
+            keyframe.save_to_buffer(buffer)?;
+        }
+        Ok(())
+    }
+
+    fn save_to_buffer_model_keyframe_block_vmd(&mut self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_u32_little_endian(self.model_keyframes.len() as u32)?;
+        for keyframe in &self.model_keyframes {
+            keyframe.save_to_buffer(&mut self.local_bone_motion_track_bundle, buffer)?;
+        }
+        Ok(())
+    }
+
+    fn assign_global_trace_id(&mut self, value: String) -> Result<i32, Status> {
+        let (output, found_string) = self.resolve_global_track_id(value);
+        return Ok(output)
     }
 }
 
@@ -174,6 +347,11 @@ impl MotionEffectParameter {
             value: MotionEffectParameterValue::default(),
         })
     }
+
+    fn set_name(&mut self, parent_motion: &mut Motion, value: String) -> Result<(), Status> {
+        parent_motion.assign_global_trace_id(value)?;
+        Ok(())
+    }
 }
 pub struct MotionOutsideParent {
     keyframe: MotionParentKeyframe,
@@ -221,6 +399,12 @@ struct MotionKeyframeBase {
     is_selected: bool,
     user_data: Option<Rc<RefCell<UserData>>>,
     annotations: HashMap<String, String>,
+}
+
+impl MotionKeyframeBase {
+    fn compare(a: &Self, b: &Self) -> std::cmp::Ordering {
+        a.frame_index.cmp(&b.frame_index)
+    }
 }
 
 pub struct MotionAccessoryKeyframe {
@@ -287,13 +471,15 @@ pub struct MotionBoneKeyframe {
     base: MotionKeyframeBase,
     translation: F128,
     orientation: F128,
-    interplation: MotionBoneKeyframeInterpolation,
+    interpolation: MotionBoneKeyframeInterpolation,
     bone_id: i32,
     stage_index: u32,
     is_physics_simulation_enabled: bool,
 }
 
 impl MotionBoneKeyframe {
+    const VMD_BONE_KEYFRAME_NAME_LENGTH: usize = 15;
+
     fn parse_vmd(
         parent_motion: &mut Motion,
         buffer: &mut Buffer,
@@ -310,7 +496,7 @@ impl MotionBoneKeyframe {
             },
             translation: F128::default(),
             orientation: F128::default(),
-            interplation: MotionBoneKeyframeInterpolation::default(),
+            interpolation: MotionBoneKeyframeInterpolation::default(),
             bone_id: 0,
             stage_index: 0,
             is_physics_simulation_enabled: true,
@@ -346,10 +532,10 @@ impl MotionBoneKeyframe {
         bone_keyframe.translation = buffer.read_f32_3_little_endian()?;
         bone_keyframe.orientation = buffer.read_f32_4_little_endian()?;
         for i in 0..4 {
-            bone_keyframe.interplation.translation_x[i] = buffer.read_byte()?;
-            bone_keyframe.interplation.translation_y[i] = buffer.read_byte()?;
-            bone_keyframe.interplation.translation_z[i] = buffer.read_byte()?;
-            bone_keyframe.interplation.orientation[i] = buffer.read_byte()?;
+            bone_keyframe.interpolation.translation_x[i] = buffer.read_byte()?;
+            bone_keyframe.interpolation.translation_y[i] = buffer.read_byte()?;
+            bone_keyframe.interpolation.translation_z[i] = buffer.read_byte()?;
+            bone_keyframe.interpolation.orientation[i] = buffer.read_byte()?;
         }
         buffer.skip(48usize)?;
         let bone_keyframe_index = bone_keyframe.base.frame_index;
@@ -360,6 +546,50 @@ impl MotionBoneKeyframe {
             name.unwrap_or_default(),
         );
         Ok(rc)
+    }
+
+    fn save_to_buffer(
+        &self,
+        bone_motion_track_bundle: &mut MotionTrackBundle,
+        buffer: &mut MutableBuffer,
+    ) -> Result<(), Status> {
+        let name = bone_motion_track_bundle.resolve_name(self.bone_id);
+        let name_tmp_vec: Vec<u8>;
+        let name_cp932: &[u8] = if let Some(name) = &name {
+            let (c, _, success) = encoding_rs::SHIFT_JIS.encode(name);
+            if success {
+                name_tmp_vec = c.to_vec();
+                &name_tmp_vec[..]
+            } else {
+                &[]
+            }
+        } else {
+            &[]
+        };
+        if name_cp932.len() >= Self::VMD_BONE_KEYFRAME_NAME_LENGTH {
+            buffer.write_byte_array(&name_cp932[0..Self::VMD_BONE_KEYFRAME_NAME_LENGTH])?;
+        } else {
+            buffer.write_byte_array(
+                &[
+                    name_cp932,
+                    &vec![0u8; Self::VMD_BONE_KEYFRAME_NAME_LENGTH - name_cp932.len()][0..],
+                ]
+                .concat(),
+            )?;
+        }
+        buffer.write_u32_little_endian(self.base.frame_index)?;
+        buffer.write_f32_3_little_endian(self.translation)?;
+        buffer.write_f32_4_little_endian(self.orientation)?;
+        for i in 0..4 {
+            buffer.write_byte(self.interpolation.translation_x[i])?;
+            buffer.write_byte(self.interpolation.translation_y[i])?;
+            buffer.write_byte(self.interpolation.translation_z[i])?;
+            buffer.write_byte(self.interpolation.orientation[i])?;
+        }
+        for _ in 0..48 {
+            buffer.write_byte(0u8)?;
+        }
+        Ok(())
     }
 }
 
@@ -391,7 +621,7 @@ pub struct MotionCameraKeyframe {
     angle: F128,
     distance: f32,
     fov: i32,
-    interplation: MotionCameraKeyframeInterpolation,
+    interpolation: MotionCameraKeyframeInterpolation,
     is_perspective_view: bool,
     stage_index: u32,
     outside_parent: Option<MotionOutsideParent>,
@@ -415,22 +645,40 @@ impl MotionCameraKeyframe {
             look_at: buffer.read_f32_3_little_endian()?,
             angle: buffer.read_f32_3_little_endian()?,
             fov: i32::default(),
-            interplation: MotionCameraKeyframeInterpolation::default(),
+            interpolation: MotionCameraKeyframeInterpolation::default(),
             is_perspective_view: false,
             stage_index: 0,
             outside_parent: None,
         };
         for i in 0..4 {
-            camera_keyframe.interplation.lookat_x[i] = buffer.read_byte()?;
-            camera_keyframe.interplation.lookat_y[i] = buffer.read_byte()?;
-            camera_keyframe.interplation.lookat_z[i] = buffer.read_byte()?;
-            camera_keyframe.interplation.angle[i] = buffer.read_byte()?;
-            camera_keyframe.interplation.fov[i] = buffer.read_byte()?;
-            camera_keyframe.interplation.distance[i] = buffer.read_byte()?;
+            camera_keyframe.interpolation.lookat_x[i] = buffer.read_byte()?;
+            camera_keyframe.interpolation.lookat_y[i] = buffer.read_byte()?;
+            camera_keyframe.interpolation.lookat_z[i] = buffer.read_byte()?;
+            camera_keyframe.interpolation.angle[i] = buffer.read_byte()?;
+            camera_keyframe.interpolation.fov[i] = buffer.read_byte()?;
+            camera_keyframe.interpolation.distance[i] = buffer.read_byte()?;
         }
         camera_keyframe.fov = buffer.read_i32_little_endian()?;
         camera_keyframe.is_perspective_view = buffer.read_byte()? == 0u8;
         Ok(camera_keyframe)
+    }
+
+    fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_u32_little_endian(self.base.frame_index)?;
+        buffer.write_f32_little_endian(self.distance)?;
+        buffer.write_f32_3_little_endian(self.look_at)?;
+        buffer.write_f32_3_little_endian(self.angle)?;
+        for i in 0..4 {
+            buffer.write_byte(self.interpolation.lookat_x[i])?;
+            buffer.write_byte(self.interpolation.lookat_y[i])?;
+            buffer.write_byte(self.interpolation.lookat_z[i])?;
+            buffer.write_byte(self.interpolation.angle[i])?;
+            buffer.write_byte(self.interpolation.fov[i])?;
+            buffer.write_byte(self.interpolation.distance[i])?;
+        }
+        buffer.write_i32_little_endian(self.fov)?;
+        buffer.write_byte(if self.is_perspective_view { 1u8 } else { 0u8 })?;
+        Ok(())
     }
 }
 
@@ -455,6 +703,13 @@ impl MotionLightKeyframe {
         };
         Ok(light_keyframe)
     }
+
+    fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_u32_little_endian(self.base.frame_index)?;
+        buffer.write_f32_3_little_endian(self.color)?;
+        buffer.write_f32_3_little_endian(self.direction)?;
+        Ok(())
+    }
 }
 
 const PMD_BONE_NAME_LENGTH: usize = 20;
@@ -462,6 +717,40 @@ const PMD_BONE_NAME_LENGTH: usize = 20;
 pub struct MotionModelKeyframeConstraintState {
     bone_id: i32,
     enabled: bool,
+}
+
+impl MotionModelKeyframeConstraintState {
+    fn save_to_buffer(
+        &self,
+        bone_motion_track_bundle: &mut MotionTrackBundle,
+        buffer: &mut MutableBuffer,
+    ) -> Result<(), Status> {
+        let name = bone_motion_track_bundle
+            .resolve_name(self.bone_id);
+        let name_cp932: Vec<u8> = if let Some(name) = &name {
+            let (c, _, success) = encoding_rs::SHIFT_JIS.encode(name);
+            if success {
+                c.to_vec()
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+        if name_cp932.len() >= MotionModelKeyframe::PMD_BONE_NAME_LENGTH {
+            buffer.write_byte_array(&name_cp932[0..MotionModelKeyframe::PMD_BONE_NAME_LENGTH])?;
+        } else {
+            buffer.write_byte_array(
+                &[
+                    &name_cp932[..],
+                    &vec![0u8; MotionModelKeyframe::PMD_BONE_NAME_LENGTH - name_cp932.len()][0..],
+                ]
+                .concat(),
+            )?;
+        }
+        buffer.write_byte(self.enabled as u8)?;
+        Ok(())
+    }
 }
 
 pub struct MotionModelKeyframe {
@@ -478,6 +767,8 @@ pub struct MotionModelKeyframe {
 }
 
 impl MotionModelKeyframe {
+    const PMD_BONE_NAME_LENGTH: usize = 20;
+
     fn parse_vmd(
         parent_motion: &mut Motion,
         buffer: &mut Buffer,
@@ -505,7 +796,7 @@ impl MotionModelKeyframe {
         if num_constraint_states > 0 {
             model_keyframe.constraint_states.clear();
             for i in 0..num_constraint_states {
-                let name = buffer.read_string_from_cp932(PMD_BONE_NAME_LENGTH)?;
+                let name = buffer.read_string_from_cp932(Self::PMD_BONE_NAME_LENGTH)?;
                 let (bone_id, _) = parent_motion.resolve_local_bone_track_id(name);
                 model_keyframe
                     .constraint_states
@@ -516,6 +807,20 @@ impl MotionModelKeyframe {
             }
         }
         Ok(model_keyframe)
+    }
+
+    pub fn save_to_buffer(
+        &self,
+        bone_motion_track_bundle: &mut MotionTrackBundle,
+        buffer: &mut MutableBuffer,
+    ) -> Result<(), Status> {
+        buffer.write_u32_little_endian(self.base.frame_index)?;
+        buffer.write_byte(self.visible as u8)?;
+        buffer.write_u32_little_endian(self.constraint_states.len() as u32)?;
+        for constraint_state in &self.constraint_states {
+            constraint_state.save_to_buffer(bone_motion_track_bundle, buffer)?;
+        }
+        Ok(())
     }
 }
 
@@ -528,6 +833,8 @@ pub struct MotionMorphKeyframe {
 }
 
 impl MotionMorphKeyframe {
+    const VMD_MORPH_KEYFRAME_NAME_LENGTH: usize = 15;
+
     fn parse_vmd(
         parent_motion: &mut Motion,
         buffer: &mut Buffer,
@@ -535,18 +842,18 @@ impl MotionMorphKeyframe {
         offset: u32,
     ) -> Result<Rc<RefCell<MotionMorphKeyframe>>, Status> {
         let mut keyframe_morph_id = 0;
-        let (str, _) = buffer.try_get_string_with_byte_len(VMD_MORPH_KEYFRAME_NAME_LENGTH);
+        let (str, _) = buffer.try_get_string_with_byte_len(Self::VMD_MORPH_KEYFRAME_NAME_LENGTH);
         let mut name: Option<String> = None;
         if str.len() > 0 && str[0] != 0u8 {
             let key = u8_slice_get_string(str).unwrap_or_default();
             if let Some(morph_id) = cache.0.get(&key) {
-                buffer.skip(VMD_MORPH_KEYFRAME_NAME_LENGTH)?;
+                buffer.skip(Self::VMD_MORPH_KEYFRAME_NAME_LENGTH)?;
                 name = parent_motion
                     .local_morph_motion_track_bundle
                     .resolve_name(*morph_id);
                 keyframe_morph_id = *morph_id;
             } else {
-                name = Some(buffer.read_string_from_cp932(VMD_MORPH_KEYFRAME_NAME_LENGTH)?);
+                name = Some(buffer.read_string_from_cp932(Self::VMD_MORPH_KEYFRAME_NAME_LENGTH)?);
                 let (morph_id, found_name) =
                     parent_motion.resolve_local_morph_track_id(name.clone().unwrap_or_default());
                 keyframe_morph_id = morph_id;
@@ -556,7 +863,7 @@ impl MotionMorphKeyframe {
                 cache.0.insert(key, keyframe_morph_id);
             }
         } else {
-            buffer.skip(VMD_MORPH_KEYFRAME_NAME_LENGTH)?;
+            buffer.skip(Self::VMD_MORPH_KEYFRAME_NAME_LENGTH)?;
         }
         let frame_index = buffer.read_u32_little_endian()? + offset;
         let motion_morph_keyframe = MotionMorphKeyframe {
@@ -577,6 +884,44 @@ impl MotionMorphKeyframe {
             name.unwrap_or_default(),
         );
         Ok(rc)
+    }
+
+    fn save_to_buffer(
+        &self,
+        morph_motion_track_bundle: &mut MotionTrackBundle,
+        buffer: &mut MutableBuffer,
+    ) -> Result<(), Status> {
+        let name = morph_motion_track_bundle
+            .resolve_name(self.morph_id);
+        let name_cp932: Vec<u8> = if let Some(name) = &name {
+            let (c, _, success) = encoding_rs::SHIFT_JIS.encode(name);
+            if success {
+                c.to_vec()
+            } else {
+                vec![]
+            }
+        } else {
+            vec![]
+        };
+        if name_cp932.len() >= Self::VMD_MORPH_KEYFRAME_NAME_LENGTH {
+            buffer.write_byte_array(&name_cp932[0..Self::VMD_MORPH_KEYFRAME_NAME_LENGTH])?;
+        } else {
+            buffer.write_byte_array(
+                &[
+                    &name_cp932[..],
+                    &vec![0u8; Self::VMD_MORPH_KEYFRAME_NAME_LENGTH - name_cp932.len()][0..],
+                ]
+                .concat(),
+            )?;
+        }
+        buffer.write_u32_little_endian(self.base.frame_index)?;
+        buffer.write_f32_little_endian(self.weight)?;
+        Ok(())
+    }
+
+    fn set_name(&mut self, parent_motion: &mut Motion, value: &String) -> Result<(), Status> {
+        let (morph_id, found_name) = parent_motion.resolve_local_morph_track_id(value.clone());
+        Ok(())
     }
 }
 
@@ -601,4 +946,16 @@ impl MotionSelfShadowKeyframe {
         };
         Ok(self_shadow_keyframe)
     }
+
+    fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_u32_little_endian(self.base.frame_index)?;
+        buffer.write_byte(self.mode as u8)?;
+        buffer.write_f32_little_endian(self.distance)
+    }
+}
+
+#[test]
+fn test_bool_to_u8() {
+    assert_eq!(1u8, true as u8);
+    assert_eq!(0u8, false as u8);
 }
