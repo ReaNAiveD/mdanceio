@@ -1,13 +1,13 @@
 use std::{
     cell::RefCell,
     collections::HashMap,
-    rc::{Rc, Weak},
+    rc::{Rc, Weak}, cmp::Ordering,
 };
 
 use crate::{
     common::{Buffer, Status, UserData, F128},
     mutable::common::MutableBuffer,
-    utils::u8_slice_get_string,
+    utils::{u8_slice_get_string, compare, CodecType},
 };
 
 static NANOEM_MOTION_OBJECT_NOT_FOUND: i32 = -1;
@@ -93,10 +93,16 @@ pub struct Motion {
     typ: i32,
     max_frame_index: u32,
     preferred_fps: f32,
-    user_data: Rc<RefCell<UserData>>,
+    user_data: Option<Rc<RefCell<UserData>>>,
 }
 
 impl Motion {
+    const VMD_SIGNATURE_SIZE: usize = 30;
+    const VMD_SIGNATURE_TYPE2: &'static [u8] = b"Vocaloid Motion Data 0002";
+    const VMD_SIGNATURE_TYPE1: &'static [u8] = b"Vocaloid Motion Data file";
+    const VMD_TARGET_MODEL_NAME_LENGTH_V2: usize = 20;
+    const VMD_TARGET_MODEL_NAME_LENGTH_V1: usize = 10;
+
     fn resolve_local_bone_track_id(&mut self, name: String) -> (i32, Option<String>) {
         self.local_bone_motion_track_bundle
             .resolve_id(name, &mut self.local_bone_motion_track_allocated_id)
@@ -128,7 +134,7 @@ impl Motion {
             let mut cache = StringCache::default();
             self.bone_keyframes.clear();
             for i in 0..num_bone_keyframes {
-                let mut keyframe = MotionBoneKeyframe::parse_vmd(self, buffer, &mut cache, offset)?;
+                let keyframe = MotionBoneKeyframe::parse_vmd(self, buffer, &mut cache, offset)?;
                 {
                     self.set_max_frame_index(&keyframe.borrow().base);
                 }
@@ -246,6 +252,24 @@ impl Motion {
         if buffer.is_end() { return Ok(()) } else { return Err(Status::ErrorBufferNotEnd) }
     }
 
+    fn load_from_buffer_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
+        let sig = buffer.read_buffer(Self::VMD_SIGNATURE_SIZE)?;
+        if compare(&sig[0..Self::VMD_SIGNATURE_TYPE2.len()], Self::VMD_SIGNATURE_TYPE2) == Ordering::Equal {
+            self.target_model_name = buffer.read_string_from_cp932(Self::VMD_TARGET_MODEL_NAME_LENGTH_V2)?;
+            self.parse_vmd(buffer, offset)?;
+        } else if compare(&sig[0..Self::VMD_SIGNATURE_TYPE1.len()], Self::VMD_SIGNATURE_TYPE1) == Ordering::Equal {
+            self.target_model_name = buffer.read_string_from_cp932(Self::VMD_TARGET_MODEL_NAME_LENGTH_V1)?;
+            self.parse_vmd(buffer, offset)?;
+        } else {
+            return Err(Status::ErrorInvalidSignature);
+        }
+        Ok(())
+    }
+
+    fn load_from_buffer(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
+        self.load_from_buffer_vmd(buffer, offset)
+    }
+
     fn save_to_buffer_bone_keyframe_block_vmd(&mut self, buffer: &mut MutableBuffer) -> Result<(), Status> {
         buffer.write_u32_little_endian(self.bone_keyframes.len() as u32)?;
         for keyframe in &self.bone_keyframes {
@@ -302,7 +326,8 @@ enum MotionKeyframeObject {
     SelfShadow(Rc<RefCell<MotionSelfShadowKeyframe>>),
 }
 
-enum MotionEffectParameterValue {
+#[derive(Clone, Copy)]
+pub enum MotionEffectParameterValue {
     BOOL(bool),
     INT(i32),
     FLOAT(f32),
@@ -349,8 +374,12 @@ impl MotionEffectParameter {
     }
 
     fn set_name(&mut self, parent_motion: &mut Motion, value: String) -> Result<(), Status> {
-        parent_motion.assign_global_trace_id(value)?;
+        self.parameter_id = parent_motion.assign_global_trace_id(value)?;
         Ok(())
+    }
+
+    fn set_value(&mut self, value: MotionEffectParameterValue) {
+        self.value = value;
     }
 }
 pub struct MotionOutsideParent {
@@ -506,7 +535,7 @@ impl MotionBoneKeyframe {
         let mut name: Option<String> = None;
         // if raw_name read not empty
         if len > 0 && str[0] != 0u8 {
-            let key = u8_slice_get_string(str).unwrap_or_default();
+            let key = u8_slice_get_string(str, CodecType::Sjis).unwrap_or_default();
             // try get bone_id from cache or create new motion track with name
             if let Some(bone_id) = cache.0.get(&key) {
                 buffer.skip(len)?;
@@ -845,7 +874,7 @@ impl MotionMorphKeyframe {
         let (str, _) = buffer.try_get_string_with_byte_len(Self::VMD_MORPH_KEYFRAME_NAME_LENGTH);
         let mut name: Option<String> = None;
         if str.len() > 0 && str[0] != 0u8 {
-            let key = u8_slice_get_string(str).unwrap_or_default();
+            let key = u8_slice_get_string(str, CodecType::Sjis).unwrap_or_default();
             if let Some(morph_id) = cache.0.get(&key) {
                 buffer.skip(Self::VMD_MORPH_KEYFRAME_NAME_LENGTH)?;
                 name = parent_motion
@@ -958,4 +987,42 @@ impl MotionSelfShadowKeyframe {
 fn test_bool_to_u8() {
     assert_eq!(1u8, true as u8);
     assert_eq!(0u8, false as u8);
+}
+
+#[test]
+fn test_load_from_buffer() -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let mut motion = Motion {
+        annotations: HashMap::new(),
+        target_model_name: String::default(),
+        accessory_keyframes: vec![],
+        bone_keyframes: vec![],
+        morph_keyframes: vec![],
+        camera_keyframes: vec![],
+        light_keyframes: vec![],
+        model_keyframes: vec![],
+        self_shadow_keyframes: vec![],
+        local_bone_motion_track_allocated_id: 0,
+        local_bone_motion_track_bundle: MotionTrackBundle{
+            tracks_by_name: HashMap::new(),
+        },
+        local_morph_motion_track_allocated_id: 0,
+        local_morph_motion_track_bundle: MotionTrackBundle{
+            tracks_by_name: HashMap::new(),
+        },
+        global_motion_track_allocated_id: 0,
+        global_motion_track_bundle: MotionTrackBundle{
+            tracks_by_name: HashMap::new(),
+        },
+        typ: -1,
+        max_frame_index: 0,
+        preferred_fps: 30f32,
+        user_data: None,
+    };
+
+    let mut buffer = Buffer::create(std::fs::read("test/example/Alicia/MMD Motion/2 for test 1.vmd")?);
+    match motion.load_from_buffer(&mut buffer, 0) {
+        Ok(_) => println!("Parse VMD Success"),
+        Err(e) => println!("Parse VMD with {:?}", &e),
+    }
+    Ok(())
 }

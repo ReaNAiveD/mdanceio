@@ -267,7 +267,7 @@ impl Model {
         }
     }
 
-    fn load_from_buffer(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+    pub fn load_from_buffer(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
         let result = self.load_from_pmx(buffer);
         if result.err() == Some(Status::ErrorInvalidSignature) {
             Err(Status::ErrorNoSupportForPMD)
@@ -1875,4 +1875,37 @@ impl ModelTexture {
             path: parent_model.get_string_pmx(buffer)?,
         })
     }
+}
+
+#[test]
+fn test_read_pmx_resource() -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let mut model = Model {
+        version: 0f32,
+        info_length: 0,
+        info: Info { codec_type: 0, additional_uv_size: 0, vertex_index_size: 0, texture_index_size: 0, material_index_size: 0, bone_index_size: 0, morph_index_size: 0, rigid_body_index_size: 0 },
+        name_ja: String::default(),
+        name_en: String::default(),
+        comment_ja: String::default(),
+        comment_en: String::default(),
+        vertices: vec![],
+        vertex_indices: vec![],
+        materials: vec![],
+        bones: vec![],
+        ordered_bones: vec![],
+        constraints: vec![],
+        textures: vec![],
+        morphs: vec![],
+        labels: vec![],
+        rigid_bodies: vec![],
+        joints: vec![],
+        soft_bodies: vec![],
+        user_data: None,
+    };
+
+    let mut buffer = Buffer::create(std::fs::read("test/example/Alicia/MMD/Alicia_solid.pmx")?);
+    match model.load_from_buffer(&mut buffer) {
+        Ok(_) => println!("Parse PMX Success"),
+        Err(e) => println!("Parse PMX with {:?}", &e),
+    }
+    Ok(())
 }
