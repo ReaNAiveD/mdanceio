@@ -1,18 +1,55 @@
 use std::collections::HashMap;
 
-use ndarray::{arr2, Array2};
+use cgmath::{Matrix4, Quaternion, Vector3, Vector4};
+use nanoem::{motion::Motion, model::{ModelBone, ModelRigidBody}, common::LanguageType};
 
+#[derive(Debug, Clone, Copy)]
 struct Matrices {
-    world_transform: Array2<f32>,
-    local_transform: Array2<f32>,
-    normal_transform: Array2<f32>,
-    skinning_transform: Array2<f32>,
+    world_transform: Matrix4<f32>,
+    local_transform: Matrix4<f32>,
+    normal_transform: Matrix4<f32>,
+    skinning_transform: Matrix4<f32>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct BezierControlPoints {
+    translation_x: Vector4<u8>,
+    translation_y: Vector4<u8>,
+    translation_z: Vector4<u8>,
+    orientation: Vector4<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LinearInterpolationEnable {
+    translation_x: bool,
+    translation_y: bool,
+    translation_z: bool,
+    orientation: bool,
+}
+
+struct FrameTransform {
+    translation: Vector3<f32>,
+    orientation: Quaternion<f32>,
+    bezier_control_points: BezierControlPoints,
+    enable_linear_interpolation: LinearInterpolationEnable,
+}
+
+#[derive(Debug, Clone)]
 struct Bone {
     name: String,
     canonical_name: String,
     matrices: Matrices,
+    local_orientation: Quaternion<f32>,
+    local_inherent_orientation: Quaternion<f32>,
+    local_morph_orientation: Quaternion<f32>,
+    local_user_orientation: Quaternion<f32>,
+    constraint_joint_orientation: Quaternion<f32>,
+    local_translation: Vector3<f32>,
+    local_inherent_translation: Vector3<f32>,
+    local_morph_translation: Vector3<f32>,
+    local_user_translation: Vector3<f32>,
+    bezier_control_points: BezierControlPoints,
+    states: u32,
 }
 
 impl Bone {
@@ -37,4 +74,9 @@ impl Bone {
         &[0xe5, 0xb7, 0xa6, 0xe3, 0x81, 0xb2, 0xe3, 0x81, 0x96, 0x0];
     const RIGHT_KNEE_IN_JAPANESE: &'static [u8] =
         &[0xe5, 0x8f, 0xb3, 0xe3, 0x81, 0xb2, 0xe3, 0x81, 0x96, 0x0];
+
+    // fn synchronize_transform(motion: &mut Motion, model_bone: &ModelBone, model_rigid_body: &ModelRigidBody, frame_index: u32, transform: &FrameTransform) {
+    //     let name = model_bone.get_name(LanguageType::Japanese).unwrap();
+    //     if let Some(Keyframe) = motion.find_bone_keyframe_object(name, index)
+    // }
 }

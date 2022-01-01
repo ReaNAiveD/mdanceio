@@ -1003,28 +1003,13 @@ impl ModelBone {
         Ok(bone)
     }
 
-    // fn create(model: &Model) -> Result<&ModelVertex, Status> {
-    //     vertex = ModelVertex {
-    //         base: ModelObject {
-    //             index: -1,
-    //             user_data: model.user_data.clone(),
-    //         },
-    //         origin: todo!(),
-    //         normal: todo!(),
-    //         uv: todo!(),
-    //         additional_uv: todo!(),
-    //         typ: -1,
-    //         num_bone_indices: todo!(),
-    //         bone_indices: todo!(),
-    //         num_bone_weights: todo!(),
-    //         bone_weights: todo!(),
-    //         sdef_c: todo!(),
-    //         sdef_r0: todo!(),
-    //         sdef_r1: todo!(),
-    //         edge_size: todo!(),
-    //         bone_weight_origin: todo!(),
-    //     };
-    // }
+    pub fn get_name(&self, language: LanguageType) -> Option<&String> {
+        match language {
+            LanguageType::Unknown => None,
+            LanguageType::Japanese => Some(&self.name_ja),
+            LanguageType::English => Some(&self.name_en),
+        }
+    }
 }
 
 pub struct ModelConstraintJoint {
