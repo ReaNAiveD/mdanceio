@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use nanoem::motion::{MotionBoneKeyframe, MotionFormatType};
+use nanoem::{motion::{MotionBoneKeyframe, MotionFormatType, MotionAccessoryKeyframe}, common::Status};
 
 use crate::{
     bezier_curve::BezierCurve, motion_keyframe_selection::MotionKeyframeSelection, uri::Uri,
@@ -57,5 +57,17 @@ impl Motion {
             }
         }
         result
+    }
+
+    pub fn subtract_frame_index_delta(value: i32, frame_index: u32, new_frame_index: &mut u32) -> bool {
+        Self::add_frame_index_delta(-value, frame_index, new_frame_index)
+    }
+
+    pub fn copy_all_accessory_keyframes(keyframes: &[MotionAccessoryKeyframe], motion: &nanoem::motion::Motion, offset: i32) -> Result<(), Status> {
+        for keyframe in keyframes {
+            keyframe.frame_index_with_offset(offset);
+            // TODO: unfinished
+        }
+        Ok(())
     }
 }

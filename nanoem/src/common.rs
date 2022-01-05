@@ -178,7 +178,7 @@ struct F128Components {
     w: f32,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 #[repr(align(16))]
 pub struct F128(pub [f32; 4]);
 
