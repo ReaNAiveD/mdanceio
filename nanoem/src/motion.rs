@@ -22,6 +22,7 @@ struct MotionTrack {
 }
 
 pub struct MotionTrackBundle {
+    allocated_id: i32,
     tracks_by_name: HashMap<String, MotionTrack>,
 }
 
@@ -54,12 +55,12 @@ impl MotionTrackBundle {
         None
     }
 
-    fn resolve_id(&mut self, name: &String, allocated_id: &mut i32) -> (i32, Option<String>) {
+    fn resolve_id(&mut self, name: &String) -> (i32, Option<String>) {
         if let Some(track) = self.get_by_name(name) {
             (track.id, Some(track.name.clone()))
         } else {
-            *allocated_id += 1;
-            let id = *allocated_id;
+            self.allocated_id += 1;
+            let id = self.allocated_id;
             self.put_new(id, name);
             (id, None)
         }
@@ -119,11 +120,8 @@ pub struct Motion {
     light_keyframes: Vec<MotionLightKeyframe>,
     model_keyframes: Vec<MotionModelKeyframe>,
     self_shadow_keyframes: Vec<MotionSelfShadowKeyframe>,
-    local_bone_motion_track_allocated_id: i32,
     local_bone_motion_track_bundle: MotionTrackBundle,
-    local_morph_motion_track_allocated_id: i32,
     local_morph_motion_track_bundle: MotionTrackBundle,
-    global_motion_track_allocated_id: i32,
     global_motion_track_bundle: MotionTrackBundle,
     typ: MotionFormatType,
     max_frame_index: u32,
@@ -140,17 +138,17 @@ impl Motion {
 
     fn resolve_local_bone_track_id(&mut self, name: &String) -> (i32, Option<String>) {
         self.local_bone_motion_track_bundle
-            .resolve_id(name, &mut self.local_bone_motion_track_allocated_id)
+            .resolve_id(name)
     }
 
     fn resolve_local_morph_track_id(&mut self, name: &String) -> (i32, Option<String>) {
         self.local_morph_motion_track_bundle
-            .resolve_id(name, &mut self.local_morph_motion_track_allocated_id)
+            .resolve_id(name)
     }
 
     fn resolve_global_track_id(&mut self, name: &String) -> (i32, Option<String>) {
         self.global_motion_track_bundle
-            .resolve_id(name, &mut self.global_motion_track_allocated_id)
+            .resolve_id(name)
     }
 
     fn set_max_frame_index(&mut self, base: &MotionKeyframeBase) {
@@ -1478,16 +1476,16 @@ fn test_load_from_buffer() -> Result<(), Box<dyn std::error::Error + 'static>> {
         light_keyframes: vec![],
         model_keyframes: vec![],
         self_shadow_keyframes: vec![],
-        local_bone_motion_track_allocated_id: 0,
         local_bone_motion_track_bundle: MotionTrackBundle {
+            allocated_id: 0,
             tracks_by_name: HashMap::new(),
         },
-        local_morph_motion_track_allocated_id: 0,
         local_morph_motion_track_bundle: MotionTrackBundle {
+            allocated_id: 0,
             tracks_by_name: HashMap::new(),
         },
-        global_motion_track_allocated_id: 0,
         global_motion_track_bundle: MotionTrackBundle {
+            allocated_id: 0,
             tracks_by_name: HashMap::new(),
         },
         typ: MotionFormatType::default(),
