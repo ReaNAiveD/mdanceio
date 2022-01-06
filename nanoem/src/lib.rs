@@ -1,7 +1,6 @@
 pub mod common;
 pub mod model;
 pub mod motion;
-pub mod mutable;
 mod utils;
 
 #[cfg(test)]

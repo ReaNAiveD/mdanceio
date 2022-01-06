@@ -1,13 +1,13 @@
 use std::{
     cell::RefCell,
+    cmp::Ordering,
     collections::HashMap,
-    rc::{Rc, Weak}, cmp::Ordering,
+    rc::{Rc, Weak},
 };
 
 use crate::{
-    common::{Buffer, Status, UserData, F128},
-    mutable::common::MutableBuffer,
-    utils::{u8_slice_get_string, compare, CodecType},
+    common::{Buffer, MutableBuffer, Status, UserData, F128},
+    utils::{compare, u8_slice_get_string, CodecType},
 };
 
 static NANOEM_MOTION_OBJECT_NOT_FOUND: i32 = -1;
@@ -243,7 +243,11 @@ impl Motion {
         Ok(())
     }
 
-    fn parse_self_shadow_keyframe_block_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
+    fn parse_self_shadow_keyframe_block_vmd(
+        &mut self,
+        buffer: &mut Buffer,
+        offset: u32,
+    ) -> Result<(), Status> {
         let num_self_shadow_keyframes = buffer.read_len()?;
         if num_self_shadow_keyframes > 0 {
             for i in 0..num_self_shadow_keyframes {
@@ -258,7 +262,11 @@ impl Motion {
         Ok(())
     }
 
-    fn parse_model_keyframe_block_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
+    fn parse_model_keyframe_block_vmd(
+        &mut self,
+        buffer: &mut Buffer,
+        offset: u32,
+    ) -> Result<(), Status> {
         let num_model_keyframes = buffer.read_len()?;
         if num_model_keyframes > 0 {
             for i in 0..num_model_keyframes {
@@ -276,24 +284,46 @@ impl Motion {
     fn parse_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
         self.parse_bone_keyframe_block_vmd(buffer, offset)?;
         self.parse_morph_keyframe_block_vmd(buffer, offset)?;
-        if buffer.is_end() { return Ok(()) }
+        if buffer.is_end() {
+            return Ok(());
+        }
         self.parse_camera_keyframe_block_vmd(buffer, offset)?;
-        if buffer.is_end() { return Ok(()) }
+        if buffer.is_end() {
+            return Ok(());
+        }
         self.parse_light_keyframe_block_vmd(buffer, offset)?;
-        if buffer.is_end() { return Ok(()) }
+        if buffer.is_end() {
+            return Ok(());
+        }
         self.parse_self_shadow_keyframe_block_vmd(buffer, offset)?;
-        if buffer.is_end() { return Ok(()) }
+        if buffer.is_end() {
+            return Ok(());
+        }
         self.parse_model_keyframe_block_vmd(buffer, offset)?;
-        if buffer.is_end() { return Ok(()) } else { return Err(Status::ErrorBufferNotEnd) }
+        if buffer.is_end() {
+            return Ok(());
+        } else {
+            return Err(Status::ErrorBufferNotEnd);
+        }
     }
 
     fn load_from_buffer_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
         let sig = buffer.read_buffer(Self::VMD_SIGNATURE_SIZE)?;
-        if compare(&sig[0..Self::VMD_SIGNATURE_TYPE2.len()], Self::VMD_SIGNATURE_TYPE2) == Ordering::Equal {
-            self.target_model_name = buffer.read_string_from_cp932(Self::VMD_TARGET_MODEL_NAME_LENGTH_V2)?;
+        if compare(
+            &sig[0..Self::VMD_SIGNATURE_TYPE2.len()],
+            Self::VMD_SIGNATURE_TYPE2,
+        ) == Ordering::Equal
+        {
+            self.target_model_name =
+                buffer.read_string_from_cp932(Self::VMD_TARGET_MODEL_NAME_LENGTH_V2)?;
             self.parse_vmd(buffer, offset)?;
-        } else if compare(&sig[0..Self::VMD_SIGNATURE_TYPE1.len()], Self::VMD_SIGNATURE_TYPE1) == Ordering::Equal {
-            self.target_model_name = buffer.read_string_from_cp932(Self::VMD_TARGET_MODEL_NAME_LENGTH_V1)?;
+        } else if compare(
+            &sig[0..Self::VMD_SIGNATURE_TYPE1.len()],
+            Self::VMD_SIGNATURE_TYPE1,
+        ) == Ordering::Equal
+        {
+            self.target_model_name =
+                buffer.read_string_from_cp932(Self::VMD_TARGET_MODEL_NAME_LENGTH_V1)?;
             self.parse_vmd(buffer, offset)?;
         } else {
             return Err(Status::ErrorInvalidSignature);
@@ -305,23 +335,36 @@ impl Motion {
         self.load_from_buffer_vmd(buffer, offset)
     }
 
-    fn save_to_buffer_bone_keyframe_block_vmd(&mut self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn save_to_buffer_bone_keyframe_block_vmd(
+        &mut self,
+        buffer: &mut MutableBuffer,
+    ) -> Result<(), Status> {
         buffer.write_u32_little_endian(self.bone_keyframes.len() as u32)?;
         for keyframe in &self.bone_keyframes {
-            keyframe.borrow().save_to_buffer(&mut self.local_bone_motion_track_bundle, buffer)?;
+            keyframe
+                .borrow()
+                .save_to_buffer(&mut self.local_bone_motion_track_bundle, buffer)?;
         }
         Ok(())
     }
 
-    fn save_to_buffer_morph_keyframe_block_vmd(&mut self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn save_to_buffer_morph_keyframe_block_vmd(
+        &mut self,
+        buffer: &mut MutableBuffer,
+    ) -> Result<(), Status> {
         buffer.write_u32_little_endian(self.morph_keyframes.len() as u32)?;
         for keyframe in &self.morph_keyframes {
-            keyframe.borrow().save_to_buffer(&mut self.local_morph_motion_track_bundle, buffer)?;
+            keyframe
+                .borrow()
+                .save_to_buffer(&mut self.local_morph_motion_track_bundle, buffer)?;
         }
         Ok(())
     }
 
-    fn save_to_buffer_light_keyframe_block_vmd(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn save_to_buffer_light_keyframe_block_vmd(
+        &self,
+        buffer: &mut MutableBuffer,
+    ) -> Result<(), Status> {
         buffer.write_u32_little_endian(self.light_keyframes.len() as u32)?;
         for keyframe in &self.light_keyframes {
             keyframe.save_to_buffer(buffer)?;
@@ -329,7 +372,10 @@ impl Motion {
         Ok(())
     }
 
-    fn save_to_buffer_self_shadow_keyframe_block_vmd(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn save_to_buffer_self_shadow_keyframe_block_vmd(
+        &self,
+        buffer: &mut MutableBuffer,
+    ) -> Result<(), Status> {
         buffer.write_u32_little_endian(self.self_shadow_keyframes.len() as u32)?;
         for keyframe in &self.self_shadow_keyframes {
             keyframe.save_to_buffer(buffer)?;
@@ -337,7 +383,10 @@ impl Motion {
         Ok(())
     }
 
-    fn save_to_buffer_model_keyframe_block_vmd(&mut self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn save_to_buffer_model_keyframe_block_vmd(
+        &mut self,
+        buffer: &mut MutableBuffer,
+    ) -> Result<(), Status> {
         buffer.write_u32_little_endian(self.model_keyframes.len() as u32)?;
         for keyframe in &self.model_keyframes {
             keyframe.save_to_buffer(&mut self.local_bone_motion_track_bundle, buffer)?;
@@ -347,7 +396,282 @@ impl Motion {
 
     fn assign_global_trace_id(&mut self, value: &String) -> Result<i32, Status> {
         let (output, found_string) = self.resolve_global_track_id(&value);
-        return Ok(output)
+        return Ok(output);
+    }
+}
+
+#[macro_export]
+macro_rules! search_closest {
+    ($fn_name: ident, $field_name: ident, $typ: ty) => {
+        pub fn $fn_name(&self, base_index: u32) -> (Option<&$typ>, Option<&$typ>) {
+            let mut prev_keyframe: Option<&$typ> = None;
+            let mut next_keyframe: Option<&$typ> = None;
+            let mut last_keyframe: Option<&$typ> = None;
+            let mut prev_nearest: u32 = u32::MAX;
+            let mut next_nearest: u32 = u32::MAX;
+            for keyframe in &self.$field_name {
+                let frame_index = keyframe.base.frame_index;
+                if base_index > frame_index && base_index - prev_nearest > base_index - frame_index
+                {
+                    prev_nearest = frame_index;
+                    prev_keyframe = Some(keyframe)
+                } else if base_index < frame_index
+                    && next_nearest - base_index > frame_index - base_index
+                {
+                    next_nearest = frame_index;
+                    next_keyframe = Some(keyframe);
+                } else if last_keyframe.is_none()
+                    || frame_index > last_keyframe.unwrap().base.frame_index
+                {
+                    last_keyframe = Some(keyframe);
+                }
+            }
+            (
+                prev_keyframe,
+                if next_keyframe.is_some() {
+                    next_keyframe
+                } else {
+                    last_keyframe
+                },
+            )
+        }
+    };
+}
+
+#[macro_export]
+macro_rules! search_closest_with_borrow {
+    ($fn_name: ident, $field_name: ident, $typ: ty) => {
+        pub fn $fn_name(&self, base_index: u32) -> (Option<&$typ>, Option<&$typ>) {
+            let mut prev_keyframe: Option<&$typ> = None;
+            let mut next_keyframe: Option<&$typ> = None;
+            let mut last_keyframe: Option<&$typ> = None;
+            let mut prev_nearest: u32 = u32::MAX;
+            let mut next_nearest: u32 = u32::MAX;
+            for keyframe in &self.$field_name {
+                let frame_index = keyframe.borrow().base.frame_index;
+                if base_index > frame_index && base_index - prev_nearest > base_index - frame_index
+                {
+                    prev_nearest = frame_index;
+                    prev_keyframe = Some(keyframe)
+                } else if base_index < frame_index
+                    && next_nearest - base_index > frame_index - base_index
+                {
+                    next_nearest = frame_index;
+                    next_keyframe = Some(keyframe);
+                } else if last_keyframe.is_none()
+                    || frame_index > last_keyframe.unwrap().borrow().base.frame_index
+                {
+                    last_keyframe = Some(keyframe);
+                }
+            }
+            (
+                prev_keyframe,
+                if next_keyframe.is_some() {
+                    next_keyframe
+                } else {
+                    last_keyframe
+                },
+            )
+        }
+    };
+}
+
+impl Motion {
+    pub fn get_format_type(&self) -> MotionFormatType {
+        self.typ
+    }
+
+    pub fn get_target_model_name(&self) -> &String {
+        &self.target_model_name
+    }
+
+    pub fn get_max_frame_index(&self) -> usize {
+        self.max_frame_index as usize
+    }
+
+    pub fn get_annotation(&self, key: &String) -> Option<&String> {
+        self.annotations.get(key)
+    }
+
+    pub fn get_all_accessory_keyframe_objects(&self) -> &Vec<MotionAccessoryKeyframe> {
+        &self.accessory_keyframes
+    }
+
+    pub fn get_all_bone_keyframe_objects(&self) -> &Vec<Rc<RefCell<MotionBoneKeyframe>>> {
+        &self.bone_keyframes
+    }
+
+    pub fn get_all_camera_keyframe_objects(&self) -> &Vec<MotionCameraKeyframe> {
+        &self.camera_keyframes
+    }
+
+    pub fn get_all_light_keyframe_objects(&self) -> &Vec<MotionLightKeyframe> {
+        &self.light_keyframes
+    }
+
+    pub fn get_all_motion_keyframe_objects(&self) -> &Vec<MotionModelKeyframe> {
+        &self.model_keyframes
+    }
+
+    pub fn get_all_morph_keyframe_objects(&self) -> &Vec<Rc<RefCell<MotionMorphKeyframe>>> {
+        &self.morph_keyframes
+    }
+
+    pub fn get_all_self_shadow_keyframe_objects(&self) -> &Vec<MotionSelfShadowKeyframe> {
+        &self.self_shadow_keyframes
+    }
+
+    pub fn extract_bone_track_keyframes(
+        &self,
+        name: &String,
+    ) -> Option<Vec<&MotionKeyframeObject>> {
+        if let Some(keyframe_map) = self.local_bone_motion_track_bundle.find_keyframes_map(name) {
+            Some(keyframe_map.values().collect())
+        } else {
+            None
+        }
+    }
+
+    pub fn extract_morph_track_keyframes(
+        &self,
+        name: &String,
+    ) -> Option<Vec<&MotionKeyframeObject>> {
+        if let Some(keyframe_map) = self
+            .local_morph_motion_track_bundle
+            .find_keyframes_map(name)
+        {
+            Some(keyframe_map.values().collect())
+        } else {
+            None
+        }
+    }
+
+    pub fn find_accessory_keyframe_object(&self, index: u32) -> Option<&MotionAccessoryKeyframe> {
+        self.accessory_keyframes
+            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
+            .ok()
+            .map(|index| self.accessory_keyframes.get(index))
+            .unwrap_or_default()
+    }
+
+    pub fn find_bone_keyframe_object(
+        &self,
+        name: &String,
+        index: u32,
+    ) -> Option<&Rc<RefCell<MotionBoneKeyframe>>> {
+        if let Some(keyframes_map) = self.local_bone_motion_track_bundle.find_keyframes_map(name) {
+            if let Some(keyframe) = keyframes_map.get(&index) {
+                match keyframe {
+                    MotionKeyframeObject::Bone(bone_keyframe) => Some(bone_keyframe),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn find_camera_keyframe_object(&self, index: u32) -> Option<&MotionCameraKeyframe> {
+        self.camera_keyframes
+            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
+            .ok()
+            .map(|index| self.camera_keyframes.get(index))
+            .unwrap_or_default()
+    }
+
+    pub fn find_light_keyframe_object(&self, index: u32) -> Option<&MotionLightKeyframe> {
+        self.light_keyframes
+            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
+            .ok()
+            .map(|index| self.light_keyframes.get(index))
+            .unwrap_or_default()
+    }
+
+    pub fn find_model_keyframe_object(&self, index: u32) -> Option<&MotionModelKeyframe> {
+        self.model_keyframes
+            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
+            .ok()
+            .map(|index| self.model_keyframes.get(index))
+            .unwrap_or_default()
+    }
+
+    pub fn find_morph_keyframe_object(
+        &self,
+        name: &String,
+        index: u32,
+    ) -> Option<&Rc<RefCell<MotionMorphKeyframe>>> {
+        if let Some(keyframes_map) = self
+            .local_morph_motion_track_bundle
+            .find_keyframes_map(name)
+        {
+            if let Some(keyframe) = keyframes_map.get(&index) {
+                match keyframe {
+                    MotionKeyframeObject::Morph(morph_keyframe) => Some(morph_keyframe),
+                    _ => None,
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn find_self_shadow_keyframe_object(
+        &self,
+        index: u32,
+    ) -> Option<&MotionSelfShadowKeyframe> {
+        self.self_shadow_keyframes
+            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
+            .ok()
+            .map(|index| self.self_shadow_keyframes.get(index))
+            .unwrap_or_default()
+    }
+
+    search_closest!(
+        search_closest_accessory_keyframes,
+        accessory_keyframes,
+        MotionAccessoryKeyframe
+    );
+    search_closest!(
+        search_closest_camera_keyframes,
+        camera_keyframes,
+        MotionCameraKeyframe
+    );
+    search_closest!(
+        search_closest_light_keyframes,
+        light_keyframes,
+        MotionLightKeyframe
+    );
+    search_closest!(
+        search_closest_model_keyframes,
+        model_keyframes,
+        MotionModelKeyframe
+    );
+    search_closest!(
+        search_closest_self_shadow_model_keyframes,
+        self_shadow_keyframes,
+        MotionSelfShadowKeyframe
+    );
+    search_closest_with_borrow!(
+        search_closest_bone_keyframes,
+        bone_keyframes,
+        Rc<RefCell<MotionBoneKeyframe>>
+    );
+    search_closest_with_borrow!(
+        search_closest_morph_keyframes,
+        morph_keyframes,
+        Rc<RefCell<MotionMorphKeyframe>>
+    );
+
+    pub fn get_user_data(&self) -> Option<&Rc<RefCell<UserData>>> {
+        self.user_data.as_ref()
+    }
+
+    pub fn set_user_data(&mut self, user_data: &Rc<RefCell<UserData>>) {
+        self.user_data = Some(user_data.clone())
     }
 }
 
@@ -410,7 +734,9 @@ impl MotionEffectParameter {
     }
 
     fn get_name<'a: 'b, 'b>(&self, parent_motion: &'a mut Motion) -> Option<&'b String> {
-        parent_motion.global_motion_track_bundle.resolve_name(self.parameter_id)
+        parent_motion
+            .global_motion_track_bundle
+            .resolve_name(self.parameter_id)
     }
 
     fn set_name(&mut self, parent_motion: &mut Motion, value: &String) -> Result<(), Status> {
@@ -427,186 +753,6 @@ impl MotionEffectParameter {
     }
 }
 
-#[macro_export]
-macro_rules! search_closest {
-    ($fn_name: ident, $field_name: ident, $typ: ty) => {
-        pub fn $fn_name(&self, base_index: u32) -> (Option<&$typ>, Option<&$typ>) {
-            let mut prev_keyframe: Option<&$typ> = None;
-            let mut next_keyframe: Option<&$typ> = None;
-            let mut last_keyframe: Option<&$typ> = None;
-            let mut prev_nearest: u32 = u32::MAX;
-            let mut next_nearest: u32 = u32::MAX;
-            for keyframe in &self.$field_name {
-                let frame_index = keyframe.base.frame_index;
-                if base_index > frame_index && base_index - prev_nearest > base_index - frame_index {
-                    prev_nearest = frame_index;
-                    prev_keyframe = Some(keyframe)
-                } else if base_index < frame_index && next_nearest - base_index > frame_index - base_index {
-                    next_nearest = frame_index;
-                    next_keyframe = Some(keyframe);
-                } else if last_keyframe.is_none() || frame_index > last_keyframe.unwrap().base.frame_index {
-                    last_keyframe = Some(keyframe);
-                }
-            }
-            (prev_keyframe, if next_keyframe.is_some() { next_keyframe } else { last_keyframe })
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! search_closest_with_borrow {
-    ($fn_name: ident, $field_name: ident, $typ: ty) => {
-        pub fn $fn_name(&self, base_index: u32) -> (Option<&$typ>, Option<&$typ>) {
-            let mut prev_keyframe: Option<&$typ> = None;
-            let mut next_keyframe: Option<&$typ> = None;
-            let mut last_keyframe: Option<&$typ> = None;
-            let mut prev_nearest: u32 = u32::MAX;
-            let mut next_nearest: u32 = u32::MAX;
-            for keyframe in &self.$field_name {
-                let frame_index = keyframe.borrow().base.frame_index;
-                if base_index > frame_index && base_index - prev_nearest > base_index - frame_index {
-                    prev_nearest = frame_index;
-                    prev_keyframe = Some(keyframe)
-                } else if base_index < frame_index && next_nearest - base_index > frame_index - base_index {
-                    next_nearest = frame_index;
-                    next_keyframe = Some(keyframe);
-                } else if last_keyframe.is_none() || frame_index > last_keyframe.unwrap().borrow().base.frame_index {
-                    last_keyframe = Some(keyframe);
-                }
-            }
-            (prev_keyframe, if next_keyframe.is_some() { next_keyframe } else { last_keyframe })
-        }
-    };
-}
-
-impl Motion {
-    pub fn get_format_type(&self) -> MotionFormatType {
-        self.typ
-    }
-
-    pub fn get_target_model_name(&self) -> &String {
-        &self.target_model_name
-    }
-
-    pub fn get_max_frame_index(&self) -> usize {
-        self.max_frame_index as usize
-    }
-
-    pub fn get_annotation(&self, key: &String) -> Option<&String> {
-        self.annotations.get(key)
-    }
-
-    pub fn get_all_accessory_keyframe_objects(&self) -> &Vec<MotionAccessoryKeyframe> {
-        &self.accessory_keyframes
-    }
-
-    pub fn get_all_bone_keyframe_objects(&self) -> &Vec<Rc<RefCell<MotionBoneKeyframe>>> {
-        &self.bone_keyframes
-    }
-
-    pub fn get_all_camera_keyframe_objects(&self) -> &Vec<MotionCameraKeyframe> {
-        &self.camera_keyframes
-    }
-
-    pub fn get_all_light_keyframe_objects(&self) -> &Vec<MotionLightKeyframe> {
-        &self.light_keyframes
-    }
-
-    pub fn get_all_motion_keyframe_objects(&self) -> &Vec<MotionModelKeyframe> {
-        &self.model_keyframes
-    }
-
-    pub fn get_all_morph_keyframe_objects(&self) -> &Vec<Rc<RefCell<MotionMorphKeyframe>>> {
-        &self.morph_keyframes
-    }
-
-    pub fn get_all_self_shadow_keyframe_objects(&self) -> &Vec<MotionSelfShadowKeyframe> {
-        &self.self_shadow_keyframes
-    }
-
-    pub fn extract_bone_track_keyframes(&self, name: &String) -> Option<Vec<&MotionKeyframeObject>> {
-        if let Some(keyframe_map) = self.local_bone_motion_track_bundle.find_keyframes_map(name) {
-            Some(keyframe_map.values().collect())
-        } else {
-            None
-        }
-    }
-
-    pub fn extract_morph_track_keyframes(&self, name: &String) -> Option<Vec<&MotionKeyframeObject>> {
-        if let Some(keyframe_map) = self.local_morph_motion_track_bundle.find_keyframes_map(name) {
-            Some(keyframe_map.values().collect())
-        } else {
-            None
-        }
-    }
-
-    pub fn find_accessory_keyframe_object(&self, index: u32) -> Option<&MotionAccessoryKeyframe> {
-        self.accessory_keyframes.binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index)).ok().map(|index| self.accessory_keyframes.get(index)).unwrap_or_default()
-    }
-
-    pub fn find_bone_keyframe_object(&self, name: &String, index: u32) -> Option<&Rc<RefCell<MotionBoneKeyframe>>> {
-        if let Some(keyframes_map) = self.local_bone_motion_track_bundle.find_keyframes_map(name) {
-            if let Some(keyframe) = keyframes_map.get(&index) {
-                match keyframe {
-                    MotionKeyframeObject::Bone(bone_keyframe) => Some(bone_keyframe),
-                    _ => None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    pub fn find_camera_keyframe_object(&self, index: u32) -> Option<&MotionCameraKeyframe> {
-        self.camera_keyframes.binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index)).ok().map(|index| self.camera_keyframes.get(index)).unwrap_or_default()
-    }
-
-    pub fn find_light_keyframe_object(&self, index: u32) -> Option<&MotionLightKeyframe> {
-        self.light_keyframes.binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index)).ok().map(|index| self.light_keyframes.get(index)).unwrap_or_default()
-    }
-
-    pub fn find_model_keyframe_object(&self, index: u32) -> Option<&MotionModelKeyframe> {
-        self.model_keyframes.binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index)).ok().map(|index| self.model_keyframes.get(index)).unwrap_or_default()
-    }
-
-    pub fn find_morph_keyframe_object(&self, name: &String, index: u32) -> Option<&Rc<RefCell<MotionMorphKeyframe>>> {
-        if let Some(keyframes_map) = self.local_morph_motion_track_bundle.find_keyframes_map(name) {
-            if let Some(keyframe) = keyframes_map.get(&index) {
-                match keyframe {
-                    MotionKeyframeObject::Morph(morph_keyframe) => Some(morph_keyframe),
-                    _ => None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    pub fn find_self_shadow_keyframe_object(&self, index: u32) -> Option<&MotionSelfShadowKeyframe> {
-        self.self_shadow_keyframes.binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index)).ok().map(|index| self.self_shadow_keyframes.get(index)).unwrap_or_default()
-    }
-    
-    search_closest!(search_closest_accessory_keyframes, accessory_keyframes, MotionAccessoryKeyframe);
-    search_closest!(search_closest_camera_keyframes, camera_keyframes, MotionCameraKeyframe);
-    search_closest!(search_closest_light_keyframes, light_keyframes, MotionLightKeyframe);
-    search_closest!(search_closest_model_keyframes, model_keyframes, MotionModelKeyframe);
-    search_closest!(search_closest_self_shadow_model_keyframes, self_shadow_keyframes, MotionSelfShadowKeyframe);
-    search_closest_with_borrow!(search_closest_bone_keyframes, bone_keyframes, Rc<RefCell<MotionBoneKeyframe>>);
-    search_closest_with_borrow!(search_closest_morph_keyframes, morph_keyframes, Rc<RefCell<MotionMorphKeyframe>>);
-
-    pub fn get_user_data(&self) -> Option<&Rc<RefCell<UserData>>> {
-        self.user_data.as_ref()
-    }
-
-    pub fn set_user_data(&mut self, user_data: &Rc<RefCell<UserData>>) {
-        self.user_data = Some(user_data.clone())
-    }
-}
-
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MotionOutsideParent {
     global_model_track_index: i32,
@@ -615,21 +761,38 @@ pub struct MotionOutsideParent {
 }
 
 impl MotionOutsideParent {
-
-    fn get_target_object_name<'a: 'b, 'b>(&self, parent_motion: &'a mut Motion) -> Option<&'b String> {
-        parent_motion.global_motion_track_bundle.resolve_name(self.global_model_track_index)
+    fn get_target_object_name<'a: 'b, 'b>(
+        &self,
+        parent_motion: &'a Motion,
+    ) -> Option<&'b String> {
+        parent_motion
+            .global_motion_track_bundle
+            .resolve_name(self.global_model_track_index)
     }
 
-    fn set_target_object_name(&mut self, parent_motion: &mut Motion, value: &String) -> Result<(), Status> {
+    fn set_target_object_name(
+        &mut self,
+        parent_motion: &mut Motion,
+        value: &String,
+    ) -> Result<(), Status> {
         self.global_model_track_index = parent_motion.assign_global_trace_id(value)?;
         Ok(())
     }
 
-    fn get_target_bone_name<'a: 'b, 'b>(&self, parent_motion: &'a mut Motion) -> Option<&'b String> {
-        parent_motion.global_motion_track_bundle.resolve_name(self.global_bone_track_index)
+    fn get_target_bone_name<'a: 'b, 'b>(
+        &self,
+        parent_motion: &'a Motion,
+    ) -> Option<&'b String> {
+        parent_motion
+            .global_motion_track_bundle
+            .resolve_name(self.global_bone_track_index)
     }
 
-    fn set_target_bone_name(&mut self, parent_motion: &mut Motion, value: &String) -> Result<(), Status> {
+    fn set_target_bone_name(
+        &mut self,
+        parent_motion: &mut Motion,
+        value: &String,
+    ) -> Result<(), Status> {
         self.global_bone_track_index = parent_motion.assign_global_trace_id(value)?;
         Ok(())
     }
@@ -659,8 +822,32 @@ pub struct MotionAccessoryKeyframe {
     is_shadow_enabled: bool,
     visible: bool,
     effect_parameters: Vec<MotionEffectParameter>,
-    accessary_id: i32,
+    accessory_id: i32,
     outside_parent: Option<MotionOutsideParent>,
+}
+
+impl Clone for MotionAccessoryKeyframe {
+    fn clone(&self) -> Self {
+        Self {
+            base: MotionKeyframeBase {
+                index: 0,
+                frame_index: 0,
+                is_selected: false,
+                user_data: None,
+                annotations: HashMap::new(),
+            },
+            translation: self.translation.clone(),
+            orientation: self.orientation.clone(),
+            scale_factor: self.scale_factor.clone(),
+            opacity: self.opacity.clone(),
+            is_add_blending_enabled: self.is_add_blending_enabled.clone(),
+            is_shadow_enabled: self.is_shadow_enabled.clone(),
+            visible: self.visible.clone(),
+            effect_parameters: self.effect_parameters.clone(),
+            accessory_id: 0,
+            outside_parent: self.outside_parent.clone(),
+        }
+    }
 }
 
 impl MotionAccessoryKeyframe {
@@ -681,7 +868,7 @@ impl MotionAccessoryKeyframe {
             is_shadow_enabled: true,
             visible: true,
             effect_parameters: vec![],
-            accessary_id: 0,
+            accessory_id: 0,
             outside_parent: None,
         }
     }
@@ -715,27 +902,47 @@ impl MotionAccessoryKeyframe {
         self.outside_parent = Some(*value);
     }
 
-    fn try_copy_outside_parent(&self, parent_motion: &mut Motion, target_keyframe: &mut MotionAccessoryKeyframe) -> Result<(), Status> {
+    fn try_copy_outside_parent(
+        &self,
+        parent_motion: &mut Motion,
+        target_keyframe: &mut MotionAccessoryKeyframe,
+    ) -> Result<(), Status> {
         if let Some(outside_parent) = (&self.outside_parent).as_ref() {
             let mut n_outside_parent = MotionOutsideParent::default();
-            let name = outside_parent.get_target_object_name(parent_motion).map_or("".into(), |name| name.clone());
+            let name = outside_parent
+                .get_target_object_name(parent_motion)
+                .map_or("".into(), |name| name.clone());
             n_outside_parent.set_target_object_name(parent_motion, &name)?;
-            let name = outside_parent.get_target_bone_name(parent_motion).map_or("".into(), |name| name.clone());
+            let name = outside_parent
+                .get_target_bone_name(parent_motion)
+                .map_or("".into(), |name| name.clone());
             n_outside_parent.set_target_bone_name(parent_motion, &name)?;
             target_keyframe.set_outside_parent(&n_outside_parent);
         }
         Ok(())
     }
 
-    pub fn copy_outside_parent(&self, parent_motion: &mut Motion, target_keyframe: &mut MotionAccessoryKeyframe) {
+    /// Try to copy outside parent to target keyframe if it exists.
+    /// Old outside parent will be replaced from target keyframe.
+    pub fn copy_outside_parent(
+        &self,
+        parent_motion: &mut Motion,
+        target_keyframe: &mut MotionAccessoryKeyframe,
+    ) {
         let _ = self.try_copy_outside_parent(parent_motion, target_keyframe);
     }
 
-    pub fn copy_all_effect_parameters(&self, parent_motion: &mut Motion, target_keyframe: &mut MotionAccessoryKeyframe) -> Result<(), Status> {
+    pub fn copy_all_effect_parameters(
+        &self,
+        parent_motion: &mut Motion,
+        target_keyframe: &mut MotionAccessoryKeyframe,
+    ) -> Result<(), Status> {
         let parameters = self.get_all_effect_parameters();
         for parameter in parameters {
             let mut n_parameter = MotionEffectParameter::default();
-            let name = parameter.get_name(parent_motion).map_or("".into(), |name| name.clone());
+            let name = parameter
+                .get_name(parent_motion)
+                .map_or("".into(), |name| name.clone());
             n_parameter.set_name(parent_motion, &name)?;
             n_parameter.set_value(n_parameter.get_value());
             target_keyframe.add_effect_parameter(&n_parameter);
@@ -810,10 +1017,12 @@ impl MotionBoneKeyframe {
                 buffer.skip(len)?;
                 name = parent_motion
                     .local_bone_motion_track_bundle
-                    .resolve_name(bone_id.clone()).map(|name| name.clone());
+                    .resolve_name(bone_id.clone())
+                    .map(|name| name.clone());
                 bone_keyframe.bone_id = bone_id.clone();
             } else {
-                let read_name = buffer.read_string_from_cp932(Self::VMD_BONE_KEYFRAME_NAME_LENGTH)?;
+                let read_name =
+                    buffer.read_string_from_cp932(Self::VMD_BONE_KEYFRAME_NAME_LENGTH)?;
                 name = Some(read_name.clone());
                 let (bone_id, found_name) = parent_motion.resolve_local_bone_track_id(&read_name);
                 bone_keyframe.bone_id = bone_id;
@@ -1023,8 +1232,7 @@ impl MotionModelKeyframeConstraintState {
         bone_motion_track_bundle: &mut MotionTrackBundle,
         buffer: &mut MutableBuffer,
     ) -> Result<(), Status> {
-        let name = bone_motion_track_bundle
-            .resolve_name(self.bone_id);
+        let name = bone_motion_track_bundle.resolve_name(self.bone_id);
         let name_cp932: Vec<u8> = if let Some(name) = &name {
             let (c, _, success) = encoding_rs::SHIFT_JIS.encode(name);
             if success {
@@ -1148,7 +1356,8 @@ impl MotionMorphKeyframe {
                 buffer.skip(Self::VMD_MORPH_KEYFRAME_NAME_LENGTH)?;
                 name = parent_motion
                     .local_morph_motion_track_bundle
-                    .resolve_name(*morph_id).map(|name| name.clone());
+                    .resolve_name(*morph_id)
+                    .map(|name| name.clone());
                 keyframe_morph_id = *morph_id;
             } else {
                 name = Some(buffer.read_string_from_cp932(Self::VMD_MORPH_KEYFRAME_NAME_LENGTH)?);
@@ -1189,8 +1398,7 @@ impl MotionMorphKeyframe {
         morph_motion_track_bundle: &mut MotionTrackBundle,
         buffer: &mut MutableBuffer,
     ) -> Result<(), Status> {
-        let name = morph_motion_track_bundle
-            .resolve_name(self.morph_id);
+        let name = morph_motion_track_bundle.resolve_name(self.morph_id);
         let name_cp932: Vec<u8> = if let Some(name) = &name {
             let (c, _, success) = encoding_rs::SHIFT_JIS.encode(name);
             if success {
@@ -1271,15 +1479,15 @@ fn test_load_from_buffer() -> Result<(), Box<dyn std::error::Error + 'static>> {
         model_keyframes: vec![],
         self_shadow_keyframes: vec![],
         local_bone_motion_track_allocated_id: 0,
-        local_bone_motion_track_bundle: MotionTrackBundle{
+        local_bone_motion_track_bundle: MotionTrackBundle {
             tracks_by_name: HashMap::new(),
         },
         local_morph_motion_track_allocated_id: 0,
-        local_morph_motion_track_bundle: MotionTrackBundle{
+        local_morph_motion_track_bundle: MotionTrackBundle {
             tracks_by_name: HashMap::new(),
         },
         global_motion_track_allocated_id: 0,
-        global_motion_track_bundle: MotionTrackBundle{
+        global_motion_track_bundle: MotionTrackBundle {
             tracks_by_name: HashMap::new(),
         },
         typ: MotionFormatType::default(),
@@ -1288,7 +1496,9 @@ fn test_load_from_buffer() -> Result<(), Box<dyn std::error::Error + 'static>> {
         user_data: None,
     };
 
-    let mut buffer = Buffer::create(std::fs::read("test/example/Alicia/MMD Motion/2 for test 1.vmd")?);
+    let mut buffer = Buffer::create(std::fs::read(
+        "test/example/Alicia/MMD Motion/2 for test 1.vmd",
+    )?);
     match motion.load_from_buffer(&mut buffer, 0) {
         Ok(_) => println!("Parse VMD Success"),
         Err(e) => println!("Parse VMD with {:?}", &e),

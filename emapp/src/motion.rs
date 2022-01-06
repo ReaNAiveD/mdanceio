@@ -63,9 +63,11 @@ impl Motion {
         Self::add_frame_index_delta(-value, frame_index, new_frame_index)
     }
 
-    pub fn copy_all_accessory_keyframes(keyframes: &[MotionAccessoryKeyframe], motion: &nanoem::motion::Motion, offset: i32) -> Result<(), Status> {
+    pub fn copy_all_accessory_keyframes(keyframes: &[MotionAccessoryKeyframe], motion: &mut nanoem::motion::Motion, offset: i32) -> Result<(), Status> {
         for keyframe in keyframes {
             keyframe.frame_index_with_offset(offset);
+            let mut n_keyframe = keyframe.clone();
+            keyframe.copy_outside_parent(motion, &mut n_keyframe);
             // TODO: unfinished
         }
         Ok(())
