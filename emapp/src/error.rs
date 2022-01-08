@@ -22,3 +22,7 @@ pub trait Exception {
     fn domain() -> DomainType;
     fn notify(publisher: impl EventPublisher);
 }
+
+pub struct Error {
+    
+}

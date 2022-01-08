@@ -1,0 +1,3 @@
+pub struct Accessory {
+    // TODO
+}

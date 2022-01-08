@@ -1,7 +1,18 @@
 use std::collections::HashMap;
 
 use cgmath::{Matrix4, Quaternion, Vector3, Vector4};
-use nanoem::{motion::Motion, model::{ModelBone, ModelRigidBody}, common::LanguageType};
+
+pub trait SkinDeformer {
+    // TODO
+}
+
+pub struct BindPose {
+    // TODO
+}
+
+pub struct Model {
+    // TODO
+}
 
 #[derive(Debug, Clone, Copy)]
 struct Matrices {
@@ -79,4 +90,8 @@ impl Bone {
     //     let name = model_bone.get_name(LanguageType::Japanese).unwrap();
     //     if let Some(Keyframe) = motion.find_bone_keyframe_object(name, index)
     // }
+}
+
+pub struct VisualizationClause {
+    // TODO
 }
