@@ -1,7 +1,5 @@
 use std::mem::size_of;
 
-use crate::utils::CodecType;
-
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Status {
     Unknown = -1, //< Unknown
@@ -161,10 +159,17 @@ pub enum Status {
     ErrorNoSupportForPMD = 2000,    //< Not Supported PMD file
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LanguageType {
     Unknown = -1,
     Japanese,
     English,
+}
+
+impl LanguageType {
+    pub fn all() -> &'static[Self] {
+        &[Self::Japanese, Self::English]
+    }
 }
 
 enum UserDataDestroyCallback {}
@@ -420,7 +425,7 @@ impl MutableBuffer {
     write_primitive!(i32, write_i32_little_endian);
     write_primitive!(f32, write_f32_little_endian);
 
-    pub fn write_string(&mut self, value: String, codec_type: CodecType) -> Result<(), Status> {
+    pub fn write_string(&mut self, value: &String, codec_type: CodecType) -> Result<(), Status> {
         let (bytes, _, success) = codec_type.get_encoding_object().encode(&value[..]);
         if !success {
             self.write_u32_little_endian(0u32)?;
@@ -458,6 +463,40 @@ impl MutableBuffer {
     // TODO: now clone the total data vec, change to some pointer copy
     pub fn create_buffer_object(&self) -> Result<Buffer, Status> {
         Ok(Buffer::create(self.data.clone()))
+    }
+
+    pub fn get_data(&self) -> Vec<u8> {
+        self.data.clone()
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CodecType {
+    Unknown = -1,
+    Sjis,
+    Utf8,
+    Utf16,
+}
+
+impl From<i32> for CodecType {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => CodecType::Sjis,
+            1 => CodecType::Utf8,
+            2 => CodecType::Utf16,
+            _ => CodecType::Unknown,
+        }
+    }
+}
+
+impl CodecType {
+    pub fn get_encoding_object(&self) -> &'static encoding_rs::Encoding {
+        match self {
+            CodecType::Unknown => encoding_rs::UTF_8,
+            CodecType::Sjis => encoding_rs::SHIFT_JIS,
+            CodecType::Utf8 => encoding_rs::UTF_8,
+            CodecType::Utf16 => encoding_rs::UTF_16LE,
+        }
     }
 }
 

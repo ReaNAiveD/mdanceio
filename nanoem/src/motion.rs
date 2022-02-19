@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-    common::{Buffer, MutableBuffer, Status, UserData, F128},
-    utils::{compare, u8_slice_get_string, CodecType},
+    common::{Buffer, MutableBuffer, Status, UserData, F128, CodecType},
+    utils::{compare, u8_slice_get_string},
 };
 
 static NANOEM_MOTION_OBJECT_NOT_FOUND: i32 = -1;
@@ -483,8 +483,8 @@ impl Motion {
         &self.target_model_name
     }
 
-    pub fn get_max_frame_index(&self) -> usize {
-        self.max_frame_index as usize
+    pub fn get_max_frame_index(&self) -> u32 {
+        self.max_frame_index
     }
 
     pub fn get_annotation(&self, key: &String) -> Option<&String> {
@@ -670,6 +670,26 @@ impl Motion {
 
     pub fn set_user_data(&mut self, user_data: &Rc<RefCell<UserData>>) {
         self.user_data = Some(user_data.clone())
+    }
+
+    pub fn sort_all_keyframes(&mut self) {
+        self.max_frame_index = 0;
+        self.accessory_keyframes.sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
+        self.bone_keyframes.sort_by(|a, b| MotionKeyframeBase::compare(&a.borrow().base, &b.borrow().base));
+        self.camera_keyframes.sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
+        self.light_keyframes.sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
+        self.model_keyframes.sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
+        self.morph_keyframes.sort_by(|a, b| MotionKeyframeBase::compare(&a.borrow().base, &b.borrow().base));
+        self.self_shadow_keyframes.sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
+    }
+
+    pub fn add_accessory_keyframe(&mut self, keyframe: MotionAccessoryKeyframe, frame_index: u32) -> Result<(), Status> {
+        if self.find_accessory_keyframe_object(frame_index).is_some() {
+            self.accessory_keyframes.push(keyframe);
+            Ok(())
+        } else {
+            Err(Status::ErrorMotionAccessoryKeyframeAlreadyExists)
+        }
     }
 }
 
@@ -1096,15 +1116,19 @@ impl MotionBoneKeyframe {
         }
         Ok(())
     }
+
+    pub fn get_name<'a: 'b, 'b>(&self, parent_motion: &'a Motion) -> Option<&'b String> {
+        parent_motion.local_bone_motion_track_bundle.resolve_name(self.bone_id)
+    }
 }
 
-struct MotionCameraKeyframeInterpolation {
-    lookat_x: [u8; 4],
-    lookat_y: [u8; 4],
-    lookat_z: [u8; 4],
-    angle: [u8; 4],
-    fov: [u8; 4],
-    distance: [u8; 4],
+pub struct MotionCameraKeyframeInterpolation {
+    pub lookat_x: [u8; 4],
+    pub lookat_y: [u8; 4],
+    pub lookat_z: [u8; 4],
+    pub angle: [u8; 4],
+    pub fov: [u8; 4],
+    pub distance: [u8; 4],
 }
 
 impl Default for MotionCameraKeyframeInterpolation {

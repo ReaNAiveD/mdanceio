@@ -31,6 +31,9 @@ mod internal;
 mod drawable;
 mod file_utils;
 mod time_line_segment;
+mod forward;
+mod model_object_selection;
+mod bounding_box;
 
 #[cfg(test)]
 mod tests {

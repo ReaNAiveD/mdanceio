@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use nanoem::{motion::{MotionBoneKeyframe, MotionFormatType, MotionAccessoryKeyframe}, common::Status};
 
 use crate::{
-    bezier_curve::BezierCurve, motion_keyframe_selection::MotionKeyframeSelection, uri::Uri,
+    bezier_curve::BezierCurve, motion_keyframe_selection::MotionKeyframeSelection, uri::Uri, project::Project, model::Model,
 };
 
 pub struct Motion {
@@ -63,13 +63,38 @@ impl Motion {
         Self::add_frame_index_delta(-value, frame_index, new_frame_index)
     }
 
-    pub fn copy_all_accessory_keyframes(keyframes: &[MotionAccessoryKeyframe], motion: &mut nanoem::motion::Motion, offset: i32) -> Result<(), Status> {
+    pub fn copy_all_accessory_keyframes(keyframes: &[MotionAccessoryKeyframe], target: &mut nanoem::motion::Motion, offset: i32) -> Result<(), Status> {
         for keyframe in keyframes {
-            keyframe.frame_index_with_offset(offset);
+            let frame_index = keyframe.frame_index_with_offset(offset);
             let mut n_keyframe = keyframe.clone();
-            keyframe.copy_outside_parent(motion, &mut n_keyframe);
+            keyframe.copy_outside_parent(target, &mut n_keyframe);
+            let _ = target.add_accessory_keyframe(n_keyframe, frame_index);
+        }
+        target.sort_all_keyframes();
+        Ok(())
+    }
+
+    pub fn copy_all_accessory_keyframes_from_motion(source: &nanoem::motion::Motion, target: &mut nanoem::motion::Motion, offset: i32) -> Result<(), Status> {
+        Self::copy_all_accessory_keyframes(source.get_all_accessory_keyframe_objects(), target, offset)
+    }
+
+    pub fn copy_all_bone_keyframes(keyframes: &[MotionBoneKeyframe], parent_motion: &nanoem::motion::Motion, selection: &(dyn MotionKeyframeSelection), model: &Model, target: &mut nanoem::motion::Motion, offset: i32) -> Result<(), Status> {
+        for keyframe in keyframes {
+            let name = keyframe.get_name(parent_motion);
             // TODO: unfinished
         }
         Ok(())
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    pub fn set_dirty(&mut self, value: bool) {
+        self.dirty = value;
+    }
+
+    pub fn duration(&self) -> u32 {
+        self.opaque.borrow().get_max_frame_index().min(Project::MAXIMUM_BASE_DURATION)
     }
 }

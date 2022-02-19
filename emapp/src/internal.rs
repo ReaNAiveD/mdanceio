@@ -9,3 +9,7 @@ pub struct ClearPass {
 pub struct DebugDrawer {
     // TODO
 }
+
+pub struct LinearDrawer {
+    // TODO
+}

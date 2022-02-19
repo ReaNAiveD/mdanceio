@@ -4,12 +4,13 @@ use std::{
 };
 
 use crate::{
-    common::{Buffer, LanguageType, Status, UserData, F128},
-    utils::{fourcc, CodecType},
+    common::{Buffer, CodecType, LanguageType, MutableBuffer, Status, UserData, F128},
+    utils::fourcc,
 };
 
 pub static NANOEM_MODEL_OBJECT_NOT_FOUND: i32 = -1;
 
+#[derive(Debug, Default)]
 pub struct Info {
     codec_type: u8,
     additional_uv_size: u8,
@@ -39,6 +40,7 @@ impl From<i32> for ModelFormatType {
     }
 }
 
+#[derive(Default)]
 pub struct Model {
     version: f32,
     info_length: u8,
@@ -63,6 +65,33 @@ pub struct Model {
 }
 
 impl Model {
+    const PMX_SIGNATURE: &'static str = "PMX ";
+
+    fn create_empty() -> Self {
+        Self {
+            version: todo!(),
+            info_length: todo!(),
+            info: todo!(),
+            name_ja: todo!(),
+            name_en: todo!(),
+            comment_ja: todo!(),
+            comment_en: todo!(),
+            vertices: todo!(),
+            vertex_indices: todo!(),
+            materials: todo!(),
+            bones: todo!(),
+            ordered_bones: todo!(),
+            constraints: todo!(),
+            textures: todo!(),
+            morphs: todo!(),
+            labels: todo!(),
+            rigid_bodies: todo!(),
+            joints: todo!(),
+            soft_bodies: todo!(),
+            user_data: todo!(),
+        }
+    }
+
     fn get_string_pmx(&self, buffer: &mut Buffer) -> Result<String, Status> {
         let length = buffer.read_len()?;
         let src = buffer.read_buffer(length)?;
@@ -276,6 +305,133 @@ impl Model {
         }
     }
 
+    fn vertices_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_i32_little_endian(self.vertices.len() as i32)?;
+        for vertex in &self.vertices {
+            vertex.save_to_buffer(buffer, self)?;
+        }
+        Ok(())
+    }
+
+    fn textures_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_i32_little_endian(self.textures.len() as i32)?;
+        for texture in &self.textures {
+            texture.save_to_buffer(buffer, self)?;
+        }
+        Ok(())
+    }
+
+    fn materials_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_i32_little_endian(self.materials.len() as i32)?;
+        for material in &self.materials {
+            material.save_to_buffer(buffer, self)?;
+        }
+        Ok(())
+    }
+
+    fn bones_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_integer(self.bones.len() as i32, if self.is_pmx() { 4 } else { 2 })?;
+        for bone in &self.bones {
+            bone.borrow().save_to_buffer(buffer, self)?;
+        }
+        Ok(())
+    }
+
+    fn morphs_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_integer(self.morphs.len() as i32, if self.is_pmx() { 4 } else { 2 })?;
+        for morph in &self.morphs {
+            morph.borrow().save_to_buffer(buffer, self)?;
+        }
+        Ok(())
+    }
+
+    fn labels_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        if self.is_pmx() {
+            buffer.write_integer(self.labels.len() as i32, 4)?;
+            for label in &self.labels {
+                label.save_to_buffer(buffer, self)?;
+            }
+            Ok(())
+        } else {
+            Err(Status::ErrorNoSupportForPMD)
+        }
+    }
+
+    fn rigid_bodies_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_i32_little_endian(self.rigid_bodies.len() as i32)?;
+        for rigid_body in &self.rigid_bodies {
+            rigid_body.save_to_buffer(buffer, self)?;
+        }
+        Ok(())
+    }
+
+    fn joints_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        buffer.write_i32_little_endian(self.joints.len() as i32)?;
+        for joint in &self.joints {
+            joint.save_to_buffer(buffer, self)?;
+        }
+        Ok(())
+    }
+
+    fn soft_bodies_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        if self.is_pmx21() {
+            buffer.write_i32_little_endian(self.soft_bodies.len() as i32)?;
+            for soft_body in &self.soft_bodies {
+                soft_body.save_to_buffer(buffer, self)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn save_to_buffer_pmx(&mut self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        let codec_type = self.get_codec_type();
+        self.info_length = 8;
+        self.info.vertex_index_size = Self::get_vertex_index_size(self.vertices.len());
+        self.info.texture_index_size = Self::get_object_index_size(self.textures.len());
+        self.info.material_index_size = Self::get_object_index_size(self.materials.len());
+        self.info.bone_index_size = Self::get_object_index_size(self.bones.len());
+        self.info.morph_index_size = Self::get_object_index_size(self.morphs.len());
+        self.info.rigid_body_index_size = Self::get_object_index_size(self.rigid_bodies.len());
+        buffer.write_byte_array(&Self::PMX_SIGNATURE.as_bytes()[..4])?;
+        buffer.write_f32_little_endian(self.version)?;
+        buffer.write_byte(self.info_length)?;
+        buffer.write_byte(self.info.codec_type)?;
+        buffer.write_byte(self.info.additional_uv_size)?;
+        buffer.write_byte(self.info.vertex_index_size)?;
+        buffer.write_byte(self.info.texture_index_size)?;
+        buffer.write_byte(self.info.material_index_size)?;
+        buffer.write_byte(self.info.bone_index_size)?;
+        buffer.write_byte(self.info.morph_index_size)?;
+        buffer.write_byte(self.info.rigid_body_index_size)?;
+        buffer.write_string(&self.name_ja, codec_type)?;
+        buffer.write_string(&self.name_en, codec_type)?;
+        buffer.write_string(&self.comment_ja, codec_type)?;
+        buffer.write_string(&self.comment_en, codec_type)?;
+        self.vertices_save_to_buffer(buffer)?;
+        let vertex_index_size = self.info.vertex_index_size as usize;
+        buffer.write_i32_little_endian(self.vertex_indices.len() as i32)?;
+        for vertex_index in &self.vertex_indices {
+            buffer.write_integer(vertex_index.clone() as i32, vertex_index_size)?;
+        }
+        self.textures_save_to_buffer(buffer)?;
+        self.materials_save_to_buffer(buffer)?;
+        self.bones_save_to_buffer(buffer)?;
+        self.morphs_save_to_buffer(buffer)?;
+        self.labels_save_to_buffer(buffer)?;
+        self.rigid_bodies_save_to_buffer(buffer)?;
+        self.joints_save_to_buffer(buffer)?;
+        self.soft_bodies_save_to_buffer(buffer)?;
+        Ok(())
+    }
+
+    pub fn save_to_buffer(&mut self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        if self.is_pmx() {
+            self.save_to_buffer_pmx(buffer)
+        } else {
+            Err(Status::ErrorNoSupportForPMD)
+        }
+    }
+
     pub fn get_format_type(&self) -> ModelFormatType {
         ((self.version * 10f32) as i32).into()
     }
@@ -396,27 +552,128 @@ impl Model {
         (self.version * 10f32) as i32 >= 21
     }
 
-    pub fn get_vertex_index_size(size: usize) -> usize {
+    pub fn get_vertex_index_size(size: usize) -> u8 {
         if size <= 0xff {
-            return 1usize;
+            return 1u8;
         } else if size <= 0xffff {
-            return 2usize;
+            return 2u8;
         } else {
-            return 4usize;
+            return 4u8;
         }
     }
 
-    pub fn get_object_index_size(size: usize) -> usize {
+    pub fn get_object_index_size(size: usize) -> u8 {
         if size <= 0x7f {
-            return 1usize;
+            return 1u8;
         } else if size <= 0x7fff {
-            return 2usize;
+            return 2u8;
         } else {
-            return 4usize;
+            return 4u8;
         }
+    }
+
+    pub fn set_additional_uv_size(&mut self, value: usize) {
+        if (0..=4).contains(&value) {
+            self.info.additional_uv_size = value as u8;
+        }
+    }
+
+    pub fn set_codec_type(&mut self, value: CodecType) {
+        self.info.codec_type = match value {
+            CodecType::Unknown => 0,
+            CodecType::Sjis => 0,
+            CodecType::Utf8 => 1,
+            CodecType::Utf16 => 0,
+        }
+    }
+
+    pub fn set_format_type(&mut self, value: ModelFormatType) {
+        self.version = match value {
+            ModelFormatType::Unknown => self.version,
+            ModelFormatType::Pmd1_0 => 1.0f32,
+            ModelFormatType::Pmx2_0 => 2.0f32,
+            ModelFormatType::Pmx2_1 => 2.1f32,
+        }
+    }
+
+    pub fn set_name(&mut self, value: &String, language_type: LanguageType) {
+        match language_type {
+            LanguageType::Unknown => (),
+            LanguageType::Japanese => self.name_ja = value.to_string(),
+            LanguageType::English => self.name_en = value.to_string(),
+        }
+    }
+
+    pub fn set_comment(&mut self, value: &String, language_type: LanguageType) {
+        match language_type {
+            LanguageType::Unknown => (),
+            LanguageType::Japanese => self.comment_ja = value.to_string(),
+            LanguageType::English => self.comment_en = value.to_string(),
+        }
+    }
+
+    fn find_indexed_rc_offset<T>(objects: &Vec<Rc<T>>, target: &Rc<T>, index: i32) -> i32 {
+        let mut offset = -1;
+        if index >= 0 && objects.len() > 0 {
+            if (index as usize) < objects.len()
+                && objects
+                    .get(index as usize)
+                    .map_or(false, |rc| Rc::ptr_eq(rc, target))
+            {
+                offset = index;
+            } else {
+                for ptr in objects.iter().enumerate() {
+                    if Rc::ptr_eq(target, ptr.1) {
+                        offset = ptr.0 as i32;
+                    }
+                }
+            }
+        }
+        offset
+    }
+
+    fn contains_indexed_rc<T>(objects: &Vec<Rc<T>>, target: &Rc<T>, index: i32) -> bool {
+        Self::find_indexed_rc_offset(objects, target, index) != -1
+    }
+
+    pub fn insert_bone(
+        &mut self,
+        bone: &Rc<RefCell<ModelBone>>,
+        mut index: i32,
+    ) -> Result<(), Status> {
+        if Self::contains_indexed_rc(&self.bones, bone, index) {
+            Err(Status::ErrorModelBoneAlreadyExists)
+        } else {
+            if index >= 0 && (index as usize) < self.bones.len() {
+                self.bones.insert(index as usize, bone.clone());
+                for bone in &self.bones[(index as usize) + 1..] {
+                    bone.borrow_mut().base.index += 1;
+                }
+            } else {
+                index = self.bones.len() as i32;
+                self.bones.push(bone.clone());
+            }
+            bone.borrow_mut().base.index = index;
+            Ok(())
+        }
+    }
+
+    /// Not consider already existing
+    pub fn insert_label(&mut self, label: &ModelLabel, mut index: i32) {
+        if index >= 0 && (index as usize) < self.labels.len() {
+            self.labels.insert(index as usize, label.clone());
+            for label in &mut self.labels[(index as usize) + 1..] {
+                label.base.index += 1;
+            }
+        } else {
+            index = self.labels.len() as i32;
+            self.labels.push(label.clone());
+        }
+        self.labels
+            .get_mut(index as usize)
+            .map(|label| label.base.index = index);
     }
 }
-
 
 fn mutable_model_object_apply_change_object_index(target: &mut i32, object_index: i32, delta: i32) {
     let dest_object_index = *target;
@@ -436,20 +693,32 @@ impl Model {
             match &mut morph_mut.u {
                 ModelMorphU::VERTICES(vertices) => {
                     for morph_vertex in vertices {
-                        mutable_model_object_apply_change_object_index(&mut morph_vertex.vertex_index, vertex_index, delta)
+                        mutable_model_object_apply_change_object_index(
+                            &mut morph_vertex.vertex_index,
+                            vertex_index,
+                            delta,
+                        )
                     }
-                },
+                }
                 ModelMorphU::UVS(uvs) => {
                     for morph_uv in uvs {
-                        mutable_model_object_apply_change_object_index(&mut morph_uv.vertex_index, vertex_index, delta)
+                        mutable_model_object_apply_change_object_index(
+                            &mut morph_uv.vertex_index,
+                            vertex_index,
+                            delta,
+                        )
                     }
-                },
+                }
                 _ => {}
             }
         }
         for soft_body in &mut self.soft_bodies {
             for anchor in &mut soft_body.anchors {
-                mutable_model_object_apply_change_object_index(&mut anchor.vertex_index, vertex_index, delta)
+                mutable_model_object_apply_change_object_index(
+                    &mut anchor.vertex_index,
+                    vertex_index,
+                    delta,
+                )
             }
         }
     }
@@ -460,53 +729,109 @@ impl Model {
             match &mut morph_mut.u {
                 ModelMorphU::MATERIALS(materials) => {
                     for morph_material in materials {
-                        mutable_model_object_apply_change_object_index(&mut morph_material.material_index, material_index, delta)
+                        mutable_model_object_apply_change_object_index(
+                            &mut morph_material.material_index,
+                            material_index,
+                            delta,
+                        )
                     }
-                },
+                }
                 _ => {}
             }
         }
         for soft_body in &mut self.soft_bodies {
-            mutable_model_object_apply_change_object_index(&mut soft_body.material_index, material_index, delta)
+            mutable_model_object_apply_change_object_index(
+                &mut soft_body.material_index,
+                material_index,
+                delta,
+            )
         }
     }
 
     fn bone_apply_change_all_object_indices(&mut self, bone_index: i32, delta: i32) {
         for vertex in &mut self.vertices {
             for vertex_bone_index in &mut vertex.bone_indices {
-                mutable_model_object_apply_change_object_index(vertex_bone_index, bone_index, delta);
+                mutable_model_object_apply_change_object_index(
+                    vertex_bone_index,
+                    bone_index,
+                    delta,
+                );
             }
         }
         for constraint in &mut self.constraints {
-            mutable_model_object_apply_change_object_index(&mut constraint.effector_bone_index, bone_index, delta);
-            mutable_model_object_apply_change_object_index(&mut constraint.target_bone_index, bone_index, delta);
+            mutable_model_object_apply_change_object_index(
+                &mut constraint.effector_bone_index,
+                bone_index,
+                delta,
+            );
+            mutable_model_object_apply_change_object_index(
+                &mut constraint.target_bone_index,
+                bone_index,
+                delta,
+            );
             for joint in &mut constraint.joints {
-                mutable_model_object_apply_change_object_index(&mut joint.bone_index, bone_index, delta);
+                mutable_model_object_apply_change_object_index(
+                    &mut joint.bone_index,
+                    bone_index,
+                    delta,
+                );
             }
         }
         for morph in &self.morphs {
             let mut morph = morph.borrow_mut();
             if let ModelMorphU::BONES(bones) = &mut morph.u {
                 for bone in bones {
-                    mutable_model_object_apply_change_object_index(&mut bone.bone_index, bone_index, delta);
+                    mutable_model_object_apply_change_object_index(
+                        &mut bone.bone_index,
+                        bone_index,
+                        delta,
+                    );
                 }
             }
         }
         for bone in &self.bones {
             let mut bone = bone.borrow_mut();
-            mutable_model_object_apply_change_object_index(&mut bone.parent_bone_index, bone_index, delta);
-            mutable_model_object_apply_change_object_index(&mut bone.parent_inherent_bone_index, bone_index, delta);
-            mutable_model_object_apply_change_object_index(&mut bone.effector_bone_index, bone_index, delta);
-            mutable_model_object_apply_change_object_index(&mut bone.target_bone_index, bone_index, delta);
+            mutable_model_object_apply_change_object_index(
+                &mut bone.parent_bone_index,
+                bone_index,
+                delta,
+            );
+            mutable_model_object_apply_change_object_index(
+                &mut bone.parent_inherent_bone_index,
+                bone_index,
+                delta,
+            );
+            mutable_model_object_apply_change_object_index(
+                &mut bone.effector_bone_index,
+                bone_index,
+                delta,
+            );
+            mutable_model_object_apply_change_object_index(
+                &mut bone.target_bone_index,
+                bone_index,
+                delta,
+            );
             if let Some(constraint) = &mut bone.constraint {
-                mutable_model_object_apply_change_object_index(&mut constraint.effector_bone_index, bone_index, delta);
+                mutable_model_object_apply_change_object_index(
+                    &mut constraint.effector_bone_index,
+                    bone_index,
+                    delta,
+                );
                 for joint in &mut constraint.joints {
-                    mutable_model_object_apply_change_object_index(&mut joint.bone_index, bone_index, delta);
+                    mutable_model_object_apply_change_object_index(
+                        &mut joint.bone_index,
+                        bone_index,
+                        delta,
+                    );
                 }
             }
         }
         for rigid_body in &mut self.rigid_bodies {
-            mutable_model_object_apply_change_object_index(&mut rigid_body.bone_index, bone_index, delta);
+            mutable_model_object_apply_change_object_index(
+                &mut rigid_body.bone_index,
+                bone_index,
+                delta,
+            );
         }
     }
 
@@ -515,11 +840,19 @@ impl Model {
             let mut morph = morph.borrow_mut();
             if let ModelMorphU::GROUPS(groups) = &mut morph.u {
                 for group in groups {
-                    mutable_model_object_apply_change_object_index(&mut group.morph_index, morph_index, delta);
+                    mutable_model_object_apply_change_object_index(
+                        &mut group.morph_index,
+                        morph_index,
+                        delta,
+                    );
                 }
             } else if let ModelMorphU::FLIPS(flips) = &mut morph.u {
                 for flip in flips {
-                    mutable_model_object_apply_change_object_index(&mut flip.morph_index, morph_index, delta);
+                    mutable_model_object_apply_change_object_index(
+                        &mut flip.morph_index,
+                        morph_index,
+                        delta,
+                    );
                 }
             }
         }
@@ -530,37 +863,76 @@ impl Model {
             let mut morph = morph.borrow_mut();
             if let ModelMorphU::IMPULSES(impulses) = &mut morph.u {
                 for impulse in impulses {
-                    mutable_model_object_apply_change_object_index(&mut impulse.rigid_body_index, rigid_body_index, delta);
+                    mutable_model_object_apply_change_object_index(
+                        &mut impulse.rigid_body_index,
+                        rigid_body_index,
+                        delta,
+                    );
                 }
             }
         }
         for joint in &mut self.joints {
-            mutable_model_object_apply_change_object_index(&mut joint.rigid_body_a_index, rigid_body_index, delta);
-            mutable_model_object_apply_change_object_index(&mut joint.rigid_body_b_index, rigid_body_index, delta);
+            mutable_model_object_apply_change_object_index(
+                &mut joint.rigid_body_a_index,
+                rigid_body_index,
+                delta,
+            );
+            mutable_model_object_apply_change_object_index(
+                &mut joint.rigid_body_b_index,
+                rigid_body_index,
+                delta,
+            );
         }
         for soft_body in &mut self.soft_bodies {
             for anchor in &mut soft_body.anchors {
-                mutable_model_object_apply_change_object_index(&mut anchor.rigid_body_index, rigid_body_index, delta);
+                mutable_model_object_apply_change_object_index(
+                    &mut anchor.rigid_body_index,
+                    rigid_body_index,
+                    delta,
+                );
             }
         }
     }
 
     fn texture_apply_change_all_object_indices(&mut self, texture_index: i32, delta: i32) {
         for material in &mut self.materials {
-            mutable_model_object_apply_change_object_index(&mut material.diffuse_texture_index, texture_index, delta);
-            mutable_model_object_apply_change_object_index(&mut material.sphere_map_texture_index, texture_index, delta);
+            mutable_model_object_apply_change_object_index(
+                &mut material.diffuse_texture_index,
+                texture_index,
+                delta,
+            );
+            mutable_model_object_apply_change_object_index(
+                &mut material.sphere_map_texture_index,
+                texture_index,
+                delta,
+            );
             if !material.is_toon_shared {
-                mutable_model_object_apply_change_object_index(&mut material.toon_texture_index, texture_index, delta);
+                mutable_model_object_apply_change_object_index(
+                    &mut material.toon_texture_index,
+                    texture_index,
+                    delta,
+                );
             }
         }
     }
 }
 
+#[derive(Clone)]
 struct ModelObject {
     index: i32,
     user_data: Option<Rc<RefCell<UserData>>>,
 }
 
+impl Default for ModelObject {
+    fn default() -> Self {
+        Self {
+            index: -1,
+            user_data: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum ModelVertexType {
     UNKNOWN,
     BDEF1,
@@ -579,6 +951,19 @@ impl From<i32> for ModelVertexType {
             3 => Self::SDEF,
             4 => Self::QDEF,
             _ => Self::UNKNOWN,
+        }
+    }
+}
+
+impl From<ModelVertexType> for i32 {
+    fn from(value: ModelVertexType) -> Self {
+        match value {
+            ModelVertexType::UNKNOWN => -1,
+            ModelVertexType::BDEF1 => 0,
+            ModelVertexType::BDEF2 => 1,
+            ModelVertexType::BDEF4 => 2,
+            ModelVertexType::SDEF => 3,
+            ModelVertexType::QDEF => 4,
         }
     }
 }
@@ -681,9 +1066,80 @@ impl ModelVertex {
         vertex.edge_size = buffer.read_f32_little_endian()?;
         return Ok(vertex);
     }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        parent_model: &Model,
+    ) -> Result<(), Status> {
+        buffer.write_f32_3_little_endian(self.origin)?;
+        buffer.write_f32_3_little_endian(self.normal)?;
+        buffer.write_f32_2_little_endian(self.uv)?;
+        if parent_model.is_pmx() {
+            for i in 0..parent_model.info.additional_uv_size {
+                buffer.write_f32_4_little_endian(self.additional_uv[i as usize])?;
+            }
+            let size = parent_model.info.bone_index_size as usize;
+            match self.typ {
+                ModelVertexType::UNKNOWN => return Err(Status::ErrorModelVertexCorrupted),
+                ModelVertexType::BDEF1 => {
+                    buffer.write_byte(i32::from(self.typ) as u8)?;
+                    buffer.write_integer(self.bone_indices[0], size)?;
+                }
+                ModelVertexType::BDEF2 => {
+                    if self.bone_weights.0[0] > 0.9995f32 {
+                        buffer.write_byte(i32::from(ModelVertexType::BDEF1) as u8)?;
+                        buffer.write_integer(self.bone_indices[0], size)?;
+                    } else if self.bone_weights.0[0] < 0.0005f32 {
+                        buffer.write_byte(i32::from(ModelVertexType::BDEF1) as u8)?;
+                        buffer.write_integer(self.bone_indices[1], size)?;
+                    } else if self.bone_weights.0[1] > self.bone_weights.0[0] {
+                        buffer.write_byte(i32::from(self.typ) as u8)?;
+                        buffer.write_integer(self.bone_indices[1], size)?;
+                        buffer.write_integer(self.bone_indices[0], size)?;
+                        buffer.write_f32_little_endian(self.bone_weights.0[1])?;
+                    } else {
+                        buffer.write_byte(i32::from(self.typ) as u8)?;
+                        buffer.write_integer(self.bone_indices[0], size)?;
+                        buffer.write_integer(self.bone_indices[1], size)?;
+                        buffer.write_f32_little_endian(self.bone_weights.0[0])?;
+                    }
+                }
+                ModelVertexType::BDEF4 | ModelVertexType::QDEF => {
+                    buffer.write_byte(i32::from(self.typ) as u8)?;
+                    buffer.write_integer(self.bone_indices[0], size)?;
+                    buffer.write_integer(self.bone_indices[1], size)?;
+                    buffer.write_integer(self.bone_indices[2], size)?;
+                    buffer.write_integer(self.bone_indices[3], size)?;
+                    buffer.write_f32_4_little_endian(self.bone_weights)?;
+                }
+                ModelVertexType::SDEF => {
+                    buffer.write_byte(i32::from(self.typ) as u8)?;
+                    buffer.write_integer(self.bone_indices[0], size)?;
+                    buffer.write_integer(self.bone_indices[1], size)?;
+                    buffer.write_f32_little_endian(self.bone_weights.0[0])?;
+                    buffer.write_f32_3_little_endian(self.sdef_c)?;
+                    buffer.write_f32_3_little_endian(self.sdef_r0)?;
+                    buffer.write_f32_3_little_endian(self.sdef_r1)?;
+                }
+            }
+            buffer.write_f32_little_endian(self.edge_size)?;
+        } else {
+            let weight = if self.bone_weight_origin != 0 {
+                self.bone_weight_origin
+            } else {
+                (self.bone_weights.0[0] * 100f32) as u8
+            };
+            buffer.write_i16_little_endian(self.bone_indices[0] as i16)?;
+            buffer.write_i16_little_endian(self.bone_indices[1] as i16)?;
+            buffer.write_byte(weight)?;
+            buffer.write_byte(if self.edge_size != 0.0f32 { 0 } else { 1 })?;
+        }
+        Ok(())
+    }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct ModelMaterialFlags {
     is_culling_disabled: bool,
     is_casting_shadow_enabled: bool,
@@ -710,7 +1166,21 @@ impl ModelMaterialFlags {
     }
 }
 
-pub enum ModelMaterialSpheremapTextureType {
+impl From<ModelMaterialFlags> for u8 {
+    fn from(value: ModelMaterialFlags) -> Self {
+        (value.is_culling_disabled as u8) << 0
+            | (value.is_casting_shadow_enabled as u8) << 1
+            | (value.is_casting_shadow_map_enabled as u8) << 2
+            | (value.is_shadow_map_enabled as u8) << 3
+            | (value.is_edge_enabled as u8) << 4
+            | (value.is_vertex_color_enabled as u8) << 5
+            | (value.is_point_draw_enabled as u8) << 6
+            | (value.is_line_draw_enabled as u8) << 7
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ModelMaterialSphereMapTextureType {
     Unknown = -1,
     TypeNone,
     TypeMultiply,
@@ -718,13 +1188,13 @@ pub enum ModelMaterialSpheremapTextureType {
     TypeSubTexture,
 }
 
-impl Default for ModelMaterialSpheremapTextureType {
+impl Default for ModelMaterialSphereMapTextureType {
     fn default() -> Self {
         Self::Unknown
     }
 }
 
-impl From<i32> for ModelMaterialSpheremapTextureType {
+impl From<i32> for ModelMaterialSphereMapTextureType {
     fn from(v: i32) -> Self {
         match v {
             0 => Self::TypeNone,
@@ -732,6 +1202,18 @@ impl From<i32> for ModelMaterialSpheremapTextureType {
             2 => Self::TypeAdd,
             3 => Self::TypeSubTexture,
             _ => Self::Unknown,
+        }
+    }
+}
+
+impl From<ModelMaterialSphereMapTextureType> for u8 {
+    fn from(v: ModelMaterialSphereMapTextureType) -> Self {
+        match v {
+            ModelMaterialSphereMapTextureType::Unknown => u8::MAX,
+            ModelMaterialSphereMapTextureType::TypeNone => 0,
+            ModelMaterialSphereMapTextureType::TypeMultiply => 1,
+            ModelMaterialSphereMapTextureType::TypeAdd => 2,
+            ModelMaterialSphereMapTextureType::TypeSubTexture => 3,
         }
     }
 }
@@ -751,7 +1233,7 @@ pub struct ModelMaterial {
     diffuse_texture_index: i32,
     sphere_map_texture_index: i32,
     toon_texture_index: i32,
-    sphere_map_texture_type: ModelMaterialSpheremapTextureType,
+    sphere_map_texture_type: ModelMaterialSphereMapTextureType,
     is_toon_shared: bool,
     num_vertex_indices: usize,
     flags: ModelMaterialFlags,
@@ -784,7 +1266,7 @@ impl ModelMaterial {
             diffuse_texture_index: buffer.read_integer_nullable(texture_index_size.into())?,
             sphere_map_texture_index: buffer.read_integer_nullable(texture_index_size.into())?,
             toon_texture_index: i32::default(),
-            sphere_map_texture_type: ModelMaterialSpheremapTextureType::default(),
+            sphere_map_texture_type: ModelMaterialSphereMapTextureType::default(),
             is_toon_shared: bool::default(),
             num_vertex_indices: usize::default(),
             sphere_map_texture_sph: None,
@@ -801,18 +1283,18 @@ impl ModelMaterial {
         }
         let sphere_map_texture_type_raw = buffer.read_byte()?;
         let sphere_map_texture_type = if sphere_map_texture_type_raw == 0xffu8 {
-            ModelMaterialSpheremapTextureType::TypeNone
+            ModelMaterialSphereMapTextureType::TypeNone
         } else {
-            ModelMaterialSpheremapTextureType::from(sphere_map_texture_type_raw as i32)
+            ModelMaterialSphereMapTextureType::from(sphere_map_texture_type_raw as i32)
         };
         match sphere_map_texture_type {
-            ModelMaterialSpheremapTextureType::Unknown => {
+            ModelMaterialSphereMapTextureType::Unknown => {
                 error = Some(Status::ErrorModelMaterialCorrupted)
             }
-            ModelMaterialSpheremapTextureType::TypeNone
-            | ModelMaterialSpheremapTextureType::TypeMultiply
-            | ModelMaterialSpheremapTextureType::TypeAdd
-            | ModelMaterialSpheremapTextureType::TypeSubTexture => {
+            ModelMaterialSphereMapTextureType::TypeNone
+            | ModelMaterialSphereMapTextureType::TypeMultiply
+            | ModelMaterialSphereMapTextureType::TypeAdd
+            | ModelMaterialSphereMapTextureType::TypeSubTexture => {
                 material.sphere_map_texture_type = sphere_map_texture_type;
             }
         }
@@ -831,8 +1313,56 @@ impl ModelMaterial {
             Ok(material)
         }
     }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        parent_model: &Model,
+    ) -> Result<(), Status> {
+        if parent_model.is_pmx() {
+            let codec_type = parent_model.get_codec_type();
+            buffer.write_string(&self.name_ja, codec_type)?;
+            buffer.write_string(&self.name_en, codec_type)?;
+            buffer.write_f32_3_little_endian(self.diffuse_color)?;
+            buffer.write_f32_little_endian(self.diffuse_opacity)?;
+            buffer.write_f32_3_little_endian(self.specular_color)?;
+            buffer.write_f32_little_endian(self.specular_power)?;
+            buffer.write_f32_3_little_endian(self.ambient_color)?;
+            buffer.write_byte(self.flags.into())?;
+            buffer.write_f32_3_little_endian(self.edge_color)?;
+            buffer.write_f32_little_endian(self.edge_opacity)?;
+            buffer.write_f32_little_endian(self.edge_size)?;
+            let size = parent_model.info.texture_index_size as usize;
+            buffer.write_integer(self.diffuse_texture_index, size)?;
+            buffer.write_integer(self.sphere_map_texture_index, size)?;
+            buffer.write_byte(self.sphere_map_texture_type.into())?;
+            buffer.write_byte(self.is_toon_shared as u8)?;
+            buffer.write_integer(self.toon_texture_index, size)?;
+            buffer.write_string(&self.clob, codec_type)?;
+            buffer.write_i32_little_endian(self.num_vertex_indices as i32)?;
+        } else {
+            buffer.write_f32_3_little_endian(self.diffuse_color)?;
+            buffer.write_f32_little_endian(self.diffuse_opacity)?;
+            buffer.write_f32_3_little_endian(self.specular_color)?;
+            buffer.write_f32_little_endian(self.specular_power)?;
+            buffer.write_f32_3_little_endian(self.ambient_color)?;
+            buffer.write_byte(self.toon_texture_index as u8)?;
+            buffer.write_byte(self.flags.is_edge_enabled as u8)?;
+            buffer.write_i32_little_endian(self.num_vertex_indices as i32)?;
+            buffer.write_string(
+                &self
+                    .diffuse_texture
+                    .as_ref()
+                    .map(|t| &t.path)
+                    .unwrap_or(&"".to_string()),
+                CodecType::Sjis,
+            )?;
+        }
+        Ok(())
+    }
 }
 
+#[derive(Debug, Clone, Copy)]
 enum ModelBoneType {
     Rotatable,
     RotatableAndMovable,
@@ -846,7 +1376,30 @@ enum ModelBoneType {
     InherentOrientationEffector,
 }
 
-#[derive(Default)]
+impl Default for ModelBoneType {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+impl From<ModelBoneType> for u8 {
+    fn from(v: ModelBoneType) -> Self {
+        match v {
+            ModelBoneType::Rotatable => 0,
+            ModelBoneType::RotatableAndMovable => 1,
+            ModelBoneType::ConstraintEffector => 2,
+            ModelBoneType::Unknown => 3,
+            ModelBoneType::ConstraintJoint => 4,
+            ModelBoneType::InherentOrientationJoint => 5,
+            ModelBoneType::ConstraintRoot => 6,
+            ModelBoneType::Invisible => 7,
+            ModelBoneType::FixedAxis => 8,
+            ModelBoneType::InherentOrientationEffector => 9,
+        }
+    }
+}
+
+#[derive(Default, Clone, Copy)]
 struct ModelBoneFlags {
     has_destination_bone_index: bool,
     is_rotatable: bool,
@@ -901,6 +1454,24 @@ impl ModelBoneFlags {
     }
 }
 
+impl From<ModelBoneFlags> for u16 {
+    fn from(v: ModelBoneFlags) -> Self {
+        (v.has_destination_bone_index as u16)
+            | (v.is_rotatable as u16) << 1
+            | (v.is_movable as u16) << 2
+            | (v.is_visible as u16) << 3
+            | (v.is_user_handleable as u16) << 4
+            | (v.has_constraint as u16) << 5
+            | (v.has_local_inherent as u16) << 7
+            | (v.has_inherent_orientation as u16) << 8
+            | (v.has_inherent_orientation as u16) << 9
+            | (v.has_fixed_axis as u16) << 10
+            | (v.has_local_axes as u16) << 11
+            | (v.is_affected_by_physics_simulation as u16) << 12
+            | (v.has_external_parent_bone as u16) << 13
+    }
+}
+
 #[test]
 fn test_model_bone_flags_from_value() {
     let f = ModelBoneFlags::from_raw(33);
@@ -909,6 +1480,7 @@ fn test_model_bone_flags_from_value() {
     assert_eq!(false, f.has_inherent_translation);
 }
 
+#[derive(Default)]
 pub struct ModelBone {
     base: ModelObject,
     name_ja: String,
@@ -1003,12 +1575,117 @@ impl ModelBone {
         Ok(bone)
     }
 
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        parent_model: &Model,
+    ) -> Result<(), Status> {
+        if parent_model.is_pmx() {
+            let codec_type = parent_model.get_codec_type();
+            buffer.write_string(&self.name_ja, codec_type)?;
+            buffer.write_string(&self.name_en, codec_type)?;
+            buffer.write_f32_3_little_endian(self.origin)?;
+            let size = parent_model.info.bone_index_size as usize;
+            buffer.write_integer(self.parent_bone_index, size)?;
+            buffer.write_i32_little_endian(self.stage_index)?;
+            buffer.write_u16_little_endian(self.flags.into())?;
+            if self.flags.has_destination_bone_index {
+                buffer.write_integer(self.target_bone_index, size)?;
+            } else {
+                buffer.write_f32_3_little_endian(self.destination_origin)?;
+            }
+            if self.flags.has_inherent_translation || self.flags.has_inherent_orientation {
+                buffer.write_integer(self.parent_inherent_bone_index, size)?;
+                buffer.write_f32_little_endian(self.inherent_coefficient)?;
+            }
+            if self.flags.has_fixed_axis {
+                buffer.write_f32_3_little_endian(self.fixed_axis)?;
+            }
+            if self.flags.has_local_axes {
+                buffer.write_f32_3_little_endian(self.local_x_axis)?;
+                buffer.write_f32_3_little_endian(self.local_z_axis)?;
+            }
+            if self.flags.has_external_parent_bone {
+                buffer.write_i32_little_endian(self.global_bone_index)?;
+            }
+            if self.flags.has_constraint {
+                if let Some(constraint) = &self.constraint {
+                    constraint.save_to_buffer(buffer, parent_model)?;
+                }
+            }
+        } else {
+            buffer.write_string(&self.name_ja, CodecType::Sjis)?;
+            buffer.write_i16_little_endian(self.parent_bone_index as i16)?;
+            buffer.write_i16_little_endian(self.target_bone_index as i16)?;
+            buffer.write_byte(self.typ.into())?;
+            buffer.write_i16_little_endian(self.effector_bone_index as i16)?;
+            buffer.write_f32_3_little_endian(self.origin)?;
+        }
+        Ok(())
+    }
+
     pub fn get_name(&self, language: LanguageType) -> Option<&String> {
         match language {
             LanguageType::Unknown => None,
             LanguageType::Japanese => Some(&self.name_ja),
             LanguageType::English => Some(&self.name_en),
         }
+    }
+
+    pub fn set_name(&mut self, value: &String, language: LanguageType) {
+        match language {
+            LanguageType::Unknown => {}
+            LanguageType::Japanese => self.name_ja = value.clone(),
+            LanguageType::English => self.name_en = value.clone(),
+        }
+    }
+
+    pub fn set_visible(&mut self, value: bool) {
+        self.flags.is_visible = value;
+    }
+
+    pub fn set_movable(&mut self, value: bool) {
+        self.flags.is_movable = value;
+    }
+
+    pub fn set_rotatable(&mut self, value: bool) {
+        self.flags.is_rotatable = value;
+    }
+
+    pub fn set_user_handleable(&mut self, value: bool) {
+        self.flags.is_user_handleable = value;
+    }
+
+    pub fn set_constraint_enabled(&mut self, value: bool) {
+        self.flags.has_constraint = value;
+    }
+
+    pub fn set_local_inherent_enabled(&mut self, value: bool) {
+        self.flags.has_local_inherent = value;
+    }
+
+    pub fn set_inherent_translation_enabled(&mut self, value: bool) {
+        self.flags.has_inherent_translation = value;
+    }
+
+    pub fn set_inherent_orientation_enabled(&mut self, value: bool) {
+        self.flags.has_inherent_orientation = value;
+    }
+
+    pub fn set_fixed_axis_enabled(&mut self, value: bool) {
+        self.flags.has_fixed_axis = value;
+    }
+
+    pub fn set_local_axes_enabled(&mut self, value: bool) {
+        self.flags.has_local_axes = value;
+    }
+
+    pub fn set_affected_by_physics_simulation(&mut self, value: bool) {
+        self.flags.is_affected_by_physics_simulation = value;
+    }
+
+    pub fn enable_extern_parent_bone(&mut self, value: bool) {
+        self.flags.has_external_parent_bone = value;
     }
 }
 
@@ -1018,6 +1695,30 @@ pub struct ModelConstraintJoint {
     has_angle_limit: bool,
     lower_limit: F128,
     upper_limit: F128,
+}
+
+impl ModelConstraintJoint {
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        parent_model: &Model,
+    ) -> Result<(), Status> {
+        if parent_model.is_pmx() {
+            let bone_index = parent_model
+                .get_one_bone_object(self.bone_index)
+                .map(|rc| rc.borrow().base.index)
+                .unwrap_or(-1);
+            buffer.write_integer(bone_index, parent_model.info.bone_index_size as usize)?;
+            buffer.write_byte(self.has_angle_limit as u8)?;
+            if self.has_angle_limit {
+                buffer.write_f32_3_little_endian(self.lower_limit)?;
+                buffer.write_f32_3_little_endian(self.upper_limit)?;
+            }
+        } else {
+            buffer.write_i16_little_endian(self.bone_index as i16)?;
+        }
+        Ok(())
+    }
 }
 
 pub struct ModelConstraint {
@@ -1063,6 +1764,32 @@ impl ModelConstraint {
         }
         Ok(constraint)
     }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        parent_model: &Model,
+    ) -> Result<(), Status> {
+        if parent_model.is_pmx() {
+            buffer.write_integer(
+                self.effector_bone_index,
+                parent_model.info.bone_index_size as usize,
+            )?;
+            buffer.write_i32_little_endian(self.num_iterations)?;
+            buffer.write_f32_little_endian(self.angle_limit)?;
+            buffer.write_i32_little_endian(self.joints.len() as i32)?;
+        } else {
+            buffer.write_i16_little_endian(self.target_bone_index as i16)?;
+            buffer.write_i16_little_endian(self.effector_bone_index as i16)?;
+            buffer.write_byte(self.joints.len() as u8)?;
+            buffer.write_u16_little_endian(self.num_iterations as u16)?;
+            buffer.write_f32_little_endian(self.angle_limit)?;
+        }
+        for joint in &self.joints {
+            joint.save_to_buffer(buffer, parent_model)?;
+        }
+        Ok(())
+    }
 }
 
 pub struct ModelMorphBone {
@@ -1093,6 +1820,17 @@ impl ModelMorphBone {
         }
         Ok(vec)
     }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        bone_index_size: usize,
+    ) -> Result<(), Status> {
+        buffer.write_integer(self.bone_index, bone_index_size)?;
+        buffer.write_f32_3_little_endian(self.translation)?;
+        buffer.write_f32_4_little_endian(self.orientation)?;
+        Ok(())
+    }
 }
 
 pub struct ModelMorphGroup {
@@ -1121,6 +1859,16 @@ impl ModelMorphGroup {
         }
         Ok(vec)
     }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        morph_index_size: usize,
+    ) -> Result<(), Status> {
+        buffer.write_integer(self.morph_index, morph_index_size)?;
+        buffer.write_f32_little_endian(self.weight)?;
+        Ok(())
+    }
 }
 
 pub struct ModelMorphFlip {
@@ -1148,6 +1896,16 @@ impl ModelMorphFlip {
             vec.push(item);
         }
         Ok(vec)
+    }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        morph_index_size: usize,
+    ) -> Result<(), Status> {
+        buffer.write_integer(self.morph_index, morph_index_size)?;
+        buffer.write_f32_little_endian(self.weight)?;
+        Ok(())
     }
 }
 
@@ -1181,8 +1939,21 @@ impl ModelMorphImpulse {
         }
         Ok(vec)
     }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        rigid_body_index_size: usize,
+    ) -> Result<(), Status> {
+        buffer.write_integer(self.rigid_body_index, rigid_body_index_size)?;
+        buffer.write_byte(self.is_local as u8)?;
+        buffer.write_f32_3_little_endian(self.velocity)?;
+        buffer.write_f32_3_little_endian(self.torque)?;
+        Ok(())
+    }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum ModelMorphMaterialOperationType {
     Unknown = -1,
     Multiply,
@@ -1195,6 +1966,16 @@ impl From<u8> for ModelMorphMaterialOperationType {
             0 => ModelMorphMaterialOperationType::Multiply,
             1 => ModelMorphMaterialOperationType::Add,
             _ => ModelMorphMaterialOperationType::Unknown,
+        }
+    }
+}
+
+impl From<ModelMorphMaterialOperationType> for u8 {
+    fn from(v: ModelMorphMaterialOperationType) -> Self {
+        match v {
+            ModelMorphMaterialOperationType::Unknown => Self::MAX,
+            ModelMorphMaterialOperationType::Multiply => 0,
+            ModelMorphMaterialOperationType::Add => 1,
         }
     }
 }
@@ -1247,6 +2028,27 @@ impl ModelMorphMaterial {
         }
         Ok(vec)
     }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        material_index_size: usize,
+    ) -> Result<(), Status> {
+        buffer.write_integer(self.material_index, material_index_size)?;
+        buffer.write_byte(self.operation.into())?;
+        buffer.write_f32_3_little_endian(self.diffuse_color)?;
+        buffer.write_f32_little_endian(self.diffuse_opacity)?;
+        buffer.write_f32_3_little_endian(self.specular_color)?;
+        buffer.write_f32_little_endian(self.specular_power)?;
+        buffer.write_f32_3_little_endian(self.ambient_color)?;
+        buffer.write_f32_3_little_endian(self.edge_color)?;
+        buffer.write_f32_little_endian(self.edge_opacity)?;
+        buffer.write_f32_little_endian(self.edge_size)?;
+        buffer.write_f32_4_little_endian(self.diffuse_texture_blend)?;
+        buffer.write_f32_4_little_endian(self.sphere_map_texture_blend)?;
+        buffer.write_f32_4_little_endian(self.toon_texture_blend)?;
+        Ok(())
+    }
 }
 
 pub struct ModelMorphUv {
@@ -1274,6 +2076,16 @@ impl ModelMorphUv {
             vec.push(item);
         }
         Ok(vec)
+    }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        vertex_index_size: usize,
+    ) -> Result<(), Status> {
+        buffer.write_integer(self.vertex_index, vertex_index_size)?;
+        buffer.write_f32_4_little_endian(self.position)?;
+        Ok(())
     }
 }
 
@@ -1305,6 +2117,16 @@ impl ModelMorphVertex {
         }
         Ok(vec)
     }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        vertex_index_size: usize,
+    ) -> Result<(), Status> {
+        buffer.write_integer(self.vertex_index, vertex_index_size)?;
+        buffer.write_f32_3_little_endian(self.position)?;
+        Ok(())
+    }
 }
 
 pub enum ModelMorphU {
@@ -1317,6 +2139,21 @@ pub enum ModelMorphU {
     IMPULSES(Vec<ModelMorphImpulse>),
 }
 
+impl ModelMorphU {
+    pub fn len(&self) -> usize {
+        match self {
+            ModelMorphU::GROUPS(o) => o.len(),
+            ModelMorphU::VERTICES(o) => o.len(),
+            ModelMorphU::BONES(o) => o.len(),
+            ModelMorphU::UVS(o) => o.len(),
+            ModelMorphU::MATERIALS(o) => o.len(),
+            ModelMorphU::FLIPS(o) => o.len(),
+            ModelMorphU::IMPULSES(o) => o.len(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum ModelMorphCategory {
     Unknown = -1,
     Base,
@@ -1339,6 +2176,20 @@ impl From<u8> for ModelMorphCategory {
     }
 }
 
+impl From<ModelMorphCategory> for u8 {
+    fn from(v: ModelMorphCategory) -> Self {
+        match v {
+            ModelMorphCategory::Unknown => u8::MAX,
+            ModelMorphCategory::Base => 0,
+            ModelMorphCategory::Eyebrow => 1,
+            ModelMorphCategory::Eye => 2,
+            ModelMorphCategory::Lip => 3,
+            ModelMorphCategory::Other => 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum ModelMorphType {
     Unknown = -1,
     Group,
@@ -1369,6 +2220,25 @@ impl From<u8> for ModelMorphType {
             9 => ModelMorphType::Flip,
             10 => ModelMorphType::Impulse,
             _ => ModelMorphType::Unknown,
+        }
+    }
+}
+
+impl From<ModelMorphType> for u8 {
+    fn from(v: ModelMorphType) -> Self {
+        match v {
+            ModelMorphType::Unknown => u8::MAX,
+            ModelMorphType::Group => 0,
+            ModelMorphType::Vertex => 1,
+            ModelMorphType::Bone => 2,
+            ModelMorphType::Texture => 3,
+            ModelMorphType::Uva1 => 4,
+            ModelMorphType::Uva2 => 5,
+            ModelMorphType::Uva3 => 6,
+            ModelMorphType::Uva4 => 7,
+            ModelMorphType::Material => 8,
+            ModelMorphType::Flip => 9,
+            ModelMorphType::Impulse => 10,
         }
     }
 }
@@ -1446,8 +2316,124 @@ impl ModelMorph {
         }
         Ok(morph)
     }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        parent_model: &Model,
+    ) -> Result<(), Status> {
+        if parent_model.is_pmx() {
+            let codec_type = parent_model.get_codec_type();
+            buffer.write_string(&self.name_ja, codec_type)?;
+            buffer.write_string(&self.name_en, codec_type)?;
+            buffer.write_byte(self.category.into())?;
+            buffer.write_byte(self.typ.into())?;
+            buffer.write_i32_little_endian(self.u.len() as i32)?;
+            match self.typ {
+                ModelMorphType::Unknown => return Err(Status::ErrorModelMorphCorrupted),
+                ModelMorphType::Group => {
+                    if let ModelMorphU::GROUPS(groups) = &self.u {
+                        for group in groups {
+                            group.save_to_buffer(
+                                buffer,
+                                parent_model.info.morph_index_size as usize,
+                            )?;
+                        }
+                    }
+                }
+                ModelMorphType::Vertex => {
+                    if let ModelMorphU::VERTICES(vertices) = &self.u {
+                        for vertex in vertices {
+                            vertex.save_to_buffer(
+                                buffer,
+                                parent_model.info.vertex_index_size as usize,
+                            )?;
+                        }
+                    }
+                }
+                ModelMorphType::Bone => {
+                    if let ModelMorphU::BONES(bones) = &self.u {
+                        for bone in bones {
+                            bone.save_to_buffer(
+                                buffer,
+                                parent_model.info.bone_index_size as usize,
+                            )?;
+                        }
+                    }
+                }
+                ModelMorphType::Texture
+                | ModelMorphType::Uva1
+                | ModelMorphType::Uva2
+                | ModelMorphType::Uva3
+                | ModelMorphType::Uva4 => {
+                    if let ModelMorphU::UVS(uvs) = &self.u {
+                        for uv in uvs {
+                            uv.save_to_buffer(
+                                buffer,
+                                parent_model.info.vertex_index_size as usize,
+                            )?;
+                        }
+                    }
+                }
+                ModelMorphType::Material => {
+                    if let ModelMorphU::MATERIALS(materials) = &self.u {
+                        for material in materials {
+                            material.save_to_buffer(
+                                buffer,
+                                parent_model.info.material_index_size as usize,
+                            )?;
+                        }
+                    }
+                }
+                ModelMorphType::Flip => {
+                    if let ModelMorphU::FLIPS(flips) = &self.u {
+                        for flip in flips {
+                            flip.save_to_buffer(
+                                buffer,
+                                parent_model.info.morph_index_size as usize,
+                            )?;
+                        }
+                    }
+                }
+                ModelMorphType::Impulse => {
+                    if let ModelMorphU::IMPULSES(impulses) = &self.u {
+                        for impulse in impulses {
+                            impulse.save_to_buffer(
+                                buffer,
+                                parent_model.info.rigid_body_index_size as usize,
+                            )?;
+                        }
+                    }
+                }
+            }
+        } else {
+            buffer.write_string(&self.name_ja, CodecType::Sjis)?;
+            buffer.write_i32_little_endian(self.u.len() as i32)?;
+            buffer.write_byte(self.category.into())?;
+            match self.category {
+                ModelMorphCategory::Base => {
+                    if let ModelMorphU::VERTICES(vertices) = &self.u {
+                        for vertex in vertices {
+                            buffer.write_i32_little_endian(vertex.vertex_index)?;
+                            buffer.write_f32_3_little_endian(vertex.position)?;
+                        }
+                    }
+                },
+                _ => {
+                    if let ModelMorphU::VERTICES(vertices) = &self.u {
+                        for vertex in vertices {
+                            buffer.write_i32_little_endian(vertex.relative_index)?;
+                            buffer.write_f32_3_little_endian(vertex.position)?;
+                        }
+                    }
+                },
+            }
+        }
+        Ok(())
+    }
 }
 
+#[derive(Clone)]
 enum ModelLabelItemType {
     Unknown = -1,
     Bone,
@@ -1464,18 +2450,41 @@ impl From<u8> for ModelLabelItemType {
     }
 }
 
-/// TODO: need option really?
-enum ModelLabelItemU {
-    BONE(Option<Weak<RefCell<ModelBone>>>),
-    MORPH(Option<Weak<RefCell<ModelMorph>>>),
+impl From<ModelLabelItemType> for u8 {
+    fn from(v: ModelLabelItemType) -> Self {
+        match v {
+            ModelLabelItemType::Unknown => Self::MAX,
+            ModelLabelItemType::Bone => 0,
+            ModelLabelItemType::Morph => 1,
+        }
+    }
 }
 
+/// TODO: need option really?
+#[derive(Clone)]
+enum ModelLabelItemU {
+    BONE(Weak<RefCell<ModelBone>>),
+    MORPH(Weak<RefCell<ModelMorph>>),
+}
+
+#[derive(Clone)]
 pub struct ModelLabelItem {
     base: ModelObject,
     typ: ModelLabelItemType,
     u: ModelLabelItemU,
 }
 
+impl ModelLabelItem {
+    pub fn create_from_bone_object(bone: Rc<RefCell<ModelBone>>) -> Self {
+        Self {
+            base: ModelObject::default(),
+            typ: ModelLabelItemType::Bone,
+            u: ModelLabelItemU::BONE(Rc::downgrade(&bone)),
+        }
+    }
+}
+
+#[derive(Default, Clone)]
 pub struct ModelLabel {
     base: ModelObject,
     name_ja: String,
@@ -1502,37 +2511,114 @@ impl ModelLabel {
         for _ in 0..num_items {
             let item_type = ModelLabelItemType::from(buffer.read_byte()?);
             match item_type {
-                ModelLabelItemType::Bone => label.items.push(ModelLabelItem {
-                    base: ModelObject {
-                        index: -1,
-                        user_data: None,
-                    },
-                    typ: ModelLabelItemType::Bone,
-                    u: ModelLabelItemU::BONE(
-                        parent_model
-                            .get_one_bone_object(buffer.read_integer_nullable(bone_index_size)?)
-                            .map(|rc| Rc::downgrade(&rc)),
-                    ),
-                }),
-                ModelLabelItemType::Morph => label.items.push(ModelLabelItem {
-                    base: ModelObject {
-                        index: -1,
-                        user_data: None,
-                    },
-                    typ: ModelLabelItemType::Morph,
-                    u: ModelLabelItemU::MORPH(
-                        parent_model
-                            .get_one_morph_object(buffer.read_integer_nullable(morph_index_size)?)
-                            .map(|rc| Rc::downgrade(&rc)),
-                    ),
-                }),
+                ModelLabelItemType::Bone => {
+                    if let Some(bone) = parent_model
+                        .get_one_bone_object(buffer.read_integer_nullable(bone_index_size)?)
+                    {
+                        label.items.push(ModelLabelItem {
+                            base: ModelObject {
+                                index: -1,
+                                user_data: None,
+                            },
+                            typ: ModelLabelItemType::Bone,
+                            u: ModelLabelItemU::BONE(Rc::downgrade(&bone)),
+                        })
+                    } else {
+                        return Err(Status::ErrorModelLabelItemNotFound);
+                    }
+                }
+                ModelLabelItemType::Morph => {
+                    if let Some(morph) = parent_model
+                        .get_one_morph_object(buffer.read_integer_nullable(morph_index_size)?)
+                    {
+                        label.items.push(ModelLabelItem {
+                            base: ModelObject {
+                                index: -1,
+                                user_data: None,
+                            },
+                            typ: ModelLabelItemType::Morph,
+                            u: ModelLabelItemU::MORPH(Rc::downgrade(&morph)),
+                        })
+                    } else {
+                        return Err(Status::ErrorModelLabelItemNotFound);
+                    }
+                }
                 ModelLabelItemType::Unknown => return Err(Status::ErrorModelLabelCorrupted),
             }
         }
         Ok(label)
     }
+
+    fn save_to_buffer(&self, buffer: &mut MutableBuffer, parent_model: &Model) -> Result<(), Status> {
+        if parent_model.is_pmx() {
+            let codec_type = parent_model.get_codec_type();
+            buffer.write_string(&self.name_ja, codec_type)?;
+            buffer.write_string(&self.name_en, codec_type)?;
+            buffer.write_byte(self.is_special as u8)?;
+            buffer.write_i32_little_endian(self.items.len() as i32)?;
+            for item in &self.items {
+                match item.typ {
+                    ModelLabelItemType::Unknown => return Err(Status::ErrorModelLabelCorrupted),
+                    ModelLabelItemType::Bone => {
+                        if let ModelLabelItemU::BONE(bone) = &item.u {
+                            if let Some(bone) = &bone.upgrade() {
+                                buffer.write_byte(ModelLabelItemType::Bone.into())?;
+                                buffer.write_integer(bone.borrow().base.index, parent_model.info.bone_index_size as usize)?;
+                            } else {
+                                return Err(Status::ErrorModelLabelCorrupted)
+                            }
+                        } else {
+                            return Err(Status::ErrorModelLabelCorrupted)
+                        }
+                    },
+                    ModelLabelItemType::Morph => {
+                        if let ModelLabelItemU::MORPH(morph) = &item.u {
+                            if let Some(morph) = &morph.upgrade() {
+                                buffer.write_byte(ModelLabelItemType::Morph.into())?;
+                                buffer.write_integer(morph.borrow().base.index, parent_model.info.morph_index_size as usize)?;
+                            } else {
+                                return Err(Status::ErrorModelLabelCorrupted)
+                            }
+                        } else {
+                            return Err(Status::ErrorModelLabelCorrupted)
+                        }
+                    },
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn set_name(&mut self, value: &String, language: LanguageType) {
+        match language {
+            LanguageType::Unknown => (),
+            LanguageType::Japanese => self.name_ja = value.to_string(),
+            LanguageType::English => self.name_en = value.to_string(),
+        }
+    }
+
+    pub fn set_special(&mut self, value: bool) {
+        self.is_special = value;
+    }
+
+    /// Not consider Already Existing
+    pub fn insert_item_object(&mut self, item: &ModelLabelItem, mut index: i32) -> () {
+        if index >= 0 && (index as usize) < self.items.len() {
+            self.items.insert(index as usize, item.clone());
+            for item in &mut self.items[(index as usize) + 1..] {
+                item.base.index += 1;
+            }
+        } else {
+            index = self.items.len() as i32;
+            self.items.push(item.clone());
+        }
+        self.items
+            .get_mut(index as usize)
+            .map(|item| item.base.index = index);
+    }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum ModelRigidBodyShapeType {
     Unknown = -1,
     Sphere,
@@ -1551,6 +2637,18 @@ impl From<u8> for ModelRigidBodyShapeType {
     }
 }
 
+impl From<ModelRigidBodyShapeType> for u8 {
+    fn from(v: ModelRigidBodyShapeType) -> Self {
+        match v {
+            ModelRigidBodyShapeType::Unknown => Self::MAX,
+            ModelRigidBodyShapeType::Sphere => 0,
+            ModelRigidBodyShapeType::Box => 1,
+            ModelRigidBodyShapeType::Capsule => 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum ModelRigidBodyTransformType {
     Unknown = -1,
     FromBoneToSimulation,
@@ -1565,6 +2663,17 @@ impl From<u8> for ModelRigidBodyTransformType {
             1 => ModelRigidBodyTransformType::FromSimulationToBone,
             2 => ModelRigidBodyTransformType::FromBoneOrientationAndSimulationToBone,
             _ => ModelRigidBodyTransformType::Unknown,
+        }
+    }
+}
+
+impl From<ModelRigidBodyTransformType> for u8 {
+    fn from(v: ModelRigidBodyTransformType) -> Self {
+        match v {
+            ModelRigidBodyTransformType::Unknown => Self::MAX,
+            ModelRigidBodyTransformType::FromBoneToSimulation => 0,
+            ModelRigidBodyTransformType::FromSimulationToBone => 1,
+            ModelRigidBodyTransformType::FromBoneOrientationAndSimulationToBone => 2,
         }
     }
 }
@@ -1616,8 +2725,34 @@ impl ModelRigidBody {
         };
         Ok(rigid_body)
     }
+
+    fn save_to_buffer(&self, buffer: &mut MutableBuffer, parent_model: &Model) -> Result<(), Status> {
+        if parent_model.is_pmx() {
+            let codec_type = parent_model.get_codec_type();
+            buffer.write_string(&self.name_ja, codec_type)?;
+            buffer.write_string(&self.name_en, codec_type)?;
+            buffer.write_integer(self.bone_index, parent_model.info.bone_index_size as usize)?;
+        } else {
+            buffer.write_string(&self.name_ja, CodecType::Sjis)?;
+            buffer.write_i16_little_endian(self.bone_index as i16)?;
+        }
+        buffer.write_byte(self.collision_group_id as u8)?;
+        buffer.write_u16_little_endian(self.collision_mask as u16)?;
+        buffer.write_byte(self.shape_type.into())?;
+        buffer.write_f32_3_little_endian(self.size)?;
+        buffer.write_f32_3_little_endian(self.origin)?;
+        buffer.write_f32_3_little_endian(self.orientation)?;
+        buffer.write_f32_little_endian(self.mass)?;
+        buffer.write_f32_little_endian(self.linear_damping)?;
+        buffer.write_f32_little_endian(self.angular_damping)?;
+        buffer.write_f32_little_endian(self.restitution)?;
+        buffer.write_f32_little_endian(self.friction)?;
+        buffer.write_byte(self.transform_type.into())?;
+        Ok(())
+    }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum ModelJointType {
     Unknown = -1,
     Generic6dofSpringConstraint,
@@ -1638,6 +2773,20 @@ impl From<u8> for ModelJointType {
             4 => ModelJointType::SliderConstraint,
             5 => ModelJointType::HingeConstraint,
             _ => ModelJointType::Unknown,
+        }
+    }
+}
+
+impl From<ModelJointType> for u8 {
+    fn from(v: ModelJointType) -> Self {
+        match v {
+            ModelJointType::Unknown => Self::MAX,
+            ModelJointType::Generic6dofSpringConstraint => 0,
+            ModelJointType::Generic6dofConstraint => 1,
+            ModelJointType::Point2pointConstraint => 2,
+            ModelJointType::ConeTwistConstraint => 3,
+            ModelJointType::SliderConstraint => 4,
+            ModelJointType::HingeConstraint => 5,
         }
     }
 }
@@ -1683,8 +2832,34 @@ impl ModelJoint {
         };
         Ok(joint)
     }
+
+    fn save_to_buffer(&self, buffer: &mut MutableBuffer, parent_model: &Model) -> Result<(), Status> {
+        if parent_model.is_pmx() {
+            let codec_type = parent_model.get_codec_type();
+            let size = parent_model.info.rigid_body_index_size as usize;
+            buffer.write_string(&self.name_ja, codec_type)?;
+            buffer.write_string(&self.name_en, codec_type)?;
+            buffer.write_byte(self.typ.into())?;
+            buffer.write_integer(self.rigid_body_a_index, size)?;
+            buffer.write_integer(self.rigid_body_b_index, size)?;
+        } else {
+            buffer.write_string(&self.name_ja, CodecType::Sjis)?;
+            buffer.write_i32_little_endian(self.rigid_body_a_index)?;
+            buffer.write_i32_little_endian(self.rigid_body_b_index)?;
+        }
+        buffer.write_f32_3_little_endian(self.origin)?;
+        buffer.write_f32_3_little_endian(self.orientation)?;
+        buffer.write_f32_3_little_endian(self.linear_lower_limit)?;
+        buffer.write_f32_3_little_endian(self.linear_upper_limit)?;
+        buffer.write_f32_3_little_endian(self.angular_lower_limit)?;
+        buffer.write_f32_3_little_endian(self.angular_upper_limit)?;
+        buffer.write_f32_3_little_endian(self.linear_stiffness)?;
+        buffer.write_f32_3_little_endian(self.angular_stiffness)?;
+        Ok(())
+    }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum ModelSoftBodyShapeType {
     Unknown = -1,
     TriMesh,
@@ -1701,6 +2876,17 @@ impl From<u8> for ModelSoftBodyShapeType {
     }
 }
 
+impl From<ModelSoftBodyShapeType> for u8 {
+    fn from(v: ModelSoftBodyShapeType) -> Self {
+        match v {
+            ModelSoftBodyShapeType::Unknown => Self::MAX,
+            ModelSoftBodyShapeType::TriMesh => 0,
+            ModelSoftBodyShapeType::Rope => 1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum ModelSoftBodyAeroModelType {
     Unknown = -1,
     VertexPoint,
@@ -1719,6 +2905,19 @@ impl From<i32> for ModelSoftBodyAeroModelType {
             3 => ModelSoftBodyAeroModelType::FaceTwoSided,
             4 => ModelSoftBodyAeroModelType::FaceOneSided,
             _ => ModelSoftBodyAeroModelType::Unknown,
+        }
+    }
+}
+
+impl From<ModelSoftBodyAeroModelType> for i32 {
+    fn from(v: ModelSoftBodyAeroModelType) -> Self {
+        match v {
+            ModelSoftBodyAeroModelType::Unknown => -1,
+            ModelSoftBodyAeroModelType::VertexPoint => 0,
+            ModelSoftBodyAeroModelType::VertexTwoSided => 1,
+            ModelSoftBodyAeroModelType::VertexOneSided => 2,
+            ModelSoftBodyAeroModelType::FaceTwoSided => 3,
+            ModelSoftBodyAeroModelType::FaceOneSided => 4,
         }
     }
 }
@@ -1749,7 +2948,7 @@ pub struct ModelSoftBody {
     drag_coefficient: f32,
     lift_coefficient: f32,
     pressure_coefficient: f32,
-    volume_convenrsation_coefficient: f32,
+    volume_conversation_coefficient: f32,
     dynamic_friction_coefficient: f32,
     pose_matching_coefficient: f32,
     rigid_contact_hardness: f32,
@@ -1800,7 +2999,7 @@ impl ModelSoftBody {
             drag_coefficient: buffer.read_f32_little_endian()?,
             lift_coefficient: buffer.read_f32_little_endian()?,
             pressure_coefficient: buffer.read_f32_little_endian()?,
-            volume_convenrsation_coefficient: buffer.read_f32_little_endian()?,
+            volume_conversation_coefficient: buffer.read_f32_little_endian()?,
             dynamic_friction_coefficient: buffer.read_f32_little_endian()?,
             pose_matching_coefficient: buffer.read_f32_little_endian()?,
             rigid_contact_hardness: buffer.read_f32_little_endian()?,
@@ -1843,6 +3042,61 @@ impl ModelSoftBody {
         }
         Ok(soft_body)
     }
+
+    fn save_to_buffer(&self, buffer: &mut MutableBuffer, parent_model: &Model) -> Result<(), Status> {
+        let material_index_size = parent_model.info.material_index_size as usize;
+        let rigid_body_index_size = parent_model.info.rigid_body_index_size as usize;
+        let vertex_index_size = parent_model.info.vertex_index_size as usize;
+        let codec_type = parent_model.get_codec_type();
+        buffer.write_string(&self.name_ja, codec_type)?;
+        buffer.write_string(&self.name_en, codec_type)?;
+        buffer.write_byte(self.shape_type.into())?;
+        buffer.write_integer(self.material_index, material_index_size)?;
+        buffer.write_byte(self.collision_group_id as u8)?;
+        buffer.write_u16_little_endian(self.collision_mask as u16)?;
+        buffer.write_byte(self.flags)?;
+        buffer.write_i32_little_endian(self.bending_constraints_distance)?;
+        buffer.write_i32_little_endian(self.cluster_count)?;
+        buffer.write_f32_little_endian(self.total_mass)?;
+        buffer.write_f32_little_endian(self.collision_margin)?;
+        buffer.write_i32_little_endian(self.aero_model.into())?;
+        buffer.write_f32_little_endian(self.velocity_correction_factor)?;
+        buffer.write_f32_little_endian(self.damping_coefficient)?;
+        buffer.write_f32_little_endian(self.drag_coefficient)?;
+        buffer.write_f32_little_endian(self.lift_coefficient)?;
+        buffer.write_f32_little_endian(self.pressure_coefficient)?;
+        buffer.write_f32_little_endian(self.volume_conversation_coefficient)?;
+        buffer.write_f32_little_endian(self.dynamic_friction_coefficient)?;
+        buffer.write_f32_little_endian(self.pose_matching_coefficient)?;
+        buffer.write_f32_little_endian(self.rigid_contact_hardness)?;
+        buffer.write_f32_little_endian(self.kinetic_contact_hardness)?;
+        buffer.write_f32_little_endian(self.soft_contact_hardness)?;
+        buffer.write_f32_little_endian(self.anchor_hardness)?;
+        buffer.write_f32_little_endian(self.soft_vs_rigid_hardness)?;
+        buffer.write_f32_little_endian(self.soft_vs_kinetic_hardness)?;
+        buffer.write_f32_little_endian(self.soft_vs_soft_hardness)?;
+        buffer.write_f32_little_endian(self.soft_vs_rigid_impulse_split)?;
+        buffer.write_f32_little_endian(self.soft_vs_kinetic_impulse_split)?;
+        buffer.write_f32_little_endian(self.soft_vs_soft_impulse_split)?;
+        buffer.write_i32_little_endian(self.velocity_solver_iterations)?;
+        buffer.write_i32_little_endian(self.positions_solver_iterations)?;
+        buffer.write_i32_little_endian(self.drift_solver_iterations)?;
+        buffer.write_i32_little_endian(self.cluster_solver_iterations)?;
+        buffer.write_f32_little_endian(self.linear_stiffness_coefficient)?;
+        buffer.write_f32_little_endian(self.angular_stiffness_coefficient)?;
+        buffer.write_f32_little_endian(self.volume_stiffness_coefficient)?;
+        buffer.write_i32_little_endian(self.anchors.len() as i32)?;
+        for anchor in &self.anchors {
+            buffer.write_integer(anchor.rigid_body_index, rigid_body_index_size)?;
+            buffer.write_integer(anchor.vertex_index, vertex_index_size)?;
+            buffer.write_byte(anchor.is_near_enabled as u8)?;
+        }
+        buffer.write_i32_little_endian(self.pinned_vertex_indices.len() as i32)?;
+        for pinned_vertex_index in &self.pinned_vertex_indices {
+            buffer.write_integer(pinned_vertex_index.clone() as i32, vertex_index_size)?;
+        }
+        Ok(())
+    }
 }
 
 pub struct ModelTexture {
@@ -1860,6 +3114,15 @@ impl ModelTexture {
             path: parent_model.get_string_pmx(buffer)?,
         })
     }
+
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        parent_model: &Model,
+    ) -> Result<(), Status> {
+        let codec_type = parent_model.get_codec_type();
+        buffer.write_string(&self.path, codec_type)
+    }
 }
 
 #[test]
@@ -1867,7 +3130,16 @@ fn test_read_pmx_resource() -> Result<(), Box<dyn std::error::Error + 'static>> 
     let mut model = Model {
         version: 0f32,
         info_length: 0,
-        info: Info { codec_type: 0, additional_uv_size: 0, vertex_index_size: 0, texture_index_size: 0, material_index_size: 0, bone_index_size: 0, morph_index_size: 0, rigid_body_index_size: 0 },
+        info: Info {
+            codec_type: 0,
+            additional_uv_size: 0,
+            vertex_index_size: 0,
+            texture_index_size: 0,
+            material_index_size: 0,
+            bone_index_size: 0,
+            morph_index_size: 0,
+            rigid_body_index_size: 0,
+        },
         name_ja: String::default(),
         name_en: String::default(),
         comment_ja: String::default(),

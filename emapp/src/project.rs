@@ -13,7 +13,7 @@ use crate::{
     background_video_renderer::BackgroundVideoRenderer,
     camera::PerspectiveCamera,
     debug_capture::DebugCapture,
-    effect::{common::RenderPassScope, global_uniform::GlobalUniform},
+    effect::{common::RenderPassScope, global_uniform::GlobalUniform, Effect, self},
     error::Error,
     event_publisher::EventPublisher,
     file_manager::FileManager,
@@ -91,11 +91,19 @@ pub struct RenderPassBundle {
 
 }
 
+pub struct SharedRenderTargetImageContainer {
+
+}
+
 struct Pass {
 
 }
 
 struct FpsUnit {
+
+}
+
+struct OffscreenRenderTargetCondition {
 
 }
 
@@ -126,7 +134,7 @@ pub struct Project<'a> {
     all_models: Vec<Rc<RefCell<Model>>>,
     all_accessories: Vec<Rc<RefCell<Accessory>>>,
     all_motions: Vec<Rc<RefCell<Motion>>>,
-    // TODO: MotionHashMap m_drawable2MotionPtrs
+    drawable_to_motion_ptrs: HashMap<Rc<RefCell<dyn Drawable>>, Rc<RefCell<Motion>>>,
     all_traces: Vec<Rc<RefCell<dyn Track>>>,
     selected_track: Option<Rc<RefCell<dyn Track>>>,
     last_save_state: Option<SaveState>,
@@ -145,13 +153,13 @@ pub struct Project<'a> {
     draw_type: DrawType,
     file_uri: (Uri, file_utils::TransientPath),
     redo_file_uri: Uri,
-    // TODO: OffscreenRenderTargetDrawableSet m_drawablesToAttachOffscreenRenderTargetEffect;
+    drawables_to_attach_offscreen_render_target_effect: (String, HashSet<Rc<RefCell<dyn Drawable>>>),
     current_render_pass: Option<Rc<RenderPass<'a>>>,
     last_drawn_render_pass: Option<Rc<RenderPass<'a>>>,
     current_offscreen_render_pass: Option<Rc<RenderPass<'a>>>,
     origin_offscreen_render_pass: Option<Rc<RenderPass<'a>>>,
     script_external_render_pass: Option<Rc<RenderPass<'a>>>,
-    // TODO: SharedRenderTargetImageContainerMap m_sharedRenderTargetImageContainers;
+    shared_render_target_image_containers: HashMap<String, SharedRenderTargetImageContainer>,
     editing_mode: EditingMode,
     file_path_mode: FilePathMode,
     playing_segment: TimeLineSegment,
@@ -169,8 +177,7 @@ pub struct Project<'a> {
     viewport_image_size: Vector2<u16>,
     viewport_padding: Vector2<u16>,
     viewport_background_color: Vector4<u8>,
-    // TODO: OffscreenRenderTargetConditionListMap m_allOffscreenRenderTargets;
-    // TODO: OffscreenRenderTargetEffectSetMap m_allOffscreenRenderTargetEffectSets;
+    all_offscreen_render_targets: HashMap<Rc<RefCell<Effect>>, HashMap<String, Vec<OffscreenRenderTargetCondition>>>,
     fallback_image: Texture,
     // TODO: bx::HandleAlloc *m_objectHandleAllocator;
     accessory_handle_map: HashMap<u16, Rc<RefCell<Accessory>>>,
@@ -191,9 +198,9 @@ pub struct Project<'a> {
     camera_interpolation_type: i32,
     model_clipboard: Vec<u8>,
     motion_clipboard: Vec<u8>,
-    // EffectOrderSet m_effectOrderSet;
-    // EffectReferenceMap m_effectReferences;
-    // LoadedEffectSet m_loadedEffectSet;
+    effect_order_set: HashMap<effect::ScriptOrderType, HashSet<Rc<RefCell<dyn Drawable>>>>,
+    effect_references: HashMap<String, (Rc<RefCell<Effect>>, i32)>,
+    loaded_effect_set: HashSet<Rc<RefCell<Effect>>>,
     depends_on_script_external: Vec<Rc<RefCell<dyn Drawable>>>,
     transform_performed_at: (u32, i32),
     indices_of_material_to_attach_effect: (u16, HashSet<usize>),
@@ -213,4 +220,50 @@ pub struct Project<'a> {
     actual_fps: u32,
     actual_sequence: u32,
     active: bool,
+}
+
+impl Project<'_> {
+    pub const MINIMUM_BASE_DURATION: u32 = 300;
+    pub const MAXIMUM_BASE_DURATION: u32 = i32::MAX as u32;
+
+    pub fn set_transform_performed_at(&mut self, value: (u32, i32)) {
+        self.transform_performed_at = value
+    }
+
+    pub fn reset_transform_performed_at(&mut self) {
+        self.set_transform_performed_at((Motion::MAX_KEYFRAME_INDEX, 0))
+    }
+
+    pub fn duration(&self, base_duration: u32) -> u32 {
+        let mut duration = base_duration.clamp(Self::MINIMUM_BASE_DURATION, Self::MAXIMUM_BASE_DURATION);
+        if let Ok(motion) = self.camera_motion.try_borrow() {
+            duration = duration.max(motion.duration())
+        }
+        if let Ok(motion) = self.light_motion.try_borrow() {
+            duration = duration.max(motion.duration())
+        }
+        for motion in self.drawable_to_motion_ptrs.values() {
+            if let Ok(motion) = motion.try_borrow() {
+                duration = duration.max(motion.duration())
+            }
+        }
+        duration
+    }
+
+    pub fn project_duration(&self) -> u32 {
+        self.duration(self.base_duration)
+    }
+
+    pub fn find_model_by_name(&self, name: &String) -> Option<Rc<RefCell<Model>>> {
+        self.transform_model_order_list.iter().find(|rc| rc.borrow().get_name() == name || rc.borrow().get_canonical_name() == name).map(|rc| rc.clone())
+    }
+
+    pub fn resolve_bone(&self, value: &(String, String)) -> Option<Rc<RefCell<nanoem::model::ModelBone>>> {
+        if let Some(model) = self.find_model_by_name(&value.0) {
+            return  model.borrow().find_bone(&value.1)
+        }
+        None
+    }
+
+    // pub fn create_camera()
 }
