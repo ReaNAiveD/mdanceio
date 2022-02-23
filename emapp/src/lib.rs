@@ -34,6 +34,7 @@ mod time_line_segment;
 mod forward;
 mod model_object_selection;
 mod bounding_box;
+mod pass;
 
 #[cfg(test)]
 mod tests {

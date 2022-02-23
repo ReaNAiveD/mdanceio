@@ -1,19 +1,26 @@
 use std::{
-    cell::{RefCell, Ref},
+    cell::{RefCell},
     collections::{HashMap, HashSet},
     rc::Rc,
 };
 
-use cgmath::{Matrix4, Quaternion, SquareMatrix, Vector3, Vector4};
-use nanoem::model::{ModelConstraint, ModelMaterial, ModelVertex, ModelFormatType};
+use cgmath::{Matrix4, Quaternion, Vector3, Vector4};
+use nanoem::model::{ModelFormatType};
 use par::shape::ShapesMesh;
-use wgpu::{AddressMode, Buffer, PipelineLayoutDescriptor};
+use wgpu::{AddressMode, Buffer};
 
 use crate::{
     bounding_box::BoundingBox, camera::Camera, drawable::DrawType, effect::IEffect,
     forward::LineVertexUnit, image_loader::Image, internal::LinearDrawer,
-    model_object_selection::ModelObjectSelection, undo::UndoStack, uri::Uri, project::Project,
+    model_object_selection::ModelObjectSelection, project::Project, undo::UndoStack, uri::Uri, pass,
 };
+
+type NanoemModel = nanoem::model::Model<(), Material, (), (), (), (), (), (), ()>;
+type NanoemBone = nanoem::model::ModelBone<(), ()>;
+type NanoemMaterial = nanoem::model::ModelMaterial<Material>;
+type NanoemMorph = nanoem::model::ModelMorph<()>;
+type NanoemConstraint = nanoem::model::ModelConstraint<()>;
+type NanoemRigidBody = nanoem::model::ModelRigidBody<()>;
 
 pub trait SkinDeformer {
     // TODO
@@ -101,10 +108,10 @@ pub struct ExportDescription {
 struct ParallelSkinningTaskData {
     draw_type: DrawType,
     edge_size_scale_factor: f32,
-    bone_indices: HashMap<Rc<RefCell<ModelMaterial>>, HashMap<i32, i32>>,
+    bone_indices: HashMap<Rc<RefCell<NanoemMaterial>>, HashMap<i32, i32>>,
     output: u8,
-    materials: Rc<RefCell<[ModelMaterial]>>,
-    vertices: Rc<RefCell<[ModelVertex]>>,
+    materials: Rc<RefCell<[NanoemMaterial]>>,
+    vertices: Rc<RefCell<[NanoemMaterial]>>,
     num_vertices: usize,
 }
 
@@ -142,43 +149,34 @@ pub struct Model {
     draw_all_vertex_weights: DrawIndexedBuffer,
     draw_rigid_body: HashMap<Rc<RefCell<ShapesMesh>>, DrawIndexedBuffer>,
     draw_joint: HashMap<Rc<RefCell<ShapesMesh>>, DrawIndexedBuffer>,
-    opaque: Rc<RefCell<nanoem::model::Model>>,
+    opaque: Rc<RefCell<NanoemModel>>,
     undo_stack: Box<UndoStack>,
     editing_undo_stack: Box<UndoStack>,
-    active_morph_ptr:
-        HashMap<nanoem::model::ModelMorphCategory, Rc<RefCell<nanoem::model::ModelMorph>>>,
-    active_constraint_ptr: Rc<RefCell<nanoem::model::ModelConstraint>>,
-    active_material_ptr: Rc<RefCell<nanoem::model::ModelMaterial>>,
-    hovered_bone_ptr: Rc<RefCell<nanoem::model::ModelBone>>,
+    active_morph_ptr: HashMap<nanoem::model::ModelMorphCategory, Rc<RefCell<NanoemMorph>>>,
+    active_constraint_ptr: Rc<RefCell<NanoemConstraint>>,
+    active_material_ptr: Rc<RefCell<NanoemMaterial>>,
+    hovered_bone_ptr: Rc<RefCell<NanoemBone>>,
     vertex_buffer_data: Vec<u8>,
     face_states: Vec<u32>,
-    active_bone_pair_ptr: (
-        Rc<RefCell<nanoem::model::ModelBone>>,
-        Rc<RefCell<nanoem::model::ModelBone>>,
-    ),
+    active_bone_pair_ptr: (Rc<RefCell<NanoemBone>>, Rc<RefCell<NanoemBone>>),
     active_effect_pair_ptr: (Rc<RefCell<dyn IEffect>>, Rc<RefCell<dyn IEffect>>),
     screen_image: Image,
     loading_image_items: Vec<LoadingImageItem>,
     image_map: HashMap<String, Image>,
-    bone_index_hash_map: HashMap<Rc<RefCell<nanoem::model::ModelMaterial>>, HashMap<i32, i32>>,
-    bones: HashMap<String, Rc<RefCell<nanoem::model::ModelBone>>>,
-    morphs: HashMap<String, Rc<RefCell<nanoem::model::ModelMorph>>>,
-    constraints:
-        HashMap<Rc<RefCell<nanoem::model::ModelBone>>, Rc<RefCell<nanoem::model::ModelConstraint>>>,
+    bone_index_hash_map: HashMap<Rc<RefCell<NanoemMaterial>>, HashMap<i32, i32>>,
+    bones: HashMap<String, Rc<RefCell<NanoemBone>>>,
+    morphs: HashMap<String, Rc<RefCell<NanoemMorph>>>,
+    constraints: HashMap<Rc<RefCell<NanoemBone>>, Rc<RefCell<NanoemConstraint>>>,
     redo_bone_names: Vec<String>,
     redo_morph_names: Vec<String>,
-    outside_parents: HashMap<Rc<RefCell<nanoem::model::ModelBone>>, (String, String)>,
+    outside_parents: HashMap<Rc<RefCell<NanoemBone>>, (String, String)>,
     image_uris: HashMap<String, Uri>,
     attachment_uris: HashMap<String, Uri>,
-    bone_bound_rigid_bodies:
-        HashMap<Rc<RefCell<nanoem::model::ModelBone>>, Rc<RefCell<nanoem::model::ModelRigidBody>>>,
-    constraint_joint_bones:
-        HashMap<Rc<RefCell<nanoem::model::ModelBone>>, Rc<RefCell<ModelConstraint>>>,
-    inherent_bones:
-        HashMap<Rc<RefCell<nanoem::model::ModelBone>>, HashSet<nanoem::model::ModelBone>>,
-    constraint_effect_bones: HashSet<Rc<RefCell<nanoem::model::ModelBone>>>,
-    parent_bone_tree:
-        HashMap<Rc<RefCell<nanoem::model::ModelBone>>, Vec<Rc<RefCell<nanoem::model::ModelBone>>>>,
+    bone_bound_rigid_bodies: HashMap<Rc<RefCell<NanoemBone>>, Rc<RefCell<NanoemRigidBody>>>,
+    constraint_joint_bones: HashMap<Rc<RefCell<NanoemBone>>, Rc<RefCell<NanoemConstraint>>>,
+    inherent_bones: HashMap<Rc<RefCell<NanoemBone>>, HashSet<NanoemBone>>,
+    constraint_effect_bones: HashSet<Rc<RefCell<NanoemBone>>>,
+    parent_bone_tree: HashMap<Rc<RefCell<NanoemBone>>, Vec<Rc<RefCell<NanoemBone>>>>,
     shared_fallback_bone: Rc<RefCell<Bone>>,
     bounding_box: BoundingBox,
     // UserData m_userData;
@@ -298,18 +296,27 @@ impl Model {
         desc: &NewModelDescription,
     ) -> Result<Vec<u8>, nanoem::common::Status> {
         let mut buffer = nanoem::common::MutableBuffer::create()?;
-        let mut model = nanoem::model::Model::default();
+        let mut model = NanoemModel::default();
         {
             model.set_additional_uv_size(0);
             model.set_codec_type(nanoem::common::CodecType::Utf16);
             model.set_format_type(ModelFormatType::Pmx2_0);
             for language in nanoem::common::LanguageType::all() {
-                model.set_name(desc.name.get(language).unwrap_or(&"".to_string()), language.clone());
-                model.set_comment(desc.comment.get(language).unwrap_or(&"".to_string()), language.clone());
+                model.set_name(
+                    desc.name.get(language).unwrap_or(&"".to_string()),
+                    language.clone(),
+                );
+                model.set_comment(
+                    desc.comment.get(language).unwrap_or(&"".to_string()),
+                    language.clone(),
+                );
             }
         }
-        let mut center_bone = nanoem::model::ModelBone::default();
-        center_bone.set_name(&Bone::NAME_CENTER_IN_JAPANESE.to_string(), nanoem::common::LanguageType::Japanese);
+        let mut center_bone = NanoemBone::default();
+        center_bone.set_name(
+            &Bone::NAME_CENTER_IN_JAPANESE.to_string(),
+            nanoem::common::LanguageType::Japanese,
+        );
         center_bone.set_name(&"Center".to_string(), nanoem::common::LanguageType::English);
         center_bone.set_visible(true);
         center_bone.set_movable(true);
@@ -321,14 +328,23 @@ impl Model {
             let mut root_label = nanoem::model::ModelLabel::default();
             root_label.set_name(&"Root".to_string(), nanoem::common::LanguageType::Japanese);
             root_label.set_name(&"Root".to_string(), nanoem::common::LanguageType::English);
-            root_label.insert_item_object(&nanoem::model::ModelLabelItem::create_from_bone_object(center_bone_rc), -1);
+            root_label.insert_item_object(
+                &nanoem::model::ModelLabelItem::create_from_bone_object(center_bone_rc),
+                -1,
+            );
             root_label.set_special(true);
             model.insert_label(&root_label, -1);
         }
         {
             let mut expression_label = nanoem::model::ModelLabel::default();
-            expression_label.set_name(&Label::NAME_EXPRESSION_IN_JAPANESE.to_string(), nanoem::common::LanguageType::Japanese);
-            expression_label.set_name(&"Expression".to_string(), nanoem::common::LanguageType::English);
+            expression_label.set_name(
+                &Label::NAME_EXPRESSION_IN_JAPANESE.to_string(),
+                nanoem::common::LanguageType::Japanese,
+            );
+            expression_label.set_name(
+                &"Expression".to_string(),
+                nanoem::common::LanguageType::English,
+            );
             expression_label.set_special(true);
             model.insert_label(&expression_label, -1);
         }
@@ -336,7 +352,7 @@ impl Model {
         Ok(buffer.get_data())
     }
 
-    pub fn find_bone(&self, name: &String) -> Option<Rc<RefCell<nanoem::model::ModelBone>>> {
+    pub fn find_bone(&self, name: &String) -> Option<Rc<RefCell<NanoemBone>>> {
         self.bones.get(name).map(|rc| rc.clone())
     }
 
@@ -346,6 +362,36 @@ impl Model {
 
     pub fn get_canonical_name(&self) -> &String {
         &self.canonical_name
+    }
+
+    pub fn is_visible(&self) -> bool {
+        // TODO: isVisible
+        true
+    }
+}
+
+impl Model {
+    pub fn draw(&self, typ: DrawType) {
+        if self.is_visible() {
+            match typ {
+                DrawType::Color => self.draw_color(),
+            }
+        }
+    }
+}
+
+impl Model {
+    fn draw_color(&self) {
+        let mut index_offset = 0usize;
+        let model_ref = self.opaque.borrow();
+        let materials = model_ref.get_all_material_objects();
+        for material in materials {
+            let num_indices = material.get_num_vertex_indices();
+            let buffer = pass::Buffer::new(num_indices, index_offset, true);
+            if let Some(material) = material.get_user_data() {
+
+            }
+        }
     }
 }
 
@@ -433,8 +479,20 @@ struct Label {
 }
 
 impl Label {
-    const NAME_EXPRESSION_IN_JAPANESE_UTF8: &'static [u8] = &[0xe8, 0xa1, 0xa8, 0xe6, 0x83, 0x85, 0x0];
+    const NAME_EXPRESSION_IN_JAPANESE_UTF8: &'static [u8] =
+        &[0xe8, 0xa1, 0xa8, 0xe6, 0x83, 0x85, 0x0];
     const NAME_EXPRESSION_IN_JAPANESE: &'static str = "表情";
+}
+
+struct Material {
+    // TODO
+}
+
+impl Material {
+    pub fn is_visible(&self) -> bool {
+        // TODO: isVisible
+        true
+    }
 }
 
 pub struct VisualizationClause {

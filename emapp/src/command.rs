@@ -9,23 +9,23 @@ pub trait Undo {
     fn name(&self) -> &String;
 }
 
-struct BaseUndoCommand<'a> {
-    project: Rc<RefCell<Project<'a>>>,
+struct BaseUndoCommand {
+    project: Rc<RefCell<Project>>,
 }
 
-struct BaseKeyframeCommand<'a> {
-    base: BaseUndoCommand<'a>,
+struct BaseKeyframeCommand {
+    base: BaseUndoCommand,
     motion: Motion,
 }
 
-impl<'a> BaseKeyframeCommand<'a> {
-    fn reset_transform_performed_at(&self) {
-        self.base.project.borrow_mut().reset_transform_performed_at()
-    }
+impl BaseKeyframeCommand {
+    // fn reset_transform_performed_at(&self) {
+    //     self.base.project.borrow_mut().reset_transform_performed_at()
+    // }
 
-    fn commit(&self, motion: &nanoem::motion::Motion) {
-        let project = self.base.project.borrow_mut();
-        let last_duration = project.project_duration();
-        // motion.sort
-    }
+    // fn commit(&self, motion: &nanoem::motion::Motion) {
+    //     let project = self.base.project.borrow_mut();
+    //     let last_duration = project.project_duration();
+    //     // motion.sort
+    // }
 }

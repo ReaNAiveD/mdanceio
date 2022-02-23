@@ -1,13 +1,11 @@
 [package]
-name = "nanoemweb-emapp"
-version = "0.1.0"
 author = ["NAiveD <nice-die@live.com>"]
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
+name = "nanoemweb-emapp"
+version = "0.1.0"
 [dependencies]
 cgmath = "0.18.0"
 wgpu = "0.12"
+winit = "0.26.1"
 nanoem = { path = "../nanoem", version = "0.1.0" }
 par = { path = "../par", version = "0.1.0" }
