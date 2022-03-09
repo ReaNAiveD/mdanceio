@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc, cell::RefCell};
 
-use cgmath::{Matrix4, Vector3, Vector4, Zero};
+use cgmath::{Matrix4, Vector3, Vector4, Zero, SquareMatrix};
 
 use crate::{bezier_curve::BezierCurve, project::Project};
 
@@ -17,6 +17,10 @@ enum FollowingType {
 
 pub trait Camera {
     // TODO
+    fn get_view_transform(&self) -> (Matrix4<f32>, Matrix4<f32>);
+
+    fn position(&self) -> Vector3<f32>;
+    fn direction(&self) -> Vector3<f32>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -76,18 +80,18 @@ impl PerspectiveCamera {
     pub const DEFAULT_BEZIER_CONTROL_POINT: Vector4<u8> = Vector4::new(20, 20, 107, 107);
     pub const DEFAULT_AUTOMATIC_BEZIER_CONTROL_POINT: Vector4<u8> = Vector4::new(64, 0, 64, 127);
 
-    pub fn new(project: &Project) -> Self {
+    pub fn new() -> Self {
         Self {
             bezier_curves_data: HashMap::new(),
             keyframe_bezier_curves: HashMap::new(),
             outside_parent: (String::default(), String::default()),
             transform_coordinate_type: TransformCoordinateType::Local,
-            view_matrix: todo!(),
-            projection_matrix: todo!(),
+            view_matrix: Matrix4::identity(),
+            projection_matrix: Matrix4::identity(),
             position: Vector3::zero(),
             direction: Vector3::unit_z(),
             look_at: Self::INITIAL_LOOK_AT,
-            angle: todo!(),
+            angle: Vector3::zero(),
             distance: Self::INITIAL_DISTANCE,
             fov: (Self::INITIAL_FOV, Self::INITIAL_FOV_RADIAN),
             bezier_control_points: nanoem::motion::MotionCameraKeyframeInterpolation{
@@ -133,5 +137,19 @@ impl PerspectiveCamera {
 
     pub fn set_dirty(&mut self, value: bool) {
         self.dirty = value;
+    }
+}
+
+impl Camera for PerspectiveCamera {
+    fn get_view_transform(&self) -> (Matrix4<f32>, Matrix4<f32>) {
+        (self.view_matrix, self.projection_matrix)
+    }
+
+    fn position(&self) -> Vector3<f32> {
+        self.position
+    }
+
+    fn direction(&self) -> Vector3<f32> {
+        self.direction
     }
 }

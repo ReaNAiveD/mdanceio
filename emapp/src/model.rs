@@ -1,26 +1,38 @@
 use std::{
-    cell::{RefCell},
+    cell::RefCell,
     collections::{HashMap, HashSet},
     rc::Rc,
 };
 
-use cgmath::{Matrix4, Quaternion, Vector3, Vector4};
-use nanoem::model::{ModelFormatType};
+use bytemuck::{Pod, Zeroable};
+use cgmath::{ElementWise, Matrix4, Quaternion, Vector3, Vector4};
+use nanoem::model::ModelFormatType;
 use par::shape::ShapesMesh;
 use wgpu::{AddressMode, Buffer};
 
 use crate::{
-    bounding_box::BoundingBox, camera::Camera, drawable::DrawType, effect::IEffect,
-    forward::LineVertexUnit, image_loader::Image, internal::LinearDrawer,
-    model_object_selection::ModelObjectSelection, project::Project, undo::UndoStack, uri::Uri, pass,
+    bounding_box::BoundingBox,
+    camera::Camera,
+    drawable::{DrawType, Drawable},
+    effect::IEffect,
+    forward::LineVertexUnit,
+    image_loader::Image,
+    image_view::ImageView,
+    internal::LinearDrawer,
+    model_object_selection::ModelObjectSelection,
+    model_program_bundle::{ModelProgramBundle, ObjectTechnique},
+    pass,
+    project::Project,
+    undo::UndoStack,
+    uri::Uri,
 };
 
-type NanoemModel = nanoem::model::Model<(), Material, (), (), (), (), (), (), ()>;
-type NanoemBone = nanoem::model::ModelBone<(), ()>;
-type NanoemMaterial = nanoem::model::ModelMaterial<Material>;
-type NanoemMorph = nanoem::model::ModelMorph<()>;
-type NanoemConstraint = nanoem::model::ModelConstraint<()>;
-type NanoemRigidBody = nanoem::model::ModelRigidBody<()>;
+pub type NanoemModel = nanoem::model::Model<(), Material, (), (), (), (), (), (), ()>;
+pub type NanoemBone = nanoem::model::ModelBone<(), ()>;
+pub type NanoemMaterial = nanoem::model::ModelMaterial<Material>;
+pub type NanoemMorph = nanoem::model::ModelMorph<()>;
+pub type NanoemConstraint = nanoem::model::ModelConstraint<()>;
+pub type NanoemRigidBody = nanoem::model::ModelRigidBody<()>;
 
 pub trait SkinDeformer {
     // TODO
@@ -77,8 +89,17 @@ struct LoadingImageItem {
     flags: u32,
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VertexUnit {
-    // TODO
+    position: [f32; 4],
+    normal: [f32; 4],
+    texcoord: [f32; 4],
+    edge: [f32; 4],
+    uva: [[f32; 4]; 4],
+    weights: [f32; 4],
+    indices: [f32; 4],
+    info: [f32; 4], /* type,vertexIndex,edgeSize,padding */
 }
 
 pub struct NewModelDescription {
@@ -130,7 +151,7 @@ struct DrawIndexedBuffer {
 }
 
 struct OffscreenPassiveRenderTargetEffect {
-    passiveEffect: Rc<RefCell<dyn IEffect>>,
+    passive_effect: Rc<RefCell<dyn IEffect>>,
     enabled: bool,
 }
 
@@ -364,33 +385,99 @@ impl Model {
         &self.canonical_name
     }
 
-    pub fn is_visible(&self) -> bool {
+    pub fn is_add_blend_enabled(&self) -> bool {
+        // TODO: isAddBlendEnabled
+        true
+    }
+
+    pub fn opacity(&self) -> f32 {
+        self.opacity
+    }
+
+    pub fn world_transform(&self, initial: &Matrix4<f32>) -> Matrix4<f32> {
+        initial.clone()
+    }
+}
+
+impl Drawable for Model {
+    fn draw(&self, typ: DrawType, project: &Project, device: &wgpu::Device) {
+        if self.is_visible() {
+            match typ {
+                DrawType::Color => self.draw_color(project, device),
+                DrawType::Edge => todo!(),
+                DrawType::GroundShadow => todo!(),
+                DrawType::ShadowMap => todo!(),
+                DrawType::ScriptExternalColor => todo!(),
+            }
+        }
+    }
+
+    fn is_visible(&self) -> bool {
         // TODO: isVisible
         true
     }
 }
 
 impl Model {
-    pub fn draw(&self, typ: DrawType) {
-        if self.is_visible() {
-            match typ {
-                DrawType::Color => self.draw_color(),
-            }
-        }
-    }
-}
-
-impl Model {
-    fn draw_color(&self) {
+    fn draw_color(&self, project: &Project, device: &wgpu::Device) {
+        let viewport_primary_texture_view = project.viewport_primary_texture_view();
         let mut index_offset = 0usize;
         let model_ref = self.opaque.borrow();
         let materials = model_ref.get_all_material_objects();
-        for material in materials {
-            let num_indices = material.get_num_vertex_indices();
-            let buffer = pass::Buffer::new(num_indices, index_offset, true);
-            if let Some(material) = material.get_user_data() {
-
+        for nanoem_material in materials {
+            let num_indices = nanoem_material.get_num_vertex_indices();
+            let buffer = pass::Buffer::new(
+                num_indices,
+                index_offset,
+                &self.vertex_buffers[1 - self.stage_vertex_buffer_index as usize],
+                &self.index_buffer,
+                true,
+            );
+            if let Some(material) = nanoem_material.get_user_data() {
+                if material.borrow().is_visible() {
+                    // TODO: get technique by discovery
+                    let mut technique =
+                        ObjectTechnique::new(nanoem_material.is_point_draw_enabled());
+                    let technique_type = technique.technique_type();
+                    while let Some((pass, shader)) = technique.execute(device) {
+                        pass.set_global_parameters(self, project);
+                        pass.set_camera_parameters(
+                            project.active_camera(),
+                            &Self::INITIAL_WORLD_MATRIX,
+                            self,
+                        );
+                        pass.set_light_parameters(project.global_light(), false);
+                        pass.set_all_model_parameters(self, project);
+                        pass.set_material_parameters(
+                            nanoem_material,
+                            technique_type,
+                            project.shared_fallback_image(),
+                        );
+                        pass.set_shadow_map_parameters(
+                            project.shadow_camera(),
+                            &Self::INITIAL_WORLD_MATRIX,
+                            project,
+                            technique_type,
+                            project.shared_fallback_image(),
+                        );
+                        pass.execute(
+                            &buffer,
+                            &viewport_primary_texture_view,
+                            None,
+                            shader,
+                            technique_type,
+                            device,
+                            self,
+                            project,
+                        );
+                    }
+                    // if (!technique->hasNextScriptCommand() && !scriptExternalColor) {
+                    // technique->resetScriptCommandState();
+                    // technique->resetScriptExternalColor();
+                    // }
+                }
             }
+            index_offset += num_indices;
         }
     }
 }
@@ -484,14 +571,116 @@ impl Label {
     const NAME_EXPRESSION_IN_JAPANESE: &'static str = "表情";
 }
 
-struct Material {
+pub struct MaterialColor {
+    pub ambient: Vector3<f32>,
+    pub diffuse: Vector3<f32>,
+    pub specular: Vector3<f32>,
+    pub diffuse_opacity: f32,
+    pub specular_power: f32,
+    pub diffuse_texture_blend_factor: Vector4<f32>,
+    pub sphere_texture_blend_factor: Vector4<f32>,
+    pub toon_texture_blend_factor: Vector4<f32>,
+}
+
+struct MaterialBlendColor {
+    base: MaterialColor,
+    add: MaterialColor,
+    mul: MaterialColor,
+}
+
+pub struct MaterialEdge {
+    pub color: Vector3<f32>,
+    pub opacity: f32,
+    pub size: f32,
+}
+
+struct MaterialBlendEdge {
+    base: MaterialEdge,
+    add: MaterialEdge,
+    mul: MaterialEdge,
+}
+
+pub struct Material {
     // TODO
+    color: MaterialBlendColor,
+    edge: MaterialBlendEdge,
+    diffuse_image: Option<Rc<RefCell<dyn ImageView>>>,
+    sphere_map_image: Option<Rc<RefCell<dyn ImageView>>>,
+    toon_image: Option<Rc<RefCell<dyn ImageView>>>,
 }
 
 impl Material {
+    pub const MINIUM_SPECULAR_POWER: f32 = 0.1f32;
+
     pub fn is_visible(&self) -> bool {
         // TODO: isVisible
         true
+    }
+
+    pub fn color(&self) -> MaterialColor {
+        MaterialColor {
+            ambient: self
+                .color
+                .base
+                .ambient
+                .mul_element_wise(self.color.mul.ambient)
+                + self.color.add.ambient,
+            diffuse: self
+                .color
+                .base
+                .diffuse
+                .mul_element_wise(self.color.mul.diffuse)
+                + self.color.add.diffuse,
+            specular: self
+                .color
+                .base
+                .specular
+                .mul_element_wise(self.color.mul.specular)
+                + self.color.add.specular,
+            diffuse_opacity: self.color.base.diffuse_opacity * self.color.mul.diffuse_opacity
+                + self.color.add.diffuse_opacity,
+            specular_power: (self.color.base.specular_power * self.color.mul.specular_power
+                + self.color.add.specular_power)
+                .min(Self::MINIUM_SPECULAR_POWER),
+            diffuse_texture_blend_factor: self
+                .color
+                .base
+                .diffuse_texture_blend_factor
+                .mul_element_wise(self.color.mul.diffuse_texture_blend_factor)
+                + self.color.add.diffuse_texture_blend_factor,
+            sphere_texture_blend_factor: self
+                .color
+                .base
+                .sphere_texture_blend_factor
+                .mul_element_wise(self.color.mul.sphere_texture_blend_factor)
+                + self.color.add.sphere_texture_blend_factor,
+            toon_texture_blend_factor: self
+                .color
+                .base
+                .toon_texture_blend_factor
+                .mul_element_wise(self.color.mul.toon_texture_blend_factor)
+                + self.color.add.toon_texture_blend_factor,
+        }
+    }
+
+    pub fn edge(&self) -> MaterialEdge {
+        MaterialEdge {
+            color: self.edge.base.color.mul_element_wise(self.edge.mul.color) + self.edge.add.color,
+            opacity: self.edge.base.opacity * self.edge.mul.opacity + self.edge.add.opacity,
+            size: self.edge.base.size * self.edge.mul.size + self.edge.add.size,
+        }
+    }
+
+    pub fn diffuse_image(&self) -> Option<Rc<RefCell<dyn ImageView>>> {
+        self.diffuse_image.clone()
+    }
+
+    pub fn sphere_map_image(&self) -> Option<Rc<RefCell<dyn ImageView>>> {
+        self.sphere_map_image.clone()
+    }
+
+    pub fn toon_image(&self) -> Option<Rc<RefCell<dyn ImageView>>> {
+        self.toon_image.clone()
     }
 }
 

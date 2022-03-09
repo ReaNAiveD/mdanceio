@@ -3,9 +3,38 @@ author = ["NAiveD <nice-die@live.com>"]
 edition = "2021"
 name = "nanoemweb-emapp"
 version = "0.1.0"
+
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
-cgmath = "0.18.0"
 wgpu = "0.12"
+log = "0.4"
+bytemuck = { version = "1.7.3", features = [ "derive" ] }
+cgmath = "0.18.0"
 winit = "0.26.1"
-nanoem = { path = "../nanoem", version = "0.1.0" }
-par = { path = "../par", version = "0.1.0" }
+
+[dependencies.nanoem]
+path = "../nanoem"
+version = "0.1.0"
+
+[dependencies.par]
+path = "../par"
+version = "0.1.0"
+
+[dependencies.web-sys]
+version = "0.3.4"
+features = [
+  'Document',
+  'Element',
+  'HtmlElement',
+  'Node',
+  'Window',
+]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.7"
+console_log = "0.2.0"
+wasm-bindgen = "0.2.79"
+wasm-bindgen-futures = "0.4.29"
+web-sys = { version = "0.3.56", features = ["Location"] }

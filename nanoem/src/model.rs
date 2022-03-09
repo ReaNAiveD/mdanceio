@@ -1349,7 +1349,7 @@ impl From<ModelMaterialFlags> for u8 {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelMaterialSphereMapTextureType {
     Unknown = -1,
     TypeNone,
@@ -1576,8 +1576,28 @@ impl<T> ModelMaterial<T> {
         self.base.get_user_data()
     }
 
+    pub fn is_vertex_color_enabled(&self) -> bool {
+        self.flags.is_vertex_color_enabled
+    }
+
+    pub fn is_line_draw_enabled(&self) -> bool {
+        self.flags.is_line_draw_enabled
+    }
+
+    pub fn is_point_draw_enabled(&self) -> bool {
+        self.flags.is_point_draw_enabled
+    }
+
+    pub fn is_culling_disabled(&self) -> bool {
+        self.flags.is_culling_disabled
+    }
+
     pub fn get_num_vertex_indices(&self) -> usize {
         self.num_vertex_indices
+    }
+
+    pub fn get_spheremap_texture_type(&self) -> ModelMaterialSphereMapTextureType {
+        self.sphere_map_texture_type
     }
 }
 
