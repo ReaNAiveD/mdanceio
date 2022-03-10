@@ -400,10 +400,10 @@ impl Model {
 }
 
 impl Drawable for Model {
-    fn draw(&self, typ: DrawType, project: &Project, device: &wgpu::Device) {
+    fn draw(&self, typ: DrawType, project: &Project, device: &wgpu::Device, adapter_info: wgpu::AdapterInfo) {
         if self.is_visible() {
             match typ {
-                DrawType::Color => self.draw_color(project, device),
+                DrawType::Color => self.draw_color(project, device, adapter_info),
                 DrawType::Edge => todo!(),
                 DrawType::GroundShadow => todo!(),
                 DrawType::ShadowMap => todo!(),
@@ -419,7 +419,7 @@ impl Drawable for Model {
 }
 
 impl Model {
-    fn draw_color(&self, project: &Project, device: &wgpu::Device) {
+    fn draw_color(&self, project: &Project, device: &wgpu::Device, adapter_info: wgpu::AdapterInfo) {
         let viewport_primary_texture_view = project.viewport_primary_texture_view();
         let mut index_offset = 0usize;
         let model_ref = self.opaque.borrow();
@@ -457,6 +457,7 @@ impl Model {
                             project.shadow_camera(),
                             &Self::INITIAL_WORLD_MATRIX,
                             project,
+                            adapter_info.backend,
                             technique_type,
                             project.shared_fallback_image(),
                         );

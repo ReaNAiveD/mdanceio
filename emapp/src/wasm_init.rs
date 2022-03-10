@@ -22,6 +22,7 @@ pub struct WasmClient {
     surface: wgpu::Surface,
     config: wgpu::SurfaceConfiguration,
     adapter: wgpu::Adapter,
+    adapt_info: wgpu::AdapterInfo,
     device: wgpu::Device,
     queue: wgpu::Queue,
 }
@@ -54,10 +55,8 @@ impl WasmClient {
                 .await
                 .expect("No suitable GPU adapters found on the system!");
 
-        {
-            let adapter_info = adapter.get_info();
-            log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
-        }
+        let adapter_info = adapter.get_info();
+        log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
         let trace_dir = std::env::var("WGPU_TRACE");
         // TODO: wo may need to set feature and limit, ref to https://github.com/gfx-rs/wgpu/blob/master/wgpu/examples/framework.rs
@@ -88,6 +87,7 @@ impl WasmClient {
             surface,
             config,
             adapter,
+            adapt_info,
             device,
             queue,
         })

@@ -115,13 +115,13 @@ impl Pass {
         }
     }
 
-    pub fn update(&mut self, size: Vector2<u16>, project: &Project) {
+    pub fn update(&mut self, size: Vector2<u16>, device: &wgpu::Device, project: &Project) {
         let (color_texture, depth_texture, sampler) = Self::_update(
             self.name.as_str(),
             size,
             project.viewport_texture_format(),
             project.sample_count(),
-            &project.device,
+            device,
         );
         self.color_texture = color_texture;
         self.depth_texture = depth_texture;
@@ -293,11 +293,6 @@ pub struct Project {
     // actual_fps: u32,
     // actual_sequence: u32,
     // active: bool,
-    adapt_info: wgpu::AdapterInfo,
-    surface: wgpu::Surface,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
 }
 
 impl Project {
@@ -312,46 +307,16 @@ impl Project {
     pub const VIEWPORT_PRIMARY_NAME: &'static str = "@mdanceio/Viewport/Primary";
     pub const VIEWPORT_SECONDARY_NAME: &'static str = "@mdanceio/Viewport/Secondary";
 
-    async fn new(window: &winit::window::Window, injector: Injector) -> Self {
-        let size = window.inner_size();
-
-        let instance = wgpu::Instance::new(wgpu::Backends::all());
-        let surface = unsafe { instance.create_surface(window) };
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                force_fallback_adapter: false,
-                compatible_surface: Some(&surface),
-            })
-            .await
-            .unwrap();
-
-        let adapt_info = adapter.get_info();
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    features: wgpu::Features::empty(),
-                    limits: wgpu::Limits::default(),
-                },
-                None,
-            )
-            .await
-            .unwrap();
-
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: surface.get_preferred_format(&adapter).unwrap(),
-            width: size.width,
-            height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-        };
-        surface.configure(&device, &config);
-
+    async fn new(
+        sc_desc: &wgpu::SurfaceConfiguration,
+        adapter: &wgpu::Adapter,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        injector: Injector,
+    ) -> Self {
         let viewport_primary_pass = Pass::new(
             Self::VIEWPORT_PRIMARY_NAME,
-            Vector2::new(size.width as u16, size.height as u16),
+            Vector2::new(sc_desc.width as u16, sc_desc.height as u16),
             injector.texture_format(),
             1,
             &device,
@@ -359,7 +324,7 @@ impl Project {
 
         let viewport_secondary_pass = Pass::new(
             Self::VIEWPORT_SECONDARY_NAME,
-            Vector2::new(size.width as u16, size.height as u16),
+            Vector2::new(sc_desc.width as u16, sc_desc.height as u16),
             injector.texture_format(),
             1,
             &device,
@@ -383,16 +348,7 @@ impl Project {
             fallback_texture,
             viewport_primary_pass,
             viewport_secondary_pass,
-            surface,
-            adapt_info,
-            device,
-            queue,
-            config,
         }
-    }
-
-    pub fn adapter_info(&self) -> &wgpu::AdapterInfo {
-        &self.adapt_info
     }
 
     pub fn sample_count(&self) -> u32 {
@@ -429,14 +385,9 @@ impl Project {
     }
 
     pub fn viewport_primary_texture_view(&self) -> wgpu::TextureView {
-        self
-            .viewport_primary_pass
+        self.viewport_primary_pass
             .color_texture
             .create_view(&wgpu::TextureViewDescriptor::default())
-    }
-
-    pub fn config(&self) -> &wgpu::SurfaceConfiguration {
-        &self.config
     }
 
     pub fn is_render_pass_viewport(&self) -> bool {
@@ -530,11 +481,16 @@ impl Project {
             .any(|drawable| drawable.is_visible())
     }
 
-    fn draw_all_effects_depends_on_script_external(&self) {
+    fn draw_all_effects_depends_on_script_external(
+        &self,
+        adapter: &wgpu::Adapter,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        // TODO: now use device from arg
         if self.has_any_depends_on_script_external_effect() {
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
             encoder.push_debug_group(
                 format!(
                     "Project::drawDependsOnScriptExternal(size={})",
@@ -543,16 +499,20 @@ impl Project {
                 .as_str(),
             );
             for drawable in &self.depends_on_script_external {
-                drawable.draw(DrawType::ScriptExternalColor, self, &self.device)
+                drawable.draw(
+                    DrawType::ScriptExternalColor,
+                    self,
+                    device,
+                    adapter.get_info(),
+                );
             }
             encoder.pop_debug_group();
         }
     }
 
-    fn clear_view_port_primary_pass(&self) {
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+    fn clear_view_port_primary_pass(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.push_debug_group("Project::clearViewportPass");
         let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("@mdanceio/ClearRenderPass"),

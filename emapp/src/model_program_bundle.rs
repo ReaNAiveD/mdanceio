@@ -277,11 +277,12 @@ impl CommonPass {
         shadow_camera: &ShadowCamera,
         world: &Matrix4<f32>,
         project: &Project,
+        backend: wgpu::Backend,
         technique_type: TechniqueType,
         fallback: &wgpu::Texture,
     ) {
         let (view, projection) = shadow_camera.get_view_projection(project);
-        let crop = shadow_camera.get_crop_matrix(project.adapter_info().backend);
+        let crop = shadow_camera.get_crop_matrix(backend);
         let shadow_map_matrix = projection * view * world;
         self.uniform_buffer.light_view_projection_matrix = (crop * shadow_map_matrix).into();
         self.uniform_buffer.shadow_map_size = shadow_camera
@@ -377,6 +378,7 @@ impl CommonPass {
             let vertex_size = mem::size_of::<crate::model::VertexUnit>();
             let is_add_blend = model.is_add_blend_enabled();
             let is_depth_enabled = buffer.is_depth_enabled();
+            let texture_format = project.viewport_texture_format();
 
             let texture_bind_group_layout =
                 device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -486,13 +488,13 @@ impl CommonPass {
                 write_mask = wgpu::ColorWrites::ALL
             };
             let color_target_state = wgpu::ColorTargetState {
-                format: project.config().format,
+                format: texture_format,
                 blend: Some(blend_state),
                 write_mask,
             };
             let depth_state = if technique_type == TechniqueType::GroundShadow && is_depth_enabled {
                 wgpu::DepthStencilState {
-                    format: project.config().format, // TODO: set to depth pixel format
+                    format: texture_format, // TODO: set to depth pixel format
                     depth_write_enabled: true,
                     depth_compare: wgpu::CompareFunction::Less,
                     stencil: wgpu::StencilState {
@@ -515,7 +517,7 @@ impl CommonPass {
                 }
             } else {
                 wgpu::DepthStencilState {
-                    format: project.config().format, // TODO: set to depth pixel format
+                    format: texture_format, // TODO: set to depth pixel format
                     depth_write_enabled: is_depth_enabled,
                     depth_compare: if is_depth_enabled {
                         wgpu::CompareFunction::LessEqual
