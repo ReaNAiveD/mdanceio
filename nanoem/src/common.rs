@@ -166,6 +166,12 @@ pub enum LanguageType {
     English,
 }
 
+impl Default for LanguageType {
+    fn default() -> Self {
+        Self::Japanese
+    }
+}
+
 impl LanguageType {
     pub fn all() -> &'static[Self] {
         &[Self::Japanese, Self::English]
@@ -209,14 +215,14 @@ macro_rules! read_primitive {
     };
 }
 
-pub struct Buffer {
-    data: Vec<u8>,
+pub struct Buffer<'a> {
+    data: &'a[u8],
     idx: usize,
     offset: usize,
 }
 
-impl Buffer {
-    pub fn create(data: Vec<u8>) -> Buffer {
+impl<'a> Buffer<'a> {
+    pub fn create(data: &[u8]) -> Buffer {
         Buffer {
             data,
             idx: 0,
@@ -462,7 +468,7 @@ impl MutableBuffer {
 
     // TODO: now clone the total data vec, change to some pointer copy
     pub fn create_buffer_object(&self) -> Result<Buffer, Status> {
-        Ok(Buffer::create(self.data.clone()))
+        Ok(Buffer::create(&self.data[..]))
     }
 
     pub fn get_data(&self) -> Vec<u8> {
@@ -512,7 +518,7 @@ fn test_from_le_to_u16() {
 
 #[test]
 fn test_buffer_read_primitive() {
-    let mut buffer = Buffer::create(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    let mut buffer = Buffer::create(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
     assert_eq!(Ok(1), buffer.read_byte());
     assert_eq!(Ok((3 << 8) | 2), buffer.read_u16_little_endian());
     println!("{}", buffer.read_i32_little_endian().expect("Expect Error"));

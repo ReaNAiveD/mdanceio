@@ -1518,9 +1518,10 @@ fn test_load_from_buffer() -> Result<(), Box<dyn std::error::Error + 'static>> {
         user_data: None,
     };
 
-    let mut buffer = Buffer::create(std::fs::read(
+    let motion_data = std::fs::read(
         "test/example/Alicia/MMD Motion/2 for test 1.vmd",
-    )?);
+    )?;
+    let mut buffer = Buffer::create(&motion_data);
     match motion.load_from_buffer(&mut buffer, 0) {
         Ok(_) => println!("Parse VMD Success"),
         Err(e) => println!("Parse VMD with {:?}", &e),

@@ -14,11 +14,14 @@ use crate::{
     camera::{Camera, PerspectiveCamera},
     debug_capture::DebugCapture,
     drawable::{DrawType, Drawable},
-    effect::{self, common::RenderPassScope, global_uniform::GlobalUniform, Effect},
+    effect::{
+        self, common::RenderPassScope, global_uniform::GlobalUniform, Effect, ScriptOrderType,
+    },
     error::Error,
     event_publisher::EventPublisher,
     file_manager::FileManager,
     file_utils,
+    forward::QuadVertexUnit,
     grid::Grid,
     image_loader::ImageLoader,
     image_view::ImageView,
@@ -29,6 +32,7 @@ use crate::{
     model_program_bundle::ModelProgramBundle,
     motion::Motion,
     physics_engine::PhysicsEngine,
+    pixel_format::PixelFormat,
     primitive_2d::Primitive2d,
     progress::CancelPublisher,
     shadow_camera::ShadowCamera,
@@ -238,7 +242,7 @@ pub struct Project {
     // playing_segment: TimeLineSegment,
     // selection_segment: TimeLineSegment,
     // base_duration: u32,
-    // language: LanguageType,
+    language: LanguageType,
     // uniform_viewport_layout_rect: (Vector4<u16>, Vector4<u16>),
     // uniform_viewport_image_size: (Vector2<u16>, Vector2<u16>),
     // background_video_rect: Vector4<i32>,
@@ -280,7 +284,7 @@ pub struct Project {
     // window_device_pixel_ratio: (f32, f32),
     // viewport_device_pixel_ratio: (f32, f32),
     // uptime: (f64, f64),
-    // local_frame_index: (u32, u32),
+    local_frame_index: (u32, u32),
     // time_step_factor: f32,
     // background_video_scale_factor: f32,
     // circle_radius: f32,
@@ -293,6 +297,7 @@ pub struct Project {
     // actual_fps: u32,
     // actual_sequence: u32,
     // active: bool,
+    tmp_model: Option<Box<dyn Drawable>>,
 }
 
 impl Project {
@@ -307,7 +312,7 @@ impl Project {
     pub const VIEWPORT_PRIMARY_NAME: &'static str = "@mdanceio/Viewport/Primary";
     pub const VIEWPORT_SECONDARY_NAME: &'static str = "@mdanceio/Viewport/Secondary";
 
-    async fn new(
+    fn new(
         sc_desc: &wgpu::SurfaceConfiguration,
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,
@@ -337,10 +342,12 @@ impl Project {
         let directional_light = DirectionalLight::new();
 
         Self {
+            language: LanguageType::English,
             draw_type: DrawType::Color,
             depends_on_script_external: vec![],
             viewport_texture_format: (injector.texture_format(), injector.texture_format()),
             viewport_background_color: Vector4::new(1f32, 1f32, 1f32, 1f32),
+            local_frame_index: (0, 0),
             sample_level: (0u32, 0u32),
             camera,
             shadow_camera,
@@ -348,6 +355,17 @@ impl Project {
             fallback_texture,
             viewport_primary_pass,
             viewport_secondary_pass,
+            tmp_model: None,
+        }
+    }
+
+    pub fn parse_language(&self) -> nanoem::common::LanguageType {
+        match self.language {
+            LanguageType::Japanese
+            | LanguageType::ChineseSimplified
+            | LanguageType::ChineseTraditional
+            | LanguageType::Korean => nanoem::common::LanguageType::Japanese,
+            LanguageType::English => nanoem::common::LanguageType::English,
         }
     }
 
@@ -384,9 +402,9 @@ impl Project {
         self.viewport_texture_format.0
     }
 
-    pub fn viewport_primary_texture_view(&self) -> wgpu::TextureView {
+    pub fn viewport_primary_depth_view(&self) -> wgpu::TextureView {
         self.viewport_primary_pass
-            .color_texture
+            .depth_texture
             .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
@@ -397,6 +415,11 @@ impl Project {
 
     pub fn current_color_attachment_texture(&self) -> Option<&wgpu::TextureView> {
         None
+    }
+
+    // TODO: the origin is found from render_pass_bundle
+    pub fn find_render_pass_pixel_format(&self, sample_count: u32) -> PixelFormat {
+        PixelFormat::new(sample_count)
     }
 
     // pub fn set_transform_performed_at(&mut self, value: (u32, i32)) {
@@ -483,6 +506,7 @@ impl Project {
 
     fn draw_all_effects_depends_on_script_external(
         &self,
+        view: &wgpu::TextureView,
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -500,6 +524,7 @@ impl Project {
             );
             for drawable in &self.depends_on_script_external {
                 drawable.draw(
+                    view,
                     DrawType::ScriptExternalColor,
                     self,
                     device,
@@ -510,42 +535,152 @@ impl Project {
         }
     }
 
-    fn clear_view_port_primary_pass(&self, device: &wgpu::Device, queue: &wgpu::Queue) {
+    fn clear_view_port_primary_pass(
+        &self,
+        view: &wgpu::TextureView,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.push_debug_group("Project::clearViewportPass");
-        let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("@mdanceio/ClearRenderPass"),
-            color_attachments: &[wgpu::RenderPassColorAttachment {
-                view: todo!(),
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color {
-                        r: self.viewport_background_color[0] as f64,
-                        g: self.viewport_background_color[1] as f64,
-                        b: self.viewport_background_color[2] as f64,
-                        a: self.viewport_background_color[3] as f64,
-                    }),
-                    store: false,
+        let format = self.find_render_pass_pixel_format(self.sample_count());
+        let depth_stencil_attachment_view = &self.viewport_primary_depth_view();
+        {
+            let vertex_buffer = wgpu::util::DeviceExt::create_buffer_init(
+                device,
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some("@mdanceio/ClearPass/Vertices"),
+                    contents: bytemuck::cast_slice(&QuadVertexUnit::generate_quad_tri_strip()),
+                    usage: wgpu::BufferUsages::VERTEX,
                 },
-            }],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: todo!(),
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: false,
+            );
+            let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+                label: Some("@mdanceio/ClearPass/Shader"),
+                source: wgpu::ShaderSource::Wgsl(
+                    include_str!("resources/shaders/clear.wgsl").into(),
+                ),
+            });
+            // let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            //     label: Some("@mdanceio/ClearPass/PipelineLayout"),
+            //     bind_group_layouts: &[],
+            //     push_constant_ranges: &[],
+            // });
+            let vertex_buffer_layout = wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<QuadVertexUnit>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![0 => Float32x4],
+            };
+            let color_target_state: Vec<_> = format
+                .color_texture_formats
+                .iter()
+                .map(|format| wgpu::ColorTargetState {
+                    format: format.clone(),
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::empty(),
+                })
+                .collect();
+            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("@mdanceio/ClearPass/Pipeline"),
+                layout: None,
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[vertex_buffer_layout],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &color_target_state[..],
                 }),
-                stencil_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(0),
-                    store: false,
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleStrip,
+                    strip_index_format: Some(wgpu::IndexFormat::Uint32),
+                    cull_mode: Some(wgpu::Face::Back),
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            });
+            let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("@mdanceio/ClearRenderPass"),
+                color_attachments: &[wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: self.viewport_background_color[0] as f64,
+                            g: self.viewport_background_color[1] as f64,
+                            b: self.viewport_background_color[2] as f64,
+                            a: self.viewport_background_color[3] as f64,
+                        }),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: depth_stencil_attachment_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: true,
+                    }),
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: true,
+                    }),
                 }),
-            }),
-        });
+            });
+            _render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            _render_pass.set_pipeline(&pipeline);
+            _render_pass.draw(0..4, 0..1)
+        }
+        encoder.pop_debug_group();
+        queue.submit(Some(encoder.finish()));
+    }
+
+    pub fn draw_viewport(
+        &mut self,
+        view: &wgpu::TextureView,
+        adapter: &wgpu::Adapter,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.push_debug_group("Project::draw_viewport");
+        let is_drawing_color_type = self.draw_type == DrawType::Color;
+        let (view_matrix, projection_matrix) = self.active_camera().get_view_transform();
+        self.draw_all_effects_depends_on_script_external(view, adapter, device, queue);
+        self.clear_view_port_primary_pass(view, device, queue);
+        if is_drawing_color_type {
+            // TODO: 渲染后边的部分
+        }
+        self._draw_viewport(
+            ScriptOrderType::Standard,
+            self.draw_type,
+            view,
+            adapter,
+            device,
+            queue,
+        );
+        if is_drawing_color_type {
+            // TODO: 渲染前边部分
+        }
+        self.local_frame_index.1 = 0;
         encoder.pop_debug_group();
     }
 
-    pub fn draw_viewport(&mut self) {
-        let is_drawing_color_type = self.draw_type == DrawType::Color;
-        let (view_matrix, projection_matrix) = self.active_camera().get_view_transform();
+    fn _draw_viewport(
+        &self,
+        order: ScriptOrderType,
+        typ: DrawType,
+        view: &wgpu::TextureView,
+        adapter: &wgpu::Adapter,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        if let Some(drawable) = &self.tmp_model {
+            drawable.draw(view, typ, self, device, adapter.get_info());
+        }
     }
 }

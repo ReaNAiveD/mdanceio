@@ -62,6 +62,15 @@ impl Exception for Error {
 }
 
 impl Error {
+    pub fn from_nanoem(message: &str, status: nanoem::common::Status) -> Self {
+        Self {
+            reason: message.to_owned(),
+            recovery_suggestion: "".to_owned(),
+            code: 0,
+            domain: DomainType::DomainTypeNanoem,
+        }
+    }
+
     pub fn shader_unloaded_error() -> Self {
         Self {
             reason: "Technique Pass executed without shader".to_owned(),

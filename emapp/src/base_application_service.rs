@@ -1,15 +1,18 @@
-use crate::{state_controller::StateController, project::Project};
+use crate::{project::Project, state_controller::StateController};
 
 pub struct BaseApplicationService {
     state_controller: StateController,
 }
 
 impl BaseApplicationService {
-    pub fn draw_default_pass(&mut self) {
+    pub fn draw_default_pass(
+        &mut self,
+        view: &wgpu::TextureView,
+        adapter: &wgpu::Adapter,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
         let project = self.state_controller.current_mut_project();
-    }
-
-    fn draw_project(&self, project: &mut Project) {
-        project.draw_viewport();
+        project.draw_viewport(view, adapter, device, queue);
     }
 }
