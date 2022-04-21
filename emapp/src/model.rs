@@ -173,65 +173,65 @@ struct OffscreenPassiveRenderTargetEffect {
 
 pub struct Model {
     handle: u16,
-    camera: Rc<RefCell<dyn Camera>>,
-    selection: Rc<RefCell<dyn ModelObjectSelection>>,
-    drawer: Box<LinearDrawer>,
-    skin_deformer: Rc<RefCell<dyn SkinDeformer>>,
-    gizmo: Rc<RefCell<dyn Gizmo>>,
-    vertex_weight_painter: Rc<RefCell<dyn VertexWeightPainter>>,
-    offscreen_passive_render_target_effects: HashMap<String, OffscreenPassiveRenderTargetEffect>,
-    draw_all_vertex_normals: DrawArrayBuffer,
-    draw_all_vertex_points: DrawArrayBuffer,
-    draw_all_vertex_faces: DrawIndexedBuffer,
-    draw_all_vertex_weights: DrawIndexedBuffer,
-    draw_rigid_body: HashMap<Rc<RefCell<ShapesMesh>>, DrawIndexedBuffer>,
-    draw_joint: HashMap<Rc<RefCell<ShapesMesh>>, DrawIndexedBuffer>,
+    // camera: Rc<RefCell<dyn Camera>>,
+    // selection: Rc<RefCell<dyn ModelObjectSelection>>,
+    // drawer: Box<LinearDrawer>,
+    // skin_deformer: Rc<RefCell<dyn SkinDeformer>>,
+    // gizmo: Rc<RefCell<dyn Gizmo>>,
+    // vertex_weight_painter: Rc<RefCell<dyn VertexWeightPainter>>,
+    // offscreen_passive_render_target_effects: HashMap<String, OffscreenPassiveRenderTargetEffect>,
+    // draw_all_vertex_normals: DrawArrayBuffer,
+    // draw_all_vertex_points: DrawArrayBuffer,
+    // draw_all_vertex_faces: DrawIndexedBuffer,
+    // draw_all_vertex_weights: DrawIndexedBuffer,
+    // draw_rigid_body: HashMap<Rc<RefCell<ShapesMesh>>, DrawIndexedBuffer>,
+    // draw_joint: HashMap<Rc<RefCell<ShapesMesh>>, DrawIndexedBuffer>,
     opaque: Box<NanoemModel>,
-    undo_stack: Box<UndoStack>,
-    editing_undo_stack: Box<UndoStack>,
-    active_morph_ptr: HashMap<nanoem::model::ModelMorphCategory, Rc<RefCell<NanoemMorph>>>,
-    active_constraint_ptr: Rc<RefCell<NanoemConstraint>>,
-    active_material_ptr: Rc<RefCell<NanoemMaterial>>,
-    hovered_bone_ptr: Rc<RefCell<NanoemBone>>,
-    vertex_buffer_data: Vec<u8>,
-    face_states: Vec<u32>,
-    active_bone_pair_ptr: (Rc<RefCell<NanoemBone>>, Rc<RefCell<NanoemBone>>),
-    active_effect_pair_ptr: (Rc<RefCell<dyn IEffect>>, Rc<RefCell<dyn IEffect>>),
-    screen_image: Image,
-    loading_image_items: Vec<LoadingImageItem>,
-    image_map: HashMap<String, Image>,
+    // undo_stack: Box<UndoStack>,
+    // editing_undo_stack: Box<UndoStack>,
+    // active_morph_ptr: HashMap<nanoem::model::ModelMorphCategory, Rc<RefCell<NanoemMorph>>>,
+    // active_constraint_ptr: Rc<RefCell<NanoemConstraint>>,
+    // active_material_ptr: Rc<RefCell<NanoemMaterial>>,
+    // hovered_bone_ptr: Rc<RefCell<NanoemBone>>,
+    // vertex_buffer_data: Vec<u8>,
+    // face_states: Vec<u32>,
+    // active_bone_pair_ptr: (Rc<RefCell<NanoemBone>>, Rc<RefCell<NanoemBone>>),
+    // active_effect_pair_ptr: (Rc<RefCell<dyn IEffect>>, Rc<RefCell<dyn IEffect>>),
+    // screen_image: Image,
+    // loading_image_items: Vec<LoadingImageItem>,
+    // image_map: HashMap<String, Image>,
     bone_index_hash_map: HashMap<*const RefCell<NanoemMaterial>, HashMap<i32, i32>>,
     bones: HashMap<String, Weak<RefCell<NanoemBone>>>,
     morphs: HashMap<String, Weak<RefCell<NanoemMorph>>>,
     constraints: HashMap<*const RefCell<NanoemBone>, Weak<RefCell<NanoemConstraint>>>,
-    redo_bone_names: Vec<String>,
-    redo_morph_names: Vec<String>,
-    outside_parents: HashMap<Rc<RefCell<NanoemBone>>, (String, String)>,
-    image_uris: HashMap<String, Uri>,
-    attachment_uris: HashMap<String, Uri>,
-    bone_bound_rigid_bodies: HashMap<Rc<RefCell<NanoemBone>>, Rc<RefCell<NanoemRigidBody>>>,
+    // redo_bone_names: Vec<String>,
+    // redo_morph_names: Vec<String>,
+    // outside_parents: HashMap<Rc<RefCell<NanoemBone>>, (String, String)>,
+    // image_uris: HashMap<String, Uri>,
+    // attachment_uris: HashMap<String, Uri>,
+    // bone_bound_rigid_bodies: HashMap<Rc<RefCell<NanoemBone>>, Rc<RefCell<NanoemRigidBody>>>,
     constraint_joint_bones: HashMap<*const RefCell<NanoemBone>, Weak<RefCell<NanoemConstraint>>>,
     inherent_bones: HashMap<*const RefCell<NanoemBone>, HashSet<*const RefCell<NanoemBone>>>,
     constraint_effector_bones: HashSet<*const RefCell<NanoemBone>>,
     parent_bone_tree: HashMap<*const RefCell<NanoemBone>, Vec<Weak<RefCell<NanoemBone>>>>,
     shared_fallback_bone: Rc<RefCell<Bone>>,
-    bounding_box: BoundingBox,
-    // UserData m_userData;
-    annotations: HashMap<String, String>,
+    // bounding_box: BoundingBox,
+    // // UserData m_userData;
+    // annotations: HashMap<String, String>,
     vertex_buffers: [wgpu::Buffer; 2],
     index_buffer: wgpu::Buffer,
-    edge_color: Vector4<f32>,
-    transform_axis_type: AxisType,
-    edit_action_type: EditActionType,
-    transform_coordinate_type: TransformCoordinateType,
-    file_uri: Uri,
+    // edge_color: Vector4<f32>,
+    // transform_axis_type: AxisType,
+    // edit_action_type: EditActionType,
+    // transform_coordinate_type: TransformCoordinateType,
+    // file_uri: Uri,
     name: String,
     comment: String,
     canonical_name: String,
-    states: u32,
-    edge_size_scale_factor: f32,
+    // states: u32,
+    // edge_size_scale_factor: f32,
     opacity: f32,
-    // void *m_dispatchParallelTaskQueue
+    // // void *m_dispatchParallelTaskQueue
     count_vertex_skinning_needed: i32,
     stage_vertex_buffer_index: i32,
 }
@@ -253,43 +253,43 @@ impl Model {
     pub fn new(project: &Project, handle: u16) -> Self {
         Self {
             handle,
-            camera: todo!(),
-            selection: todo!(),
-            drawer: todo!(),
-            skin_deformer: todo!(),
-            gizmo: todo!(),
-            vertex_weight_painter: todo!(),
-            offscreen_passive_render_target_effects: todo!(),
-            draw_all_vertex_normals: todo!(),
-            draw_all_vertex_points: todo!(),
-            draw_all_vertex_faces: todo!(),
-            draw_all_vertex_weights: todo!(),
-            draw_rigid_body: todo!(),
-            draw_joint: todo!(),
+            // camera: todo!(),
+            // selection: todo!(),
+            // drawer: todo!(),
+            // skin_deformer: todo!(),
+            // gizmo: todo!(),
+            // vertex_weight_painter: todo!(),
+            // offscreen_passive_render_target_effects: todo!(),
+            // draw_all_vertex_normals: todo!(),
+            // draw_all_vertex_points: todo!(),
+            // draw_all_vertex_faces: todo!(),
+            // draw_all_vertex_weights: todo!(),
+            // draw_rigid_body: todo!(),
+            // draw_joint: todo!(),
             opaque: todo!(),
-            undo_stack: todo!(),
-            editing_undo_stack: todo!(),
-            active_morph_ptr: todo!(),
-            active_constraint_ptr: todo!(),
-            active_material_ptr: todo!(),
-            hovered_bone_ptr: todo!(),
-            vertex_buffer_data: todo!(),
-            face_states: todo!(),
-            active_bone_pair_ptr: todo!(),
-            active_effect_pair_ptr: todo!(),
-            screen_image: todo!(),
-            loading_image_items: todo!(),
-            image_map: todo!(),
-            bone_index_hash_map: todo!(),
+            // undo_stack: todo!(),
+            // editing_undo_stack: todo!(),
+            // active_morph_ptr: todo!(),
+            // active_constraint_ptr: todo!(),
+            // active_material_ptr: todo!(),
+            // hovered_bone_ptr: todo!(),
+            // vertex_buffer_data: todo!(),
+            // face_states: todo!(),
+            // active_bone_pair_ptr: todo!(),
+            // active_effect_pair_ptr: todo!(),
+            // screen_image: todo!(),
+            // loading_image_items: todo!(),
+            // image_map: todo!(),
+            bone_index_hash_map: HashMap::new(),
             bones: HashMap::new(),
             morphs: HashMap::new(),
             constraints: HashMap::new(),
-            redo_bone_names: todo!(),
-            redo_morph_names: todo!(),
-            outside_parents: todo!(),
-            image_uris: todo!(),
-            attachment_uris: todo!(),
-            bone_bound_rigid_bodies: todo!(),
+            // redo_bone_names: todo!(),
+            // redo_morph_names: todo!(),
+            // outside_parents: todo!(),
+            // image_uris: todo!(),
+            // attachment_uris: todo!(),
+            // bone_bound_rigid_bodies: todo!(),
             constraint_joint_bones: HashMap::new(),
             inherent_bones: HashMap::new(),
             constraint_effector_bones: HashSet::new(),
@@ -298,23 +298,108 @@ impl Model {
                 "SharedFallbackBone",
                 "SharedFallbackBone",
             ))),
-            bounding_box: todo!(),
-            annotations: todo!(),
+            // bounding_box: todo!(),
+            // annotations: todo!(),
             vertex_buffers: todo!(),
             index_buffer: todo!(),
-            edge_color: todo!(),
-            transform_axis_type: todo!(),
-            edit_action_type: todo!(),
-            transform_coordinate_type: todo!(),
-            file_uri: todo!(),
-            name: todo!(),
-            comment: todo!(),
-            canonical_name: todo!(),
-            states: todo!(),
-            edge_size_scale_factor: todo!(),
-            opacity: todo!(),
-            count_vertex_skinning_needed: todo!(),
-            stage_vertex_buffer_index: todo!(),
+            // edge_color: todo!(),
+            // transform_axis_type: todo!(),
+            // edit_action_type: todo!(),
+            // transform_coordinate_type: todo!(),
+            // file_uri: todo!(),
+            name: "".to_owned(),
+            comment: "".to_owned(),
+            canonical_name: "".to_owned(),
+            // states: todo!(),
+            // edge_size_scale_factor: todo!(),
+            opacity: 1.0f32,
+            count_vertex_skinning_needed: 0,
+            stage_vertex_buffer_index: 0,
+        }
+    }
+
+    pub fn new_from_bytes(bytes: &[u8], project: &Project, handle: u16) -> Result<Self, Error> {
+        let mut buffer = nanoem::common::Buffer::create(bytes);
+        let mut nanoem_model = Box::new(NanoemModel::default());
+        match nanoem_model.load_from_buffer(&mut buffer) {
+            Ok(_) => {
+                let opaque = nanoem_model;
+                let language = project.parse_language();
+                let mut name = opaque.get_name(language).to_owned();
+                let comment = opaque.get_comment(language).to_owned();
+                let canonical_name = opaque
+                    .get_name(nanoem::common::LanguageType::default())
+                    .to_owned();
+                if name.is_empty() {
+                    name = canonical_name.clone();
+                }
+                Ok(Self {
+                    handle,
+                    // camera: todo!(),
+                    // selection: todo!(),
+                    // drawer: todo!(),
+                    // skin_deformer: todo!(),
+                    // gizmo: todo!(),
+                    // vertex_weight_painter: todo!(),
+                    // offscreen_passive_render_target_effects: todo!(),
+                    // draw_all_vertex_normals: todo!(),
+                    // draw_all_vertex_points: todo!(),
+                    // draw_all_vertex_faces: todo!(),
+                    // draw_all_vertex_weights: todo!(),
+                    // draw_rigid_body: todo!(),
+                    // draw_joint: todo!(),
+                    opaque,
+                    // undo_stack: todo!(),
+                    // editing_undo_stack: todo!(),
+                    // active_morph_ptr: todo!(),
+                    // active_constraint_ptr: todo!(),
+                    // active_material_ptr: todo!(),
+                    // hovered_bone_ptr: todo!(),
+                    // vertex_buffer_data: todo!(),
+                    // face_states: todo!(),
+                    // active_bone_pair_ptr: todo!(),
+                    // active_effect_pair_ptr: todo!(),
+                    // screen_image: todo!(),
+                    // loading_image_items: todo!(),
+                    // image_map: todo!(),
+                    bone_index_hash_map: HashMap::new(),
+                    bones: HashMap::new(),
+                    morphs: HashMap::new(),
+                    constraints: HashMap::new(),
+                    // redo_bone_names: todo!(),
+                    // redo_morph_names: todo!(),
+                    // outside_parents: todo!(),
+                    // image_uris: todo!(),
+                    // attachment_uris: todo!(),
+                    // bone_bound_rigid_bodies: todo!(),
+                    constraint_joint_bones: HashMap::new(),
+                    inherent_bones: HashMap::new(),
+                    constraint_effector_bones: HashSet::new(),
+                    parent_bone_tree: HashMap::new(),
+                    shared_fallback_bone: Rc::new(RefCell::new(Bone::new(
+                        "SharedFallbackBone",
+                        "SharedFallbackBone",
+                    ))),
+                    // bounding_box: todo!(),
+                    // annotations: todo!(),
+                    vertex_buffers: todo!(),
+                    index_buffer: todo!(),
+                    // edge_color: todo!(),
+                    // transform_axis_type: todo!(),
+                    // edit_action_type: todo!(),
+                    // transform_coordinate_type: todo!(),
+                    // file_uri: todo!(),
+                    name,
+                    comment,
+                    canonical_name,
+                    // states: todo!(),
+                    // edge_size_scale_factor: todo!(),
+                    opacity: 1.0f32,
+                    count_vertex_skinning_needed: 0,
+                    stage_vertex_buffer_index: 0,
+                })
+            }
+            Err(status) => Err(Error::from_nanoem("Cannot load the model: ", status)),
         }
     }
 
@@ -416,6 +501,10 @@ impl Model {
             }
             Err(status) => Err(Error::from_nanoem("Cannot load the model: ", status)),
         }
+    }
+
+    pub fn upload(&mut self) {
+        // TODO
     }
 
     pub fn create_all_images(&mut self) {
@@ -666,7 +755,8 @@ impl Model {
                         }
                     }
                 }
-                self.bone_index_hash_map.insert(Rc::downgrade(material).as_ptr(), index_hash.clone());
+                self.bone_index_hash_map
+                    .insert(Rc::downgrade(material).as_ptr(), index_hash.clone());
             }
             for it in &mut references {
                 it.1.clear()
@@ -678,11 +768,14 @@ impl Model {
         }
     }
 
-    fn create_image() {
+    fn create_image() {}
 
-    }
-
-    pub fn update_diffuse_image<'a, 'b: 'a>(material: &'a mut NanoemMaterial, model: &'b NanoemModel, mode: &mut wgpu::AddressMode, flags: &mut u32) {
+    pub fn update_diffuse_image<'a, 'b: 'a>(
+        material: &'a mut NanoemMaterial,
+        model: &'b NanoemModel,
+        mode: &mut wgpu::AddressMode,
+        flags: &mut u32,
+    ) {
         *mode = wgpu::AddressMode::Repeat;
         *flags = 0;
         if let Some(diffuse_texture) = material.get_diffuse_texture_object(model) {
