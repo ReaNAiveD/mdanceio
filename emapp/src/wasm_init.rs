@@ -36,11 +36,12 @@ pub struct WasmClient {
 #[wasm_bindgen]
 impl WasmClient {
     pub fn new(canvas: &web_sys::HtmlCanvasElement) -> js_sys::Promise {
-        let query_string = web_sys::window().unwrap().location().search().unwrap();
-        let level: log::Level = parse_url_query_string(&query_string, "RUST_LOG")
-            .map(|x| x.parse().ok())
-            .flatten()
-            .unwrap_or(log::Level::Error);
+        // let query_string = web_sys::window().unwrap().location().search().unwrap();
+        // let level: log::Level = parse_url_query_string(&query_string, "RUST_LOG")
+        //     .map(|x| x.parse().ok())
+        //     .flatten()
+        //     .unwrap_or(log::Level::Error);
+        let level: log::Level = log::Level::Debug;
         console_log::init_with_level(level).expect("could not initialize logger");
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
     
@@ -76,6 +77,7 @@ impl WasmClient {
                 )
                 .await
                 .expect("Unable to find a suitable GPU adapter!");
+            log::info!("Got Render Device and Queue");
         
             let config = wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -85,6 +87,7 @@ impl WasmClient {
                 present_mode: wgpu::PresentMode::Mailbox,
             };
             surface.configure(&device, &config);
+            log::info!("Finish Configure Surface");
 
             let service = BaseApplicationService::new(&config, &adapter, &device, &queue);
         
