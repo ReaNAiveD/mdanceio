@@ -118,6 +118,26 @@ pub struct VertexUnit {
     info: [f32; 4], /* type,vertexIndex,edgeSize,padding */
 }
 
+impl From<VertexSimd> for VertexUnit {
+    fn from(simd: VertexSimd) -> Self {
+        Self {
+            position: simd.origin.into(),
+            normal: simd.normal.into(),
+            texcoord: simd.texcoord.into(),
+            edge: simd.origin.into(),
+            uva: [
+                simd.origin_uva[0].into(),
+                simd.origin_uva[1].into(),
+                simd.origin_uva[2].into(),
+                simd.origin_uva[3].into(),
+            ],
+            weights: simd.weights.into(),
+            indices: simd.indices.into(),
+            info: simd.info.into(),
+        }
+    }
+}
+
 pub struct NewModelDescription {
     name: HashMap<nanoem::common::LanguageType, String>,
     comment: HashMap<nanoem::common::LanguageType, String>,
@@ -318,7 +338,7 @@ impl Model {
         }
     }
 
-    pub fn new_from_bytes(bytes: &[u8], project: &Project, handle: u16) -> Result<Self, Error> {
+    pub fn new_from_bytes(bytes: &[u8], project: &Project, handle: u16, device: &wgpu::Device) -> Result<Self, Error> {
         let mut buffer = nanoem::common::Buffer::create(bytes);
         let mut nanoem_model = Box::new(NanoemModel::default());
         match nanoem_model.load_from_buffer(&mut buffer) {
@@ -333,6 +353,33 @@ impl Model {
                 if name.is_empty() {
                     name = canonical_name.clone();
                 }
+                
+                let vertices = opaque.get_all_vertex_objects();
+                let mut vertex_buffer_data: Vec<VertexUnit> = vec![];
+                for vertex in vertices {
+                    let vertex = vertex.borrow();
+                    let vertex = vertex.get_user_data().as_ref().unwrap();
+                    vertex_buffer_data.push(vertex.clone().borrow().simd.clone().into());
+                }
+                let vertex_buffer_even = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor{
+                    label: Some(format!("Model/{}/VertexBuffer/Even", canonical_name).as_str()),
+                    contents: bytemuck::cast_slice(&vertex_buffer_data),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                let vertex_buffer_odd = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor{
+                    label: Some(format!("Model/{}/VertexBuffer/Odd", canonical_name).as_str()),
+                    contents: bytemuck::cast_slice(&vertex_buffer_data),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                let vertex_buffers = [vertex_buffer_even, vertex_buffer_odd];
+                let indices = opaque.get_all_vertex_indices();
+                let index_buffer_data: Vec<u32> = indices.iter().map(|rc| rc.borrow().clone()).collect();
+                let index_buffer = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor {
+                    label: Some(format!("Model/{}/IndexBuffer", canonical_name).as_str()),
+                    contents: bytemuck::cast_slice(&index_buffer_data),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+
                 Ok(Self {
                     handle,
                     // camera: todo!(),
@@ -382,8 +429,8 @@ impl Model {
                     ))),
                     // bounding_box: todo!(),
                     // annotations: todo!(),
-                    vertex_buffers: todo!(),
-                    index_buffer: todo!(),
+                    vertex_buffers,
+                    index_buffer,
                     // edge_color: todo!(),
                     // transform_axis_type: todo!(),
                     // edit_action_type: todo!(),
@@ -505,6 +552,37 @@ impl Model {
 
     pub fn upload(&mut self) {
         // TODO
+    }
+
+    pub fn initialize_all_staging_vertex_buffers(&mut self, device: &wgpu::Device) {
+        let vertices = self.opaque.get_all_vertex_objects();
+        let mut vertex_buffer_data: Vec<VertexUnit> = vec![];
+        for vertex in vertices {
+            let vertex = vertex.borrow();
+            let vertex = vertex.get_user_data().as_ref().unwrap();
+            vertex_buffer_data.push(vertex.clone().borrow().simd.clone().into());
+        }
+        let vertex_buffer_even = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor{
+            label: Some(format!("Model/{}/VertexBuffer/Even", self.get_canonical_name()).as_str()),
+            contents: bytemuck::cast_slice(&vertex_buffer_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let vertex_buffer_odd = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor{
+            label: Some(format!("Model/{}/VertexBuffer/Odd", self.get_canonical_name()).as_str()),
+            contents: bytemuck::cast_slice(&vertex_buffer_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        self.vertex_buffers = [vertex_buffer_even, vertex_buffer_odd];
+    }
+
+    pub fn initialize_staging_index_buffer(&mut self, device: &wgpu::Device) {
+        let indices = self.opaque.get_all_vertex_indices();
+        let index_buffer_data: Vec<u32> = indices.iter().map(|rc| rc.borrow().clone()).collect();
+        self.index_buffer = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor {
+            label: Some(format!("Model/{}/IndecBuffer", self.get_canonical_name()).as_str()),
+            contents: bytemuck::cast_slice(&index_buffer_data),
+            usage: wgpu::BufferUsages::INDEX,
+        });
     }
 
     pub fn create_all_images(&mut self) {

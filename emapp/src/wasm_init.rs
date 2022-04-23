@@ -3,6 +3,8 @@ use wasm_bindgen_futures;
 use console_log;
 use console_error_panic_hook;
 
+use crate::base_application_service::BaseApplicationService;
+
 pub struct CanvasSize<T> {
     pub width: T,
     pub height: T,
@@ -26,6 +28,8 @@ pub struct WasmClient {
     adapter_info: wgpu::AdapterInfo,
     device: wgpu::Device,
     queue: wgpu::Queue,
+
+    service: BaseApplicationService,
 }
 
 /// 我希望通过WasmClient为JS层调用提供接口。JS层应自行处理渲染请求频率，通知视口resize，点击，拖动等事件，并处理好可能有的回调。
@@ -81,7 +85,8 @@ impl WasmClient {
                 present_mode: wgpu::PresentMode::Mailbox,
             };
             surface.configure(&device, &config);
-        
+
+            let service = BaseApplicationService::new(&config, &adapter, &device, &queue);
         
             Ok(WasmClient {
                 instance,
@@ -91,6 +96,7 @@ impl WasmClient {
                 adapter_info,
                 device,
                 queue,
+                service,
             }.into())
         })
     }
@@ -101,7 +107,7 @@ impl WasmClient {
         self.surface.configure(&self.device, &self.config);
     }
 
-    pub fn redraw(&self) {
+    pub fn redraw(&mut self) {
         let frame = match self.surface.get_current_texture() {
             Ok(frame) => frame,
             Err(_) => {
@@ -114,9 +120,12 @@ impl WasmClient {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         
-        // TODO: render project
-
+        self.service.draw_default_pass(&view, &self.adapter, &self.device, &self.queue);
         frame.present();
+    }
+
+    pub fn load_model(&mut self, data: &[u8]) {
+        self.service.load_model(data, &self.device);
     }
 }
 

@@ -1,6 +1,6 @@
 pub struct Injector {
     // TODO
-    pixel_format: wgpu::TextureFormat,
+    pub pixel_format: wgpu::TextureFormat,
 }
 
 impl Injector {

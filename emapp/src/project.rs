@@ -312,7 +312,7 @@ impl Project {
     pub const VIEWPORT_PRIMARY_NAME: &'static str = "@mdanceio/Viewport/Primary";
     pub const VIEWPORT_SECONDARY_NAME: &'static str = "@mdanceio/Viewport/Secondary";
 
-    fn new(
+    pub fn new(
         sc_desc: &wgpu::SurfaceConfiguration,
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,
@@ -465,6 +465,12 @@ impl Project {
 }
 
 impl Project {
+    pub fn load_tmp_model(&mut self, model_data: &[u8], device: &wgpu::Device) {
+        if let Ok(model) = Model::new_from_bytes(model_data, self, 0, device) {
+            self.tmp_model = Some(Box::new(model));
+        }
+    }
+
     fn create_fallback_image(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
         let texture_size = wgpu::Extent3d {
             width: 1,
@@ -668,6 +674,7 @@ impl Project {
         }
         self.local_frame_index.1 = 0;
         encoder.pop_debug_group();
+        queue.submit(Some(encoder.finish()));
     }
 
     fn _draw_viewport(
