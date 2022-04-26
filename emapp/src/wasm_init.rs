@@ -1,9 +1,10 @@
+use console_error_panic_hook;
+use console_log;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures;
-use console_log;
-use console_error_panic_hook;
 
 use crate::base_application_service::BaseApplicationService;
+use crate::injector::Injector;
 
 pub struct CanvasSize<T> {
     pub width: T,
@@ -12,10 +13,7 @@ pub struct CanvasSize<T> {
 
 impl<T> CanvasSize<T> {
     pub fn new(width: T, height: T) -> Self {
-        Self {
-            width,
-            height,
-        }
+        Self { width, height }
     }
 }
 
@@ -41,14 +39,14 @@ impl WasmClient {
         //     .map(|x| x.parse().ok())
         //     .flatten()
         //     .unwrap_or(log::Level::Error);
-        let level: log::Level = log::Level::Debug;
+        let level: log::Level = log::Level::Trace;
         console_log::init_with_level(level).expect("could not initialize logger");
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-    
+
         log::info!("Initializing the surface...");
-    
+
         let backend = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
-    
+
         let instance = wgpu::Instance::new(wgpu::Backends::BROWSER_WEBGPU);
         let (size, surface) = unsafe {
             let size = CanvasSize::new(canvas.width(), canvas.height());
@@ -56,14 +54,17 @@ impl WasmClient {
             (size, surface)
         };
         wasm_bindgen_futures::future_to_promise(async move {
-            let adapter =
-                wgpu::util::initialize_adapter_from_env_or_default(&instance, backend, Some(&surface))
-                    .await
-                    .expect("No suitable GPU adapters found on the system!");
-        
+            let adapter = wgpu::util::initialize_adapter_from_env_or_default(
+                &instance,
+                backend,
+                Some(&surface),
+            )
+            .await
+            .expect("No suitable GPU adapters found on the system!");
+
             let adapter_info = adapter.get_info();
             log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
-        
+
             let trace_dir = std::env::var("WGPU_TRACE");
             // TODO: wo may need to set feature and limit, ref to https://github.com/gfx-rs/wgpu/blob/master/wgpu/examples/framework.rs
             let (device, queue) = adapter
@@ -78,10 +79,11 @@ impl WasmClient {
                 .await
                 .expect("Unable to find a suitable GPU adapter!");
             log::info!("Got Render Device and Queue");
-        
+
+            let surface_format = surface.get_preferred_format(&adapter).unwrap();
             let config = wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: surface.get_preferred_format(&adapter).unwrap(),
+                format: surface_format,
                 width: size.width,
                 height: size.height,
                 present_mode: wgpu::PresentMode::Mailbox,
@@ -89,8 +91,16 @@ impl WasmClient {
             surface.configure(&device, &config);
             log::info!("Finish Configure Surface");
 
-            let service = BaseApplicationService::new(&config, &adapter, &device, &queue);
-        
+            let service = BaseApplicationService::new(
+                &config,
+                &adapter,
+                &device,
+                &queue,
+                Injector {
+                    pixel_format: surface_format,
+                },
+            );
+
             Ok(WasmClient {
                 instance,
                 surface,
@@ -100,7 +110,8 @@ impl WasmClient {
                 device,
                 queue,
                 service,
-            }.into())
+            }
+            .into())
         })
     }
 
@@ -115,15 +126,17 @@ impl WasmClient {
             Ok(frame) => frame,
             Err(_) => {
                 self.surface.configure(&self.device, &self.config);
-                self.surface.get_current_texture()
+                self.surface
+                    .get_current_texture()
                     .expect("Failed to acquire next surface texture!")
-            },
+            }
         };
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        
-        self.service.draw_default_pass(&view, &self.adapter, &self.device, &self.queue);
+
+        self.service
+            .draw_default_pass(&view, &self.adapter, &self.device, &self.queue);
         frame.present();
     }
 

@@ -319,6 +319,7 @@ impl Project {
         queue: &wgpu::Queue,
         injector: Injector,
     ) -> Self {
+        log::trace!("Start Creating new Project");
         let viewport_primary_pass = Pass::new(
             Self::VIEWPORT_PRIMARY_NAME,
             Vector2::new(sc_desc.width as u16, sc_desc.height as u16),
@@ -334,8 +335,11 @@ impl Project {
             1,
             &device,
         );
+        log::trace!("Finish Primary and Secondary Pass");
 
         let fallback_texture = Self::create_fallback_image(&device, &queue);
+
+        log::trace!("Finish Fallback texture");
 
         let camera = PerspectiveCamera::new();
         let shadow_camera = ShadowCamera::new(&device);
@@ -484,7 +488,7 @@ impl Project {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         });
         queue.write_texture(
             wgpu::ImageCopyTexture {
@@ -567,11 +571,11 @@ impl Project {
                     include_str!("resources/shaders/clear.wgsl").into(),
                 ),
             });
-            // let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            //     label: Some("@mdanceio/ClearPass/PipelineLayout"),
-            //     bind_group_layouts: &[],
-            //     push_constant_ranges: &[],
-            // });
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("@mdanceio/ClearPass/PipelineLayout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
             let vertex_buffer_layout = wgpu::VertexBufferLayout {
                 array_stride: std::mem::size_of::<QuadVertexUnit>() as u64,
                 step_mode: wgpu::VertexStepMode::Vertex,
@@ -588,7 +592,7 @@ impl Project {
                 .collect();
             let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("@mdanceio/ClearPass/Pipeline"),
-                layout: None,
+                layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
                     entry_point: "vs_main",
@@ -605,7 +609,13 @@ impl Project {
                     cull_mode: Some(wgpu::Face::Back),
                     ..Default::default()
                 },
-                depth_stencil: None,
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth24PlusStencil8,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Always,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
             });

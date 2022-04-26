@@ -8,9 +8,9 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-wgpu = {version = "0.12"}
+wgpu = { version = "0.12" }
 log = "0.4"
-bytemuck = { version = "1.7.3", features = [ "derive" ] }
+bytemuck = { version = "1.7.3", features = ["derive"] }
 cgmath = "0.18.0"
 
 [dependencies.nanoem]
@@ -148,10 +148,10 @@ web-sys = { version = "0.3.57", features = [
     "Location",
     "OffscreenCanvas",
     "Window",
-]}
+] }
 js-sys = { version = "0.3.57" }
 console_error_panic_hook = "0.1.7"
-console_log = "0.2.0"
+console_log = { version = "0.2.0", features = ["color"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 # We need the Location feature in the framework examples

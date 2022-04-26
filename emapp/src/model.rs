@@ -353,6 +353,264 @@ impl Model {
                 if name.is_empty() {
                     name = canonical_name.clone();
                 }
+
+                let shared_fallback_bone = Rc::new(RefCell::new(Bone::new(
+                    "SharedFallbackBone",
+                    "SharedFallbackBone",
+                )));
+                
+                let vertices = opaque.get_all_vertex_objects();
+                for vertex in vertices {
+                    let _ = Vertex::new_bind(&mut vertex.borrow_mut(), &opaque);
+                }
+                let materials = opaque.get_all_material_objects();
+                let indices = opaque.get_all_vertex_indices();
+                let mut index_offset = 0;
+                for material_rc in materials {
+                    let material = &mut material_rc.borrow_mut();
+                    Material::new_bind(material, project.shared_fallback_image(), language);
+                    let num_indices = material.get_num_vertex_indices();
+                    for i in index_offset..(index_offset + num_indices) {
+                        let vertex_index = indices[i].borrow();
+                        if let Some(vertex) = vertices.get(vertex_index.clone() as usize) {
+                            if let Some(user_data) = vertex.borrow_mut().get_user_data() {
+                                user_data.borrow_mut().set_material(material_rc);
+                            }
+                        }
+                    }
+                    index_offset += num_indices;
+                }
+                let mut constraint_joint_bones = HashMap::new();
+                let mut constraint_effector_bones = HashSet::new();
+                let mut inherent_bones = HashMap::new();
+                let mut bones = HashMap::new();
+                for bone_rc in opaque.get_all_bone_objects() {
+                    {
+                        let bone = &mut bone_rc.borrow_mut();
+                        Bone::new_bind(bone, language);
+                    }
+                    let bone = &bone_rc.borrow();
+                    if let Some(constraint) = bone.get_constraint_object() {
+                        let target_bone = opaque
+                            .get_one_bone_object(constraint.borrow().get_target_bone_index());
+                        Constraint::new_bind(&mut constraint.borrow_mut(), target_bone, language);
+                        for joint in constraint.borrow().get_all_joint_objects() {
+                            if let Some(bone) = opaque
+                                .get_one_bone_object(joint.borrow().get_bone_index())
+                            {
+                                constraint_joint_bones
+                                    .insert(Rc::downgrade(bone).into_raw(), Rc::downgrade(constraint));
+                            }
+                        }
+                        if let Some(effector_bone) = opaque
+                            .get_one_bone_object(constraint.borrow().get_effector_bone_index())
+                        {
+                            constraint_effector_bones
+                                .insert(Rc::downgrade(effector_bone).into_raw());
+                        }
+                    }
+                    if bone.has_inherent_orientation() || bone.has_inherent_translation() {
+                        if let Some(parent_bone) = opaque
+                            .get_one_bone_object(bone.get_parent_inherent_bone_index())
+                        {
+                            inherent_bones
+                                .entry(Rc::downgrade(parent_bone).into_raw())
+                                .or_insert(HashSet::new())
+                                .insert(Rc::downgrade(bone_rc).into_raw());
+                        }
+                    }
+                    for language in nanoem::common::LanguageType::all() {
+                        bones.insert(
+                            bone.get_name(language.clone()).to_owned(),
+                            Rc::downgrade(bone_rc),
+                        );
+                    }
+                }
+                let mut parent_bone_tree = HashMap::new();
+                for bone in opaque.get_all_bone_objects() {
+                    if let Some(parent_bone) = opaque
+                        .get_one_bone_object(bone.borrow().get_parent_bone_index())
+                    {
+                        parent_bone_tree
+                            .entry(Rc::downgrade(parent_bone).into_raw())
+                            .or_insert(vec![])
+                            .push(Rc::downgrade(bone));
+                    }
+                }
+                if let Some(first_bone) = opaque.get_all_bone_objects().get(0) {
+                    // TODO: set into selection
+                }
+                let nanoem_constraints = opaque.get_all_constraint_objects();
+                let mut constraints = HashMap::new();
+                if nanoem_constraints.len() > 0 {
+                    for constraint in nanoem_constraints {
+                        let target_bone = opaque
+                            .get_one_bone_object(constraint.borrow().get_target_bone_index());
+                        Constraint::new_bind(&mut constraint.borrow_mut(), target_bone, language);
+                        for joint in constraint.borrow().get_all_joint_objects() {
+                            if let Some(bone) = opaque
+                                .get_one_bone_object(joint.borrow().get_bone_index())
+                            {
+                                constraint_joint_bones
+                                    .insert(Rc::downgrade(bone).into_raw(), Rc::downgrade(constraint));
+                            }
+                        }
+                        if let Some(effector_bone) = opaque
+                            .get_one_bone_object(constraint.borrow().get_effector_bone_index())
+                        {
+                            constraint_effector_bones
+                                .insert(Rc::downgrade(effector_bone).into_raw());
+                        }
+                        if let Some(target_bone) = target_bone {
+                            constraints.insert(
+                                Rc::downgrade(&target_bone).into_raw(),
+                                Rc::downgrade(constraint),
+                            );
+                        }
+                    }
+                } else {
+                    for bone in opaque.get_all_bone_objects() {
+                        if let Some(constraint) = bone.borrow().get_constraint_object() {
+                            constraints
+                                .insert(Rc::downgrade(bone).into_raw(), Rc::downgrade(constraint));
+                        }
+                    }
+                }
+                let mut bone_set: HashSet<*const RefCell<NanoemBone>> = HashSet::new();
+                let mut morphs = HashMap::new();
+                for morph in opaque.get_all_morph_objects() {
+                    Morph::new_bind(&mut morph.borrow_mut(), language);
+                    if let nanoem::model::ModelMorphType::Vertex = morph.borrow().get_type() {
+                        if let nanoem::model::ModelMorphU::VERTICES(morph_vertices) = morph.borrow().get_u()
+                        {
+                            for morph_vertex in morph_vertices {
+                                if let Some(vertex) = opaque
+                                    .get_one_vertex_object(morph_vertex.get_vertex_index())
+                                {
+                                    for bone_index in vertex.borrow().get_bone_indices() {
+                                        if let Some(bone) = opaque.get_one_bone_object(bone_index) {
+                                            bone_set.insert(Rc::downgrade(bone).into_raw());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    let category = morph.borrow().get_category();
+                    // TODO: set active category
+                    for language in nanoem::common::LanguageType::all() {
+                        morphs.insert(
+                            morph.borrow().get_name(language.clone()).to_owned(),
+                            Rc::downgrade(morph),
+                        );
+                    }
+                }
+                for label in opaque.get_all_label_objects() {
+                    Label::new_bind(&mut label.borrow_mut(), language);
+                }
+                for rigid_body in opaque.get_all_rigid_body_objects() {
+                    let is_dynamic =
+                        if let nanoem::model::ModelRigidBodyTransformType::FromBoneToSimulation =
+                            rigid_body.borrow().get_transform_type()
+                        {
+                            false
+                        } else {
+                            true
+                        };
+                    let is_morph = if let Some(bone) = opaque
+                        .get_one_bone_object(rigid_body.borrow().get_bone_index())
+                    {
+                        is_dynamic && bone_set.contains(&Rc::downgrade(bone).into_raw())
+                    } else {
+                        false
+                    };
+                    RigidBody::new_bind(&mut rigid_body.borrow_mut(), language);
+                    // TODO: initializeTransformFeedback
+                }
+                for joint in opaque.get_all_joint_objects() {
+                    Joint::new_bind(&mut joint.borrow_mut(), language);
+                }
+                for soft_body in opaque.get_all_soft_body_objects() {
+                    SoftBody::new_bind(&mut soft_body.borrow_mut(), language);
+                }
+                for nanoem_vertex in opaque.get_all_vertex_objects() {
+                    if let Some(vertex) = nanoem_vertex.borrow().get_user_data() {
+                        vertex
+                            .borrow_mut()
+                            .setup_bone_binding(&nanoem_vertex.borrow(), &opaque, shared_fallback_bone.clone());
+                    }
+                }
+                // split_bones_per_material();
+                
+                let mut offset: usize = 0;
+                let mut unique_bone_index_per_material = 0;
+                let mut references: HashMap<i32, HashSet<*const RefCell<NanoemVertex>>> = HashMap::new();
+                let mut index_hash = HashMap::new();
+                let materials = opaque.get_all_material_objects();
+                let vertices = opaque.get_all_vertex_objects();
+                let indices = opaque.get_all_vertex_indices();
+                let mut bone_index_hash_map = HashMap::new();
+                let mut count_vertex_skinning_needed = 0;
+                for material in materials {
+                    let num_indices = material.borrow().get_num_vertex_indices();
+                    for j in offset..offset + num_indices {
+                        let vertex_index = &indices[j];
+                        let vertex = &vertices[*vertex_index.borrow() as usize];
+                        for bone_index in vertex.borrow().get_bone_indices() {
+                            if let Some(bone) = opaque.get_one_bone_object(bone_index) {
+                                let bone_index = bone.borrow().get_index();
+                                if bone_index >= 0 {
+                                    if !index_hash.contains_key(&bone_index) {
+                                        index_hash.insert(bone_index, unique_bone_index_per_material);
+                                        unique_bone_index_per_material += 1;
+                                    }
+                                    references
+                                        .entry(bone_index)
+                                        .or_insert(HashSet::new())
+                                        .insert(Rc::downgrade(vertex).into_raw());
+                                }
+                            }
+                        }
+                    }
+                    if !index_hash.is_empty() {
+                        if references.len() > Self::MAX_BONE_UNIFORMS as usize {
+                            let mut vertex_list: Vec<Rc<RefCell<NanoemVertex>>> = vec![];
+                            let mut bone_vertex_list: Vec<(i32, Vec<Rc<RefCell<NanoemVertex>>>)> = vec![];
+                            for vertex_reference in &references {
+                                vertex_list.clear();
+                                for vertex in vertex_reference.1 {
+                                    let vertex = unsafe { Weak::from_raw(*vertex) };
+                                    vertex_list.push(vertex.upgrade().unwrap())
+                                }
+                                bone_vertex_list.push((*vertex_reference.0, vertex_list.clone()));
+                            }
+                            bone_vertex_list.sort_by(|a, b| b.1.len().cmp(&a.1.len()));
+                            index_hash.clear();
+                            for j in 0..Self::MAX_BONE_UNIFORMS {
+                                let pair = &bone_vertex_list[j as usize];
+                                index_hash.insert(pair.0, j);
+                            }
+                            for pair in &mut bone_vertex_list {
+                                let all_vertices = &mut pair.1;
+                                for nanoem_vertex in all_vertices {
+                                    if let Some(vertex) = nanoem_vertex.borrow_mut().get_user_data() {
+                                        vertex.borrow_mut().set_skinning_enabled(true);
+                                    }
+                                    count_vertex_skinning_needed += 1;
+                                }
+                            }
+                        }
+                        bone_index_hash_map
+                            .insert(Rc::downgrade(material).as_ptr(), index_hash.clone());
+                    }
+                    for it in &mut references {
+                        it.1.clear()
+                    }
+                    offset += num_indices;
+                    unique_bone_index_per_material = 0;
+                    index_hash.clear();
+                    references.clear();
+                }
                 
                 let vertices = opaque.get_all_vertex_objects();
                 let mut vertex_buffer_data: Vec<VertexUnit> = vec![];
@@ -382,67 +640,23 @@ impl Model {
 
                 Ok(Self {
                     handle,
-                    // camera: todo!(),
-                    // selection: todo!(),
-                    // drawer: todo!(),
-                    // skin_deformer: todo!(),
-                    // gizmo: todo!(),
-                    // vertex_weight_painter: todo!(),
-                    // offscreen_passive_render_target_effects: todo!(),
-                    // draw_all_vertex_normals: todo!(),
-                    // draw_all_vertex_points: todo!(),
-                    // draw_all_vertex_faces: todo!(),
-                    // draw_all_vertex_weights: todo!(),
-                    // draw_rigid_body: todo!(),
-                    // draw_joint: todo!(),
                     opaque,
-                    // undo_stack: todo!(),
-                    // editing_undo_stack: todo!(),
-                    // active_morph_ptr: todo!(),
-                    // active_constraint_ptr: todo!(),
-                    // active_material_ptr: todo!(),
-                    // hovered_bone_ptr: todo!(),
-                    // vertex_buffer_data: todo!(),
-                    // face_states: todo!(),
-                    // active_bone_pair_ptr: todo!(),
-                    // active_effect_pair_ptr: todo!(),
-                    // screen_image: todo!(),
-                    // loading_image_items: todo!(),
-                    // image_map: todo!(),
-                    bone_index_hash_map: HashMap::new(),
-                    bones: HashMap::new(),
-                    morphs: HashMap::new(),
-                    constraints: HashMap::new(),
-                    // redo_bone_names: todo!(),
-                    // redo_morph_names: todo!(),
-                    // outside_parents: todo!(),
-                    // image_uris: todo!(),
-                    // attachment_uris: todo!(),
-                    // bone_bound_rigid_bodies: todo!(),
-                    constraint_joint_bones: HashMap::new(),
-                    inherent_bones: HashMap::new(),
-                    constraint_effector_bones: HashSet::new(),
-                    parent_bone_tree: HashMap::new(),
-                    shared_fallback_bone: Rc::new(RefCell::new(Bone::new(
-                        "SharedFallbackBone",
-                        "SharedFallbackBone",
-                    ))),
-                    // bounding_box: todo!(),
-                    // annotations: todo!(),
+                    bone_index_hash_map,
+                    bones,
+                    morphs,
+                    constraints,
+                    constraint_joint_bones,
+                    inherent_bones,
+                    constraint_effector_bones,
+                    parent_bone_tree,
+                    shared_fallback_bone,
                     vertex_buffers,
                     index_buffer,
-                    // edge_color: todo!(),
-                    // transform_axis_type: todo!(),
-                    // edit_action_type: todo!(),
-                    // transform_coordinate_type: todo!(),
-                    // file_uri: todo!(),
                     name,
                     comment,
                     canonical_name,
-                    // states: todo!(),
-                    // edge_size_scale_factor: todo!(),
                     opacity: 1.0f32,
-                    count_vertex_skinning_needed: 0,
+                    count_vertex_skinning_needed,
                     stage_vertex_buffer_index: 0,
                 })
             }
@@ -769,7 +983,7 @@ impl Model {
             if let Some(vertex) = nanoem_vertex.borrow().get_user_data() {
                 vertex
                     .borrow_mut()
-                    .setup_bone_binding(&nanoem_vertex.borrow(), self);
+                    .setup_bone_binding(&nanoem_vertex.borrow(), &self.opaque, self.shared_fallback_bone.clone());
             }
         }
         self.split_bones_per_material();
@@ -1276,45 +1490,46 @@ impl Vertex {
 
     fn get_bone_from_vertex_by_index(
         vertex: &NanoemVertex,
-        model: &Model,
+        model: &NanoemModel,
         index: usize,
+        fallback_bone: Rc<RefCell<Bone>>
     ) -> Rc<RefCell<Bone>> {
         model
-            .opaque
             .get_one_bone_object(vertex.get_bone_indices()[index])
             .map(|bone| bone.borrow().get_user_data().map(|rc| rc.clone()))
             .flatten()
-            .unwrap_or(model.shared_fallback_bone().clone())
+            .unwrap_or(fallback_bone)
     }
 
-    pub fn setup_bone_binding(&mut self, vertex: &NanoemVertex, model: &Model) {
+    pub fn setup_bone_binding(&mut self, vertex: &NanoemVertex, model: &NanoemModel,
+        fallback_bone: Rc<RefCell<Bone>>) {
         match vertex.get_type() {
             nanoem::model::ModelVertexType::UNKNOWN => {}
             nanoem::model::ModelVertexType::BDEF1 => {
                 self.bones[0] = Some(Rc::downgrade(&Self::get_bone_from_vertex_by_index(
-                    vertex, model, 0,
+                    vertex, model, 0, fallback_bone.clone(),
                 )));
             }
             nanoem::model::ModelVertexType::BDEF2 | nanoem::model::ModelVertexType::SDEF => {
                 self.bones[0] = Some(Rc::downgrade(&Self::get_bone_from_vertex_by_index(
-                    vertex, model, 0,
+                    vertex, model, 0, fallback_bone.clone(),
                 )));
                 self.bones[1] = Some(Rc::downgrade(&Self::get_bone_from_vertex_by_index(
-                    vertex, model, 1,
+                    vertex, model, 1, fallback_bone.clone(),
                 )));
             }
             nanoem::model::ModelVertexType::BDEF4 | nanoem::model::ModelVertexType::QDEF => {
                 self.bones[0] = Some(Rc::downgrade(&Self::get_bone_from_vertex_by_index(
-                    vertex, model, 0,
+                    vertex, model, 0, fallback_bone.clone(),
                 )));
                 self.bones[1] = Some(Rc::downgrade(&Self::get_bone_from_vertex_by_index(
-                    vertex, model, 1,
+                    vertex, model, 1, fallback_bone.clone(),
                 )));
                 self.bones[2] = Some(Rc::downgrade(&Self::get_bone_from_vertex_by_index(
-                    vertex, model, 2,
+                    vertex, model, 2, fallback_bone.clone(),
                 )));
                 self.bones[3] = Some(Rc::downgrade(&Self::get_bone_from_vertex_by_index(
-                    vertex, model, 3,
+                    vertex, model, 3, fallback_bone.clone(),
                 )));
             }
         }

@@ -1,3 +1,4 @@
+#[derive(Debug, Clone, Copy)]
 pub struct Injector {
     // TODO
     pub pixel_format: wgpu::TextureFormat,

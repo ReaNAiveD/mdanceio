@@ -363,6 +363,57 @@ impl CommonPass {
         )
     }
 
+    fn get_texture_bind_group(&self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ModelProgramBundle/BindGroup/Texture"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.bindings.get(&TextureSamplerStage::ShadowMapTextureSamplerStage0).unwrap()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&self.bindings.get(&TextureSamplerStage::DiffuseTextureSamplerStage).unwrap()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&self.bindings.get(&TextureSamplerStage::SphereTextureSamplerStage).unwrap()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&self.bindings.get(&TextureSamplerStage::ToonTextureSamplerStage).unwrap()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        return texture_bind_group;
+    }
+
     pub fn execute(
         &mut self,
         buffer: &pass::Buffer,
@@ -558,6 +609,7 @@ impl CommonPass {
                 },
                 multiview: None,
             });
+            let texture_bind_group = self.get_texture_bind_group(&device, &texture_bind_group_layout);
             let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("ModelProgramBundle/BindGroupBuffer/Uniform"),
                 contents: bytemuck::bytes_of(&[self.uniform_buffer]),
@@ -602,6 +654,7 @@ impl CommonPass {
                 });
                 // m_lastDrawnRenderPass = handle;
                 rpass.set_pipeline(&pipeline);
+                rpass.set_bind_group(0, &texture_bind_group, &[]);
                 rpass.set_bind_group(1, &uniform_bind_group, &[]);
                 rpass.set_vertex_buffer(0, buffer.vertex_buffer.slice(..));
                 rpass.set_index_buffer(buffer.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -697,6 +750,7 @@ impl ObjectTechnique {
     ) -> Option<(&mut CommonPass, Option<&wgpu::ShaderModule>)> {
         if !self.base.executed {
             if self.base.shader.is_none() {
+                log::trace!("Load model_color.wgsl");
                 let sd = &wgpu::ShaderModuleDescriptor {
                     label: Some("ModelProgramBundle/ObjectTechnique/ModelColor"),
                     source: wgpu::ShaderSource::Wgsl(
@@ -704,6 +758,7 @@ impl ObjectTechnique {
                     ),
                 };
                 self.base.shader = Some(device.create_shader_module(sd));
+                log::trace!("Finish Load model_color.wgsl");
             }
             self.base.executed = true;
             Some(self.base.get_mut_pass_and_shader())

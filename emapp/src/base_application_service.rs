@@ -1,7 +1,8 @@
-use crate::{project::Project, state_controller::StateController};
+use crate::{project::Project, state_controller::StateController, injector::Injector};
 
 pub struct BaseApplicationService {
     state_controller: StateController,
+    injector: Injector,
 }
 
 impl BaseApplicationService {
@@ -10,9 +11,11 @@ impl BaseApplicationService {
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        injector: Injector,
     ) -> Self {
         Self {
-            state_controller: StateController::new(sc_desc, adapter, device, queue),
+            state_controller: StateController::new(sc_desc, adapter, device, queue, injector),
+            injector,
         }
     }
 

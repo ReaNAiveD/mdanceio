@@ -10,6 +10,7 @@ impl StateController {
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        injector: Injector,
     ) -> Self {
         Self {
             project: Project::new(
@@ -17,9 +18,7 @@ impl StateController {
                 adapter,
                 device,
                 queue,
-                Injector {
-                    pixel_format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                },
+                injector,
             ),
         }
     }
