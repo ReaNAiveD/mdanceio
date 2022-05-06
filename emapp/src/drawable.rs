@@ -12,7 +12,7 @@ pub enum DrawType {
 
 pub trait Drawable {
     // TODO
-    fn draw(&self, view: &wgpu::TextureView, typ: DrawType, project: &Project, device: &wgpu::Device, adapter_info: wgpu::AdapterInfo);
+    fn draw(&self, view: &wgpu::TextureView, typ: DrawType, project: &Project, device: &wgpu::Device, queue: &wgpu::Queue, adapter_info: wgpu::AdapterInfo);
 
     fn is_visible(&self) -> bool;
 }

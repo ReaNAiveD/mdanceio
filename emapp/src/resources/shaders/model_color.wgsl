@@ -244,4 +244,5 @@ fn fs_main(
         material_color = vec4<f32>(material_color.rgb + model_parameters.material_specular.rgb * model_parameters.light_color.rgb * spec, material_color.a);
     }
     return saturate_v4(material_color);
+    // return vec4<f32>(0.0, 0.0, 0.0, 1.0);
 }

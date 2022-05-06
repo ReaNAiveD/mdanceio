@@ -28,12 +28,12 @@ impl QuadVertexUnit {
                 texcoord: [minu, minv, 0f32, 0f32],
             },
             QuadVertexUnit {
-                position: [maxx, miny, 0f32, 0f32],
-                texcoord: [maxu, minv, 0f32, 0f32],
-            },
-            QuadVertexUnit {
                 position: [minx, maxy, 0f32, 0f32],
                 texcoord: [minu, maxv, 0f32, 0f32],
+            },
+            QuadVertexUnit {
+                position: [maxx, miny, 0f32, 0f32],
+                texcoord: [maxu, minv, 0f32, 0f32],
             },
             QuadVertexUnit {
                 position: [maxx, maxy, 0f32, 0f32],

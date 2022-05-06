@@ -350,7 +350,7 @@ impl Project {
             draw_type: DrawType::Color,
             depends_on_script_external: vec![],
             viewport_texture_format: (injector.texture_format(), injector.texture_format()),
-            viewport_background_color: Vector4::new(1f32, 1f32, 1f32, 1f32),
+            viewport_background_color: Vector4::new(0f32, 0f32, 0f32, 1f32),
             local_frame_index: (0, 0),
             sample_level: (0u32, 0u32),
             camera,
@@ -497,7 +497,7 @@ impl Project {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &[0xffu8, 0xffu8, 0xffu8, 0xffu8],
+            &[0x00u8, 0x00u8, 0x00u8, 0xffu8],
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: std::num::NonZeroU32::new(4),
@@ -538,6 +538,7 @@ impl Project {
                     DrawType::ScriptExternalColor,
                     self,
                     device,
+                    queue,
                     adapter.get_info(),
                 );
             }
@@ -581,15 +582,26 @@ impl Project {
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &wgpu::vertex_attr_array![0 => Float32x4],
             };
-            let color_target_state: Vec<_> = format
+            let color_target_state = format
                 .color_texture_formats
                 .iter()
                 .map(|format| wgpu::ColorTargetState {
                     format: format.clone(),
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::empty(),
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::Zero,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::Zero,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
                 })
-                .collect();
+                .collect::<Vec<_>>();
             let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("@mdanceio/ClearPass/Pipeline"),
                 layout: Some(&pipeline_layout),
@@ -607,7 +619,10 @@ impl Project {
                     topology: wgpu::PrimitiveTopology::TriangleStrip,
                     strip_index_format: Some(wgpu::IndexFormat::Uint32),
                     cull_mode: Some(wgpu::Face::Back),
-                    ..Default::default()
+                    front_face: wgpu::FrontFace::Ccw,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth24PlusStencil8,
@@ -640,10 +655,11 @@ impl Project {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: true,
                     }),
-                    stencil_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0),
-                        store: true,
-                    }),
+                    // stencil_ops: Some(wgpu::Operations {
+                    //     load: wgpu::LoadOp::Clear(1),
+                    //     store: false,
+                    // }),
+                    stencil_ops: None,
                 }),
             });
             _render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
@@ -697,7 +713,7 @@ impl Project {
         queue: &wgpu::Queue,
     ) {
         if let Some(drawable) = &self.tmp_model {
-            drawable.draw(view, typ, self, device, adapter.get_info());
+            drawable.draw(view, typ, self, device, queue, adapter.get_info());
         }
     }
 }

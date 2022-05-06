@@ -613,12 +613,14 @@ impl Model {
                 }
                 
                 let vertices = opaque.get_all_vertex_objects();
+                log::trace!("Len(vertices): {}", vertices.len());
                 let mut vertex_buffer_data: Vec<VertexUnit> = vec![];
                 for vertex in vertices {
                     let vertex = vertex.borrow();
                     let vertex = vertex.get_user_data().as_ref().unwrap();
                     vertex_buffer_data.push(vertex.clone().borrow().simd.clone().into());
                 }
+                log::trace!("Len(vertex_buffer): {}", vertex_buffer_data.len());
                 let vertex_buffer_even = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor{
                     label: Some(format!("Model/{}/VertexBuffer/Even", canonical_name).as_str()),
                     contents: bytemuck::cast_slice(&vertex_buffer_data),
@@ -632,6 +634,7 @@ impl Model {
                 let vertex_buffers = [vertex_buffer_even, vertex_buffer_odd];
                 let indices = opaque.get_all_vertex_indices();
                 let index_buffer_data: Vec<u32> = indices.iter().map(|rc| rc.borrow().clone()).collect();
+                log::trace!("Len(index_buffer): {}", index_buffer_data.len());
                 let index_buffer = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor {
                     label: Some(format!("Model/{}/IndexBuffer", canonical_name).as_str()),
                     contents: bytemuck::cast_slice(&index_buffer_data),
@@ -792,6 +795,7 @@ impl Model {
     pub fn initialize_staging_index_buffer(&mut self, device: &wgpu::Device) {
         let indices = self.opaque.get_all_vertex_indices();
         let index_buffer_data: Vec<u32> = indices.iter().map(|rc| rc.borrow().clone()).collect();
+        log::trace!("Len(index_buffer): {}", index_buffer_data.len());
         self.index_buffer = wgpu::util::DeviceExt::create_buffer_init(device, &wgpu::util::BufferInitDescriptor {
             label: Some(format!("Model/{}/IndecBuffer", self.get_canonical_name()).as_str()),
             contents: bytemuck::cast_slice(&index_buffer_data),
@@ -1112,11 +1116,12 @@ impl Drawable for Model {
         typ: DrawType,
         project: &Project,
         device: &wgpu::Device,
+        queue: &wgpu::Queue, 
         adapter_info: wgpu::AdapterInfo,
     ) {
         if self.is_visible() {
             match typ {
-                DrawType::Color => self.draw_color(view, project, device, adapter_info),
+                DrawType::Color => self.draw_color(view, project, device, queue, adapter_info),
                 DrawType::Edge => todo!(),
                 DrawType::GroundShadow => todo!(),
                 DrawType::ShadowMap => todo!(),
@@ -1137,6 +1142,7 @@ impl Model {
         view: &wgpu::TextureView,
         project: &Project,
         device: &wgpu::Device,
+        queue: &wgpu::Queue, 
         adapter_info: wgpu::AdapterInfo,
     ) {
         let mut index_offset = 0usize;
@@ -1144,6 +1150,7 @@ impl Model {
         let materials = model_ref.get_all_material_objects();
         for nanoem_material in materials {
             let num_indices = nanoem_material.borrow().get_num_vertex_indices();
+            log::trace!("Render next Material, Index count: {}; Offset: {}", num_indices, index_offset);
             let buffer = pass::Buffer::new(
                 num_indices,
                 index_offset,
@@ -1186,6 +1193,7 @@ impl Model {
                             shader,
                             technique_type,
                             device,
+                            queue,
                             self,
                             project,
                         );

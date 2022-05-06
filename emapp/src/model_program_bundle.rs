@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, mem, ops::Deref, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, iter, mem, ops::Deref, rc::Rc};
 
 use bytemuck::Zeroable;
 use cgmath::{Matrix4, Vector4};
@@ -422,6 +422,7 @@ impl CommonPass {
         shader: Option<&wgpu::ShaderModule>,
         technique_type: TechniqueType,
         device: &wgpu::Device,
+        queue: &wgpu::Queue, 
         model: &Model,
         project: &Project,
     ) {
@@ -545,30 +546,31 @@ impl CommonPass {
             };
             let depth_state = if technique_type == TechniqueType::GroundShadow && is_depth_enabled {
                 wgpu::DepthStencilState {
-                    format: texture_format, // TODO: set to depth pixel format
+                    format: wgpu::TextureFormat::Depth24PlusStencil8, // TODO: set to depth pixel format
                     depth_write_enabled: true,
                     depth_compare: wgpu::CompareFunction::Less,
-                    stencil: wgpu::StencilState {
-                        front: wgpu::StencilFaceState {
-                            compare: wgpu::CompareFunction::Greater,
-                            fail_op: wgpu::StencilOperation::default(),
-                            depth_fail_op: wgpu::StencilOperation::default(),
-                            pass_op: wgpu::StencilOperation::Replace,
-                        },
-                        back: wgpu::StencilFaceState {
-                            compare: wgpu::CompareFunction::Greater,
-                            fail_op: wgpu::StencilOperation::default(),
-                            depth_fail_op: wgpu::StencilOperation::default(),
-                            pass_op: wgpu::StencilOperation::Replace,
-                        },
-                        read_mask: 0,
-                        write_mask: 0, // TODO: there was a ref=2 in original stencil state
-                    },
+                    // stencil: wgpu::StencilState {
+                    //     front: wgpu::StencilFaceState {
+                    //         compare: wgpu::CompareFunction::Greater,
+                    //         fail_op: wgpu::StencilOperation::default(),
+                    //         depth_fail_op: wgpu::StencilOperation::default(),
+                    //         pass_op: wgpu::StencilOperation::Replace,
+                    //     },
+                    //     back: wgpu::StencilFaceState {
+                    //         compare: wgpu::CompareFunction::Greater,
+                    //         fail_op: wgpu::StencilOperation::default(),
+                    //         depth_fail_op: wgpu::StencilOperation::default(),
+                    //         pass_op: wgpu::StencilOperation::Replace,
+                    //     },
+                    //     read_mask: 0,
+                    //     write_mask: 0, // TODO: there was a ref=2 in original stencil state
+                    // },
+                    stencil: wgpu::StencilState::default(), // TODO
                     bias: wgpu::DepthBiasState::default(),
                 }
             } else {
                 wgpu::DepthStencilState {
-                    format: texture_format, // TODO: set to depth pixel format
+                    format: wgpu::TextureFormat::Depth24PlusStencil8, // TODO: set to depth pixel format
                     depth_write_enabled: is_depth_enabled,
                     depth_compare: if is_depth_enabled {
                         wgpu::CompareFunction::LessEqual
@@ -627,6 +629,7 @@ impl CommonPass {
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Model Pass Executor Encoder"),
             });
+            encoder.push_debug_group("ModelProgramBundle::execute");
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Model Pass Render Pass"),
@@ -645,10 +648,7 @@ impl CommonPass {
                                 load: wgpu::LoadOp::Load,
                                 store: true,
                             }),
-                            stencil_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: true,
-                            }),
+                            stencil_ops: None,
                         }
                     }), // TODO: there should be depth view
                 });
@@ -658,7 +658,11 @@ impl CommonPass {
                 rpass.set_bind_group(1, &uniform_bind_group, &[]);
                 rpass.set_vertex_buffer(0, buffer.vertex_buffer.slice(..));
                 rpass.set_index_buffer(buffer.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                // rpass.draw(buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32, 0..1);
+                rpass.draw_indexed(buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32, 0, 0..1);
             }
+            encoder.pop_debug_group();
+            queue.submit(iter::once(encoder.finish()));
         };
     }
 
