@@ -803,8 +803,13 @@ impl Model {
         });
     }
 
-    pub fn create_all_images(&mut self) {
+    pub fn create_all_images(&mut self, texture_lut: &HashMap<String, Rc<wgpu::Texture>>) {
         // TODO: 创建所有材质贴图并绑定到Material上
+        for material_rc in self.opaque.get_all_material_objects() {
+            Self::update_diffuse_image(&mut material_rc.borrow_mut(), &self.opaque, texture_lut);
+            Self::update_sphere_map_image(&mut material_rc.borrow_mut(), &self.opaque, texture_lut);
+            Self::update_toon_image(&mut material_rc.borrow_mut(), &self.opaque, texture_lut);
+        }
     }
 
     pub fn setup_all_bindings(&mut self, project: &Project) {
@@ -1069,13 +1074,42 @@ impl Model {
     pub fn update_diffuse_image<'a, 'b: 'a>(
         material: &'a mut NanoemMaterial,
         model: &'b NanoemModel,
-        mode: &mut wgpu::AddressMode,
-        flags: &mut u32,
+        texture_lut: &HashMap<String, Rc<wgpu::Texture>>,
     ) {
-        *mode = wgpu::AddressMode::Repeat;
-        *flags = 0;
         if let Some(diffuse_texture) = material.get_diffuse_texture_object(model) {
-            let path = diffuse_texture.borrow().get_path();
+            let diffuse_texture = diffuse_texture.borrow();
+            let path = diffuse_texture.get_path();
+            if let Some(texture) = texture_lut.get(path) {
+                material.get_user_data().as_ref().unwrap().borrow_mut().set_diffuse_image(texture);
+            }
+        }
+    }
+
+    pub fn update_sphere_map_image<'a, 'b: 'a>(
+        material: &'a mut NanoemMaterial,
+        model: &'b NanoemModel,
+        texture_lut: &HashMap<String, Rc<wgpu::Texture>>,
+    ) {
+        if let Some(sphere_map_texture) = material.get_sphere_map_texture_object(model) {
+            let sphere_map_texture = sphere_map_texture.borrow();
+            let path = sphere_map_texture.get_path();
+            if let Some(texture) = texture_lut.get(path) {
+                material.get_user_data().as_ref().unwrap().borrow_mut().set_sphere_map_image(texture);
+            }
+        }
+    }
+
+    pub fn update_toon_image<'a, 'b: 'a>(
+        material: &'a mut NanoemMaterial,
+        model: &'b NanoemModel,
+        texture_lut: &HashMap<String, Rc<wgpu::Texture>>,
+    ) {
+        if let Some(toon_texture) = material.get_toon_texture_object(model) {
+            let toon_texture = toon_texture.borrow();
+            let path = toon_texture.get_path();
+            if let Some(texture) = texture_lut.get(path) {
+                material.get_user_data().as_ref().unwrap().borrow_mut().set_toon_image(texture);
+            }
         }
     }
 
@@ -1756,15 +1790,15 @@ impl Material {
         self.toon_image.as_ref().map(|rc|rc.as_ref())
     }
 
-    pub fn set_diffuse_image(&mut self, texture: Rc<wgpu::Texture>) {
+    pub fn set_diffuse_image(&mut self, texture: &Rc<wgpu::Texture>) {
         self.diffuse_image = Some(texture.clone());
     }
 
-    pub fn set_sphere_map_image(&mut self, texture: Rc<wgpu::Texture>) {
+    pub fn set_sphere_map_image(&mut self, texture: &Rc<wgpu::Texture>) {
         self.sphere_map_image = Some(texture.clone());
     }
 
-    pub fn set_toon_image(&mut self, texture: Rc<wgpu::Texture>) {
+    pub fn set_toon_image(&mut self, texture: &Rc<wgpu::Texture>) {
         self.toon_image = Some(texture.clone());
     }
 }

@@ -64,4 +64,8 @@ impl BaseApplicationService {
         self.state_controller
             .load_texture(key, data, dimensions, device, queue);
     }
+
+    pub fn update_bind_texture(&mut self) {
+        self.state_controller.update_bind_texture();
+    }
 }

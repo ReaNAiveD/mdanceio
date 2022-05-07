@@ -297,7 +297,7 @@ pub struct Project {
     // actual_fps: u32,
     // actual_sequence: u32,
     // active: bool,
-    tmp_model: Option<Box<dyn Drawable>>,
+    tmp_model: Option<Box<Model>>,
     tmp_texture_map: HashMap<String, Rc<wgpu::Texture>>,
 }
 
@@ -522,6 +522,10 @@ impl Project {
                 depth_or_array_layers: 1,
             },
         );
+    }
+
+    pub fn update_bind_texture(&mut self) {
+        self.tmp_model.as_mut().unwrap().create_all_images(&self.tmp_texture_map);
     }
 
     fn create_fallback_image(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {

@@ -1753,6 +1753,74 @@ impl<T> ModelMaterial<T> {
             (&self.diffuse_texture).as_ref()
         }
     }
+
+    pub fn get_sphere_map_texture_object<
+        'a,
+        'b: 'a,
+        VertexDataType,
+        BoneDataType,
+        ConstraintDataType,
+        MorphDataType,
+        LabelDataType,
+        RigidBodyDataType,
+        JointDataType,
+        SoftBodyDataType,
+    >(
+        &'a self,
+        parent_model: &'b Model<
+            VertexDataType,
+            T,
+            BoneDataType,
+            ConstraintDataType,
+            MorphDataType,
+            LabelDataType,
+            RigidBodyDataType,
+            JointDataType,
+            SoftBodyDataType,
+        >,
+    ) -> Option<&'a Rc<RefCell<ModelTexture>>> {
+        let sphere_map_texture_index = self.sphere_map_texture_index;
+        if sphere_map_texture_index > -1 {
+            parent_model.get_one_texture_object(sphere_map_texture_index)
+        } else if self.sphere_map_texture_spa.is_some() {
+            (&self.sphere_map_texture_spa).as_ref()
+        } else {
+            (&self.sphere_map_texture_sph).as_ref()
+        }
+    }
+
+    pub fn get_toon_texture_object<
+        'a,
+        'b: 'a,
+        VertexDataType,
+        BoneDataType,
+        ConstraintDataType,
+        MorphDataType,
+        LabelDataType,
+        RigidBodyDataType,
+        JointDataType,
+        SoftBodyDataType,
+    >(
+        &'a self,
+        parent_model: &'b Model<
+            VertexDataType,
+            T,
+            BoneDataType,
+            ConstraintDataType,
+            MorphDataType,
+            LabelDataType,
+            RigidBodyDataType,
+            JointDataType,
+            SoftBodyDataType,
+        >,
+    ) -> Option<&'a Rc<RefCell<ModelTexture>>> {
+        let toon_texture_index = self.toon_texture_index;
+        if toon_texture_index > -1 {
+            parent_model.get_one_texture_object(toon_texture_index)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

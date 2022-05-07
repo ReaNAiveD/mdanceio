@@ -41,4 +41,8 @@ impl StateController {
     ) {
         self.project.load_texture(key, data, dimensions, device, queue);
     }
+
+    pub fn update_bind_texture(&mut self) {
+        self.project.update_bind_texture();
+    }
 }

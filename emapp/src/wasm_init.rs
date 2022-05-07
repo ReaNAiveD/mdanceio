@@ -151,6 +151,10 @@ impl WasmClient {
     pub fn load_decoded_texture(&mut self, key: &str, data: &[u8], width: u32, height: u32) {
         self.service.load_decoded_texture(key, data, (width, height), &self.device, &self.queue);
     }
+
+    pub fn update_bind_texture(&mut self) {
+        self.service.update_bind_texture();
+    }
 }
 
 /// Parse the query string as returned by `web_sys::window()?.location().search()?` and get a
