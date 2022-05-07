@@ -298,7 +298,7 @@ pub struct Project {
     // actual_sequence: u32,
     // active: bool,
     tmp_model: Option<Box<dyn Drawable>>,
-    tmp_texture_map: HashMap<String, wgpu::Texture>,
+    tmp_texture_map: HashMap<String, Rc<wgpu::Texture>>,
 }
 
 impl Project {
@@ -490,15 +490,18 @@ impl Project {
             height: dimensions.1,
             depth_or_array_layers: 1,
         };
-        let texture = self.tmp_texture_map.entry(key.to_owned()).or_insert(device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(format!("Texture/{}", key).as_str()),
-            size: texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        }));
+        let texture = self
+            .tmp_texture_map
+            .entry(key.to_owned())
+            .or_insert(Rc::new(device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(format!("Texture/{}", key).as_str()),
+                size: texture_size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            })));
         // TODO: may have different size when different image with same name
         queue.write_texture(
             wgpu::ImageCopyTexture {

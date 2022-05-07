@@ -1611,9 +1611,9 @@ pub struct Material {
     color: MaterialBlendColor,
     edge: MaterialBlendEdge,
     effect: Option<Effect>,
-    diffuse_image: Option<Rc<RefCell<dyn ImageView>>>,
-    sphere_map_image: Option<Rc<RefCell<dyn ImageView>>>,
-    toon_image: Option<Rc<RefCell<dyn ImageView>>>,
+    diffuse_image: Option<Rc<wgpu::Texture>>,
+    sphere_map_image: Option<Rc<wgpu::Texture>>,
+    toon_image: Option<Rc<wgpu::Texture>>,
     name: String,
     canonical_name: String,
     fallback_image: wgpu::TextureView,
@@ -1744,16 +1744,28 @@ impl Material {
         }
     }
 
-    pub fn diffuse_image(&self) -> Option<Rc<RefCell<dyn ImageView>>> {
-        self.diffuse_image.clone()
+    pub fn diffuse_image(&self) -> Option<&wgpu::Texture> {
+        self.diffuse_image.as_ref().map(|rc|rc.as_ref())
     }
 
-    pub fn sphere_map_image(&self) -> Option<Rc<RefCell<dyn ImageView>>> {
-        self.sphere_map_image.clone()
+    pub fn sphere_map_image(&self) -> Option<&wgpu::Texture> {
+        self.sphere_map_image.as_ref().map(|rc|rc.as_ref())
     }
 
-    pub fn toon_image(&self) -> Option<Rc<RefCell<dyn ImageView>>> {
-        self.toon_image.clone()
+    pub fn toon_image(&self) -> Option<&wgpu::Texture> {
+        self.toon_image.as_ref().map(|rc|rc.as_ref())
+    }
+
+    pub fn set_diffuse_image(&mut self, texture: Rc<wgpu::Texture>) {
+        self.diffuse_image = Some(texture.clone());
+    }
+
+    pub fn set_sphere_map_image(&mut self, texture: Rc<wgpu::Texture>) {
+        self.sphere_map_image = Some(texture.clone());
+    }
+
+    pub fn set_toon_image(&mut self, texture: Rc<wgpu::Texture>) {
+        self.toon_image = Some(texture.clone());
     }
 }
 

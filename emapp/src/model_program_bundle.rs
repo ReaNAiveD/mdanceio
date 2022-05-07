@@ -363,7 +363,11 @@ impl CommonPass {
         )
     }
 
-    fn get_texture_bind_group(&self, device: &wgpu::Device, layout: &wgpu::BindGroupLayout) -> wgpu::BindGroup {
+    fn get_texture_bind_group(
+        &self,
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+    ) -> wgpu::BindGroup {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -379,7 +383,12 @@ impl CommonPass {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.bindings.get(&TextureSamplerStage::ShadowMapTextureSamplerStage0).unwrap()),
+                    resource: wgpu::BindingResource::TextureView(
+                        &self
+                            .bindings
+                            .get(&TextureSamplerStage::ShadowMapTextureSamplerStage0)
+                            .unwrap(),
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -387,7 +396,12 @@ impl CommonPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&self.bindings.get(&TextureSamplerStage::DiffuseTextureSamplerStage).unwrap()),
+                    resource: wgpu::BindingResource::TextureView(
+                        &self
+                            .bindings
+                            .get(&TextureSamplerStage::DiffuseTextureSamplerStage)
+                            .unwrap(),
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -395,7 +409,12 @@ impl CommonPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&self.bindings.get(&TextureSamplerStage::SphereTextureSamplerStage).unwrap()),
+                    resource: wgpu::BindingResource::TextureView(
+                        &self
+                            .bindings
+                            .get(&TextureSamplerStage::SphereTextureSamplerStage)
+                            .unwrap(),
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
@@ -403,7 +422,12 @@ impl CommonPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&self.bindings.get(&TextureSamplerStage::ToonTextureSamplerStage).unwrap()),
+                    resource: wgpu::BindingResource::TextureView(
+                        &self
+                            .bindings
+                            .get(&TextureSamplerStage::ToonTextureSamplerStage)
+                            .unwrap(),
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 7,
@@ -422,7 +446,7 @@ impl CommonPass {
         shader: Option<&wgpu::ShaderModule>,
         technique_type: TechniqueType,
         device: &wgpu::Device,
-        queue: &wgpu::Queue, 
+        queue: &wgpu::Queue,
         model: &Model,
         project: &Project,
     ) {
@@ -611,7 +635,8 @@ impl CommonPass {
                 },
                 multiview: None,
             });
-            let texture_bind_group = self.get_texture_bind_group(&device, &texture_bind_group_layout);
+            let texture_bind_group =
+                self.get_texture_bind_group(&device, &texture_bind_group_layout);
             let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("ModelProgramBundle/BindGroupBuffer/Uniform"),
                 contents: bytemuck::bytes_of(&[self.uniform_buffer]),
@@ -659,7 +684,11 @@ impl CommonPass {
                 rpass.set_vertex_buffer(0, buffer.vertex_buffer.slice(..));
                 rpass.set_index_buffer(buffer.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 // rpass.draw(buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32, 0..1);
-                rpass.draw_indexed(buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32, 0, 0..1);
+                rpass.draw_indexed(
+                    buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32,
+                    0,
+                    0..1,
+                );
             }
             encoder.pop_debug_group();
             queue.submit(iter::once(encoder.finish()));
@@ -668,7 +697,7 @@ impl CommonPass {
 
     pub fn set_image(
         &mut self,
-        value: Option<Rc<RefCell<dyn ImageView>>>,
+        value: Option<&wgpu::Texture>,
         stage: TextureSamplerStage,
         fallback: &wgpu::Texture,
     ) -> bool {
@@ -676,11 +705,7 @@ impl CommonPass {
             stage,
             value.clone().map_or(
                 fallback.create_view(&wgpu::TextureViewDescriptor::default()),
-                |rc| {
-                    rc.borrow()
-                        .handle()
-                        .create_view(&wgpu::TextureViewDescriptor::default())
-                },
+                |rc| rc.create_view(&wgpu::TextureViewDescriptor::default()),
             ),
         );
         value.is_some()
