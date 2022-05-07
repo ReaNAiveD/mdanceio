@@ -13,6 +13,11 @@ log = "0.4"
 bytemuck = { version = "1.7.3", features = ["derive"] }
 cgmath = "0.18.0"
 
+[dependencies.image]
+version = "0.24"
+default-features = false
+features = ["png", "jpeg", "tga", "bmp"]
+
 [dependencies.nanoem]
 path = "../nanoem"
 version = "0.1.0"

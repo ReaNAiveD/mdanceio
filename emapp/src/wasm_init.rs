@@ -143,6 +143,14 @@ impl WasmClient {
     pub fn load_model(&mut self, data: &[u8]) {
         self.service.load_model(data, &self.device);
     }
+
+    pub fn load_texture(&mut self, key: &str, data: &[u8]) {
+        self.service.load_texture(key, data, &self.device, &self.queue);
+    }
+
+    pub fn load_decoded_texture(&mut self, key: &str, data: &[u8], width: u32, height: u32) {
+        self.service.load_decoded_texture(key, data, (width, height), &self.device, &self.queue);
+    }
 }
 
 /// Parse the query string as returned by `web_sys::window()?.location().search()?` and get a
