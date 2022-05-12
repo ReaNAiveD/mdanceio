@@ -6,7 +6,7 @@ use std::{
 
 use bytemuck::{Pod, Zeroable};
 use cgmath::{ElementWise, Matrix4, Quaternion, SquareMatrix, Vector3, Vector4, Zero};
-use nanoem::model::ModelFormatType;
+use nanoem::model::ModelFormatVersion;
 use par::shape::ShapesMesh;
 use wgpu::{AddressMode, Buffer};
 
@@ -28,27 +28,17 @@ use crate::{
     uri::Uri,
 };
 
-pub type NanoemModel = nanoem::model::Model<
-    Vertex,
-    Material,
-    Bone,
-    Constraint,
-    Morph,
-    Label,
-    RigidBody,
-    Joint,
-    SoftBody,
->;
-pub type NanoemVertex = nanoem::model::ModelVertex<Vertex>;
-pub type NanoemBone = nanoem::model::ModelBone<Bone, Constraint>;
-pub type NanoemMaterial = nanoem::model::ModelMaterial<Material>;
-pub type NanoemMorph = nanoem::model::ModelMorph<Morph>;
-pub type NanoemConstraint = nanoem::model::ModelConstraint<Constraint>;
-pub type NanoemConstraintJoint = nanoem::model::ModelConstraintJoint<()>;
-pub type NanoemLabel = nanoem::model::ModelLabel<Label, Bone, Constraint, Morph>;
-pub type NanoemRigidBody = nanoem::model::ModelRigidBody<RigidBody>;
-pub type NanoemJoint = nanoem::model::ModelJoint<Joint>;
-pub type NanoemSoftBody = nanoem::model::ModelSoftBody<SoftBody>;
+pub type NanoemModel = nanoem::model::Model;
+pub type NanoemVertex = nanoem::model::ModelVertex;
+pub type NanoemBone = nanoem::model::ModelBone;
+pub type NanoemMaterial = nanoem::model::ModelMaterial;
+pub type NanoemMorph = nanoem::model::ModelMorph;
+pub type NanoemConstraint = nanoem::model::ModelConstraint;
+pub type NanoemConstraintJoint = nanoem::model::ModelConstraintJoint;
+pub type NanoemLabel = nanoem::model::ModelLabel;
+pub type NanoemRigidBody = nanoem::model::ModelRigidBody;
+pub type NanoemJoint = nanoem::model::ModelJoint;
+pub type NanoemSoftBody = nanoem::model::ModelSoftBody;
 
 pub trait SkinDeformer {
     // TODO
@@ -340,9 +330,8 @@ impl Model {
 
     pub fn new_from_bytes(bytes: &[u8], project: &Project, handle: u16, device: &wgpu::Device) -> Result<Self, Error> {
         let mut buffer = nanoem::common::Buffer::create(bytes);
-        let mut nanoem_model = Box::new(NanoemModel::default());
-        match nanoem_model.load_from_buffer(&mut buffer) {
-            Ok(_) => {
+        match NanoemModel::load_from_buffer(&mut buffer) {
+            Ok(nanoem_model) => {
                 let opaque = nanoem_model;
                 let language = project.parse_language();
                 let mut name = opaque.get_name(language).to_owned();
@@ -693,7 +682,7 @@ impl Model {
         {
             model.set_additional_uv_size(0);
             model.set_codec_type(nanoem::common::CodecType::Utf16);
-            model.set_format_type(ModelFormatType::Pmx2_0);
+            model.set_format_type(ModelFormatVersion::Pmx2_0);
             for language in nanoem::common::LanguageType::all() {
                 model.set_name(
                     desc.name.get(language).unwrap_or(&"".to_string()),

@@ -12,7 +12,6 @@ pub enum Status {
     ErrorEncodeUnicodeStringFailed,                    //< Failed to encode unicode string
     ErrorDecodeJisStringFailed,                        //< Costum, Failed to decode jis string
     ErrorBufferNotEnd,              //< Costum, Finish Loading but Buffer is not End
-    ErrorIllegalBufferWriteOffset,  //< Costum, Illegal pos to write byte to mutable buffer
     ErrorInvalidSignature = 100,    //< Invalid signature
     ErrorModelVertexCorrupted,      //< Vertex data is corrupted
     ErrorModelFaceCorrupted,        //< Face (Indices) data is corrupted
@@ -25,7 +24,7 @@ pub enum Status {
     ErrorModelRigidBodyCorrupted,   //< Rigid body data is corrupted
     ErrorModelJointCorrupted,       //< Joint data is corrupted
     ErrorPmdEnglishCorrupted,       //< PMD English data is corrupted
-    ErrorPmxInfoCorruputed,         //< PMX Metadata is corrupted
+    ErrorPmxInfoCorrupted,         //< PMX Metadata is corrupted
     ErrorMotionTargetNameCorrupted, //< Vertex data is corrupted
     ErrorMotionBoneKeyframeCorrupted, //< The bone keyframe is corrupted
     ErrorMotionCameraKeyframeCorrupted, //< The camera keyframe data is corrupted
@@ -413,12 +412,9 @@ impl MutableBuffer {
     // TODO: Not Process with callback
     pub fn write_byte_array(&mut self, data: &[u8]) -> Result<(), Status> {
         self.ensure_size(data.len())?;
-        if self.offset == data.len() {
-            self.data.extend_from_slice(data);
-            Ok(())
-        } else {
-            Err(Status::ErrorIllegalBufferWriteOffset)
-        }
+        self.data.extend_from_slice(data);
+        self.offset += data.len();
+        Ok(())
     }
 
     pub fn write_byte(&mut self, value: u8) -> Result<(), Status> {
@@ -431,16 +427,25 @@ impl MutableBuffer {
     write_primitive!(i32, write_i32_little_endian);
     write_primitive!(f32, write_f32_little_endian);
 
-    pub fn write_string(&mut self, value: &String, codec_type: CodecType) -> Result<(), Status> {
-        let (bytes, _, success) = codec_type.get_encoding_object().encode(&value[..]);
-        if !success {
-            self.write_u32_little_endian(0u32)?;
-            Err(Status::ErrorEncodeUnicodeStringFailed)
-        } else {
-            self.write_u32_little_endian(bytes.len() as u32)?;
-            self.write_byte_array(&bytes)?;
+    pub fn write_string(&mut self, value: &str, encoding: &'static encoding_rs::Encoding) -> Result<(), Status> {
+        if encoding == encoding_rs::UTF_16LE {
+            let bytes = value.encode_utf16().collect::<Vec<_>>();
+            self.write_u32_little_endian((bytes.len() * 2) as u32)?;
+            for c in bytes {
+                self.write_u16_little_endian(c)?;
+            }
             Ok(())
-        }
+        } else {
+            let (bytes, _, success) = encoding.encode(value);
+            if !success {
+                self.write_u32_little_endian(0u32)?;
+                Err(Status::ErrorEncodeUnicodeStringFailed)
+            } else {
+                self.write_u32_little_endian(bytes.len() as u32)?;
+                self.write_byte_array(&bytes)?;
+                Ok(())
+            }
+    }
     }
 
     pub fn write_integer(&mut self, value: i32, size: usize) -> Result<(), Status> {

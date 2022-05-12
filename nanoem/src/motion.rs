@@ -122,7 +122,7 @@ pub struct Motion {
     self_shadow_keyframes: Vec<MotionSelfShadowKeyframe>,
     local_bone_motion_track_bundle: MotionTrackBundle,
     local_morph_motion_track_bundle: MotionTrackBundle,
-    global_motion_track_bundle: MotionTrackBundle,
+    global_motion_track_bundle: MotionTrackBundle,  // 这个是用于NMD的
     typ: MotionFormatType,
     max_frame_index: u32,
     preferred_fps: f32,
@@ -773,9 +773,9 @@ impl MotionEffectParameter {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MotionOutsideParent {
-    global_model_track_index: i32,
-    global_bone_track_index: i32,
-    local_bone_track_index: i32,
+    global_model_track_index: i32,  // TargetObject
+    global_bone_track_index: i32,   // TargetBone
+    local_bone_track_index: i32,    // SubjectBone
 }
 
 impl MotionOutsideParent {
@@ -1519,7 +1519,7 @@ fn test_load_from_buffer() -> Result<(), Box<dyn std::error::Error + 'static>> {
     };
 
     let motion_data = std::fs::read(
-        "test/example/Alicia/MMD Motion/2 for test 1.vmd",
+        "test/example/Alicia/MMD Motion/償傽儞僷僀傾_傒偒僗僇乕僩暔棟從偒崬傒2.vmd",
     )?;
     let mut buffer = Buffer::create(&motion_data);
     match motion.load_from_buffer(&mut buffer, 0) {

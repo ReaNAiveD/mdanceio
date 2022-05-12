@@ -1,159 +1,178 @@
-use std::{
-    cell::RefCell,
-    rc::{Rc, Weak},
-};
+use std::{cell::RefCell, rc::Rc};
 
 use crate::{
-    common::{Buffer, CodecType, LanguageType, MutableBuffer, Status, UserData, F128},
+    common::{Buffer, LanguageType, MutableBuffer, Status, UserData, F128},
     utils::fourcc,
 };
 
 pub static NANOEM_MODEL_OBJECT_NOT_FOUND: i32 = -1;
 
-#[derive(Debug, Default)]
-pub struct Info {
-    codec_type: u8,
-    additional_uv_size: u8,
-    vertex_index_size: u8,
-    texture_index_size: u8,
-    material_index_size: u8,
-    bone_index_size: u8,
-    morph_index_size: u8,
-    rigid_body_index_size: u8,
+#[derive(Debug, Clone, Copy)]
+pub enum CodecType {
+    Unknown(u8),
+    Sjis,
+    Utf8,
+    Utf16Le,
 }
 
-pub enum ModelFormatType {
-    Unknown = -1,
+impl Default for CodecType {
+    fn default() -> Self {
+        Self::Utf8
+    }
+}
+
+impl CodecType {
+    pub fn to_u8(self, version: &ModelFormatVersion) -> u8 {
+        if version.is_pmx() {
+            match self {
+                CodecType::Unknown(c) => c,
+                CodecType::Sjis => u8::MAX,
+                CodecType::Utf8 => 1,
+                CodecType::Utf16Le => 0,
+            }
+        } else {
+            0
+        }
+    }
+
+    pub fn from_u8(value: u8, version: &ModelFormatVersion) -> Self {
+        if version.is_pmx() {
+            match value {
+                1 => CodecType::Utf8,
+                0 => CodecType::Utf16Le,
+                _ => CodecType::Unknown(value),
+            }
+        } else {
+            CodecType::Sjis
+        }
+    }
+
+    pub fn get_encoding(&self) -> &'static encoding_rs::Encoding {
+        match self {
+            CodecType::Unknown(_) => encoding_rs::UTF_8,
+            CodecType::Sjis => encoding_rs::SHIFT_JIS,
+            CodecType::Utf8 => encoding_rs::UTF_8,
+            CodecType::Utf16Le => encoding_rs::UTF_16LE,
+        }
+    }
+
+    fn get_string(&self, buffer: &mut Buffer) -> Result<String, Status> {
+        let length = buffer.read_len()?;
+        let src = buffer.read_buffer(length)?;
+        let codec = self.get_encoding();
+        // TODO: need bom removal or not?
+        let (cow, encoding_used, had_errors) = codec.decode(src);
+        if had_errors {
+            return Err(Status::ErrorDecodeUnicodeStringFailed);
+        }
+        Ok(cow.into())
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ModelInfo {
+    pub codec_type: CodecType,
+    pub additional_uv_size: u8,
+    pub vertex_index_size: u8,
+    pub texture_index_size: u8,
+    pub material_index_size: u8,
+    pub bone_index_size: u8,
+    pub morph_index_size: u8,
+    pub rigid_body_index_size: u8,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ModelFormatVersion {
+    Unknown(f32),
     Pmd1_0,
     Pmx2_0,
     Pmx2_1,
 }
 
-impl From<i32> for ModelFormatType {
+impl From<i32> for ModelFormatVersion {
     fn from(value: i32) -> Self {
         match value {
-            10 => ModelFormatType::Pmd1_0,
-            20 => ModelFormatType::Pmx2_0,
-            21 => ModelFormatType::Pmx2_1,
-            _ => ModelFormatType::Unknown,
+            10 => ModelFormatVersion::Pmd1_0,
+            20 => ModelFormatVersion::Pmx2_0,
+            21 => ModelFormatVersion::Pmx2_1,
+            _ => ModelFormatVersion::Unknown(value as f32),
         }
     }
 }
 
-pub struct Model<
-    VertexDataType,
-    MaterialDataType,
-    BoneDataType,
-    ConstraintDataType,
-    MorphDataType,
-    LabelDataType,
-    RigidBodyDataType,
-    JointDataType,
-    SoftBodyDataType,
-> {
-    version: f32,
-    info_length: u8,
-    info: Info,
-    name_ja: String,
-    name_en: String,
-    comment_ja: String,
-    comment_en: String,
-    vertices: Vec<Rc<RefCell<ModelVertex<VertexDataType>>>>,
-    vertex_indices: Vec<Rc<RefCell<u32>>>,
-    materials: Vec<Rc<RefCell<ModelMaterial<MaterialDataType>>>>,
-    bones: Vec<Rc<RefCell<ModelBone<BoneDataType, ConstraintDataType>>>>,
-    ordered_bones: Vec<Rc<RefCell<ModelBone<BoneDataType, ConstraintDataType>>>>,
-    constraints: Vec<Rc<RefCell<ModelConstraint<ConstraintDataType>>>>,
-    textures: Vec<Rc<RefCell<ModelTexture>>>,
-    morphs: Vec<Rc<RefCell<ModelMorph<MorphDataType>>>>,
-    labels: Vec<
-        Rc<RefCell<ModelLabel<LabelDataType, BoneDataType, ConstraintDataType, MorphDataType>>>,
-    >,
-    rigid_bodies: Vec<Rc<RefCell<ModelRigidBody<RigidBodyDataType>>>>,
-    joints: Vec<Rc<RefCell<ModelJoint<JointDataType>>>>,
-    soft_bodies: Vec<Rc<RefCell<ModelSoftBody<SoftBodyDataType>>>>,
-    user_data: Option<Rc<RefCell<UserData>>>,
-}
-
-impl<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    > Default
-    for Model<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >
-{
-    fn default() -> Self {
-        Self {
-            version: Default::default(),
-            info_length: Default::default(),
-            info: Default::default(),
-            name_ja: Default::default(),
-            name_en: Default::default(),
-            comment_ja: Default::default(),
-            comment_en: Default::default(),
-            vertices: Default::default(),
-            vertex_indices: Default::default(),
-            materials: Default::default(),
-            bones: Default::default(),
-            ordered_bones: Default::default(),
-            constraints: Default::default(),
-            textures: Default::default(),
-            morphs: Default::default(),
-            labels: Default::default(),
-            rigid_bodies: Default::default(),
-            joints: Default::default(),
-            soft_bodies: Default::default(),
-            user_data: Default::default(),
+impl From<f32> for ModelFormatVersion {
+    fn from(value: f32) -> Self {
+        match (value * 10f32) as i32 {
+            10 => ModelFormatVersion::Pmd1_0,
+            20 => ModelFormatVersion::Pmx2_0,
+            21 => ModelFormatVersion::Pmx2_1,
+            _ => ModelFormatVersion::Unknown(value),
         }
     }
 }
 
-impl<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >
-    Model<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >
-{
+impl From<ModelFormatVersion> for f32 {
+    fn from(v: ModelFormatVersion) -> Self {
+        match v {
+            ModelFormatVersion::Unknown(version) => version,
+            ModelFormatVersion::Pmd1_0 => 1.0f32,
+            ModelFormatVersion::Pmx2_0 => 2.0f32,
+            ModelFormatVersion::Pmx2_1 => 2.1f32,
+        }
+    }
+}
+
+impl ModelFormatVersion {
+    pub fn is_pmx(&self) -> bool {
+        match self {
+            ModelFormatVersion::Unknown(v) => v * 10f32 >= 20f32,
+            ModelFormatVersion::Pmd1_0 => false,
+            ModelFormatVersion::Pmx2_0 => true,
+            ModelFormatVersion::Pmx2_1 => true,
+        }
+    }
+
+    pub fn is_pmx21(&self) -> bool {
+        match self {
+            ModelFormatVersion::Unknown(v) => v * 10f32 >= 21f32,
+            ModelFormatVersion::Pmd1_0 => false,
+            ModelFormatVersion::Pmx2_0 => false,
+            ModelFormatVersion::Pmx2_1 => true,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Model {
+    pub version: ModelFormatVersion,
+    pub codec_type: CodecType,
+    pub additional_uv_size: u8,
+    pub name_ja: String,
+    pub name_en: String,
+    pub comment_ja: String,
+    pub comment_en: String,
+    pub vertices: Vec<ModelVertex>,
+    pub vertex_indices: Vec<u32>,
+    pub materials: Vec<ModelMaterial>,
+    pub bones: Vec<ModelBone>,
+    // pub ordered_bones: Vec<ModelBone>,
+    pub constraints: Vec<ModelConstraint>,
+    pub textures: Vec<ModelTexture>,
+    pub morphs: Vec<ModelMorph>,
+    pub labels: Vec<ModelLabel>,
+    pub rigid_bodies: Vec<ModelRigidBody>,
+    pub joints: Vec<ModelJoint>,
+    pub soft_bodies: Vec<ModelSoftBody>,
+}
+
+impl Model {
     const PMX_SIGNATURE: &'static str = "PMX ";
 
     fn create_empty() -> Self {
         Self {
             version: todo!(),
-            info_length: todo!(),
-            info: todo!(),
+            codec_type: todo!(),
+            additional_uv_size: todo!(),
             name_ja: todo!(),
             name_en: todo!(),
             comment_ja: todo!(),
@@ -162,7 +181,7 @@ impl<
             vertex_indices: todo!(),
             materials: todo!(),
             bones: todo!(),
-            ordered_bones: todo!(),
+            // ordered_bones: todo!(),
             constraints: todo!(),
             textures: todo!(),
             morphs: todo!(),
@@ -170,41 +189,87 @@ impl<
             rigid_bodies: todo!(),
             joints: todo!(),
             soft_bodies: todo!(),
-            user_data: todo!(),
         }
     }
 
-    fn get_string_pmx(&self, buffer: &mut Buffer) -> Result<String, Status> {
-        let length = buffer.read_len()?;
-        let src = buffer.read_buffer(length)?;
-        let codec = if self.info.codec_type == 1u8 {
-            encoding_rs::UTF_8
+    fn load_from_pmx(buffer: &mut Buffer) -> Result<Self, Status> {
+        let signature = buffer.read_u32_little_endian()?;
+        if signature == fourcc('P' as u8, 'M' as u8, 'X' as u8, ' ' as u8)
+            || signature == fourcc('P' as u8, 'M' as u8, 'X' as u8, 0xA0u8)
+        {
+            let version = buffer.read_f32_little_endian()?.into();
+            let info_length = buffer.read_byte()?;
+            if info_length == 8u8 {
+                let info = ModelInfo {
+                    codec_type: CodecType::from_u8(buffer.read_byte()?, &version),
+                    additional_uv_size: buffer.read_byte()?,
+                    vertex_index_size: buffer.read_byte()?,
+                    texture_index_size: buffer.read_byte()?,
+                    material_index_size: buffer.read_byte()?,
+                    bone_index_size: buffer.read_byte()?,
+                    morph_index_size: buffer.read_byte()?,
+                    rigid_body_index_size: buffer.read_byte()?,
+                };
+                let name_ja = info.codec_type.get_string(buffer)?;
+                let name_en = info.codec_type.get_string(buffer)?;
+                let comment_ja = info.codec_type.get_string(buffer)?;
+                let comment_en = info.codec_type.get_string(buffer)?;
+                let mut model = Self {
+                    version,
+                    codec_type: info.codec_type,
+                    additional_uv_size: info.additional_uv_size,
+                    name_ja,
+                    name_en,
+                    comment_ja,
+                    comment_en,
+                    vertices: vec![],
+                    vertex_indices: vec![],
+                    materials: vec![],
+                    bones: vec![],
+                    constraints: vec![],
+                    textures: vec![],
+                    morphs: vec![],
+                    labels: vec![],
+                    rigid_bodies: vec![],
+                    joints: vec![],
+                    soft_bodies: vec![],
+                };
+                model.parse_pmx(buffer, &info)?;
+                Ok(model)
+            } else {
+                Err(Status::ErrorPmxInfoCorrupted)
+            }
         } else {
-            encoding_rs::UTF_16LE
-        };
-        // TODO: need bom removal or not?
-        let (cow, encoding_used, had_errors) = codec.decode(src);
-        if had_errors {
-            return Err(Status::ErrorDecodeUnicodeStringFailed);
+            Err(Status::ErrorInvalidSignature)
         }
-        Ok(cow.into())
     }
 
-    fn parse_vertex_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+    fn get_string_pmx(&self, buffer: &mut Buffer, info: &ModelInfo) -> Result<String, Status> {
+        info.codec_type.get_string(buffer)
+    }
+
+    fn parse_vertex_block_pmx(
+        &mut self,
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         let num_vertices = buffer.read_len()?;
         if num_vertices > 0 {
             self.vertices.clear();
             for i in 0..num_vertices {
-                let mut vertex = ModelVertex::parse_pmx(self, buffer)?;
-                vertex.base.index = i as i32;
-                self.vertices.push(Rc::new(RefCell::new(vertex)));
+                let vertex = ModelVertex::parse_pmx(buffer, &info, i)?;
+                self.vertices.push(vertex);
             }
         }
         Ok(())
     }
 
-    fn parse_vertex_index_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
-        let vertex_index_size = self.info.vertex_index_size as usize;
+    fn parse_vertex_index_block_pmx(
+        &mut self,
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
+        let vertex_index_size = info.vertex_index_size as usize;
         let num_vertex_indices = buffer.read_len()?;
         let num_vertices = self.vertices.len();
         if (num_vertex_indices == 0 && num_vertices > 0) || num_vertex_indices % 3 != 0 {
@@ -215,136 +280,156 @@ impl<
                 let vertex_index = buffer.read_integer(vertex_index_size)? as u32;
                 self.vertex_indices
                     .push(if vertex_index < num_vertices as u32 {
-                        Rc::new(RefCell::new(vertex_index))
+                        vertex_index
                     } else {
-                        Rc::new(RefCell::new(0))
+                        0
                     })
             }
             Ok(())
         }
     }
 
-    fn parse_texture_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+    fn parse_texture_block_pmx(
+        &mut self,
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         let num_textures = buffer.read_len()?;
         if num_textures > 0 {
             self.textures.clear();
             for i in 0..num_textures {
-                let mut texture = ModelTexture::parse_pmx(self, buffer)?;
-                texture.base.index = i as i32;
-                self.textures.push(Rc::new(RefCell::new(texture)));
+                let texture = ModelTexture::parse_pmx(buffer, info, i)?;
+                self.textures.push(texture);
             }
         }
         Ok(())
     }
 
-    fn parse_material_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+    fn parse_material_block_pmx(
+        &mut self,
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         let num_materials = buffer.read_len()?;
         if num_materials > 0 {
             self.materials.clear();
             for i in 0..num_materials {
-                let mut material = ModelMaterial::parse_pmx(self, buffer)?;
-                material.base.index = i as i32;
-                self.materials.push(Rc::new(RefCell::new(material)));
+                let material = ModelMaterial::parse_pmx(buffer, info, i)?;
+                self.materials.push(material);
             }
         }
         Ok(())
     }
 
-    fn parse_bone_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+    fn parse_bone_block_pmx(
+        &mut self,
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         let num_bones = buffer.read_len()?;
         if num_bones > 0 {
             self.bones.clear();
             for i in 0..num_bones {
-                let mut bone = ModelBone::parse_pmx(self, buffer)?;
-                bone.base.index = i as i32;
-                // bone.constraint = bone.constraint.map(|mut b| {b.target_bone_index = i as i32; b});
-                if let Some(constraint) = &bone.constraint {
-                    constraint.borrow_mut().target_bone_index = i as i32;
-                }
-                self.bones.push(Rc::new(RefCell::new(bone)));
-                self.ordered_bones.push(self.bones[i].clone());
+                let bone = ModelBone::parse_pmx(buffer, info, i)?;
+                self.bones.push(bone);
+                // self.ordered_bones.push(self.bones[i].clone());
             }
         }
         Ok(())
     }
 
-    fn parse_morph_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+    fn parse_morph_block_pmx(
+        &mut self,
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         let num_morphs = buffer.read_len()?;
         if num_morphs > 0 {
             self.morphs.clear();
             for i in 0..num_morphs {
-                let mut morph = ModelMorph::parse_pmx(self, buffer)?;
-                morph.base.index = i as i32;
-                self.morphs.push(Rc::new(RefCell::new(morph)));
+                let mut morph = ModelMorph::parse_pmx(buffer, info, i)?;
+                self.morphs.push(morph);
             }
         }
         Ok(())
     }
 
-    fn parse_label_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+    fn parse_label_block_pmx(
+        &mut self,
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         let num_labels = buffer.read_len()?;
         if num_labels > 0 {
             self.labels.clear();
             for i in 0..num_labels {
-                let mut label = ModelLabel::parse_pmx(self, buffer)?;
-                label.base.index = i as i32;
-                self.labels.push(Rc::new(RefCell::new(label)));
+                let mut label = ModelLabel::parse_pmx(buffer, info, i)?;
+                self.labels.push(label);
             }
         }
         Ok(())
     }
 
-    fn parse_rigid_body_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+    fn parse_rigid_body_block_pmx(
+        &mut self,
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         let num_rigid_bodies = buffer.read_len()?;
         if num_rigid_bodies > 0 {
             self.rigid_bodies.clear();
             for i in 0..num_rigid_bodies {
-                let mut rigid_body = ModelRigidBody::parse_pmx(self, buffer)?;
-                rigid_body.base.index = i as i32;
-                self.rigid_bodies.push(Rc::new(RefCell::new(rigid_body)));
+                let mut rigid_body = ModelRigidBody::parse_pmx(buffer, info, i)?;
+                self.rigid_bodies.push(rigid_body);
             }
         }
         Ok(())
     }
 
-    fn parse_joint_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+    fn parse_joint_block_pmx(
+        &mut self,
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         let num_joints = buffer.read_len()?;
         if num_joints > 0 {
             self.joints.clear();
             for i in 0..num_joints {
-                let mut joint = ModelJoint::parse_pmx(self, buffer)?;
-                joint.base.index = i as i32;
-                self.joints.push(Rc::new(RefCell::new(joint)));
+                let mut joint = ModelJoint::parse_pmx(buffer, info, i)?;
+                self.joints.push(joint);
             }
         }
         Ok(())
     }
 
-    fn parse_soft_body_block_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
+    fn parse_soft_body_block_pmx(
+        &mut self,
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         let num_soft_bodies = buffer.read_len()?;
         if num_soft_bodies > 0 {
             self.soft_bodies.clear();
             for i in 0..num_soft_bodies {
-                let mut soft_body = ModelSoftBody::parse_pmx(self, buffer)?;
-                soft_body.base.index = i as i32;
-                self.soft_bodies.push(Rc::new(RefCell::new(soft_body)));
+                let mut soft_body = ModelSoftBody::parse_pmx(buffer, info, i)?;
+                self.soft_bodies.push(soft_body);
             }
         }
         Ok(())
     }
 
-    fn parse_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
-        self.parse_vertex_block_pmx(buffer)?;
-        self.parse_vertex_index_block_pmx(buffer)?;
-        self.parse_texture_block_pmx(buffer)?;
-        self.parse_material_block_pmx(buffer)?;
-        self.parse_bone_block_pmx(buffer)?;
-        self.parse_morph_block_pmx(buffer)?;
-        self.parse_label_block_pmx(buffer)?;
-        self.parse_rigid_body_block_pmx(buffer)?;
-        self.parse_joint_block_pmx(buffer)?;
-        if self.version > 2.0f32 && !buffer.is_end() {
-            self.parse_soft_body_block_pmx(buffer)?;
+    fn parse_pmx(&mut self, buffer: &mut Buffer, info: &ModelInfo) -> Result<(), Status> {
+        self.parse_vertex_block_pmx(buffer, info)?;
+        self.parse_vertex_index_block_pmx(buffer, info)?;
+        self.parse_texture_block_pmx(buffer, info)?;
+        self.parse_material_block_pmx(buffer, info)?;
+        self.parse_bone_block_pmx(buffer, info)?;
+        self.parse_morph_block_pmx(buffer, info)?;
+        self.parse_label_block_pmx(buffer, info)?;
+        self.parse_rigid_body_block_pmx(buffer, info)?;
+        self.parse_joint_block_pmx(buffer, info)?;
+        if self.version.is_pmx21() && !buffer.is_end() {
+            self.parse_soft_body_block_pmx(buffer, info)?;
         }
         if buffer.is_end() {
             Ok(())
@@ -353,88 +438,84 @@ impl<
         }
     }
 
-    fn load_from_pmx(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
-        let signature = buffer.read_u32_little_endian()?;
-        if signature == fourcc('P' as u8, 'M' as u8, 'X' as u8, ' ' as u8)
-            || signature == fourcc('P' as u8, 'M' as u8, 'X' as u8, 0xA0u8)
-        {
-            self.version = buffer.read_f32_little_endian()?;
-            self.info_length = buffer.read_byte()?;
-            if self.info_length == 8u8 {
-                self.info.codec_type = buffer.read_byte()?;
-                self.info.additional_uv_size = buffer.read_byte()?;
-                self.info.vertex_index_size = buffer.read_byte()?;
-                self.info.texture_index_size = buffer.read_byte()?;
-                self.info.material_index_size = buffer.read_byte()?;
-                self.info.bone_index_size = buffer.read_byte()?;
-                self.info.morph_index_size = buffer.read_byte()?;
-                self.info.rigid_body_index_size = buffer.read_byte()?;
-                self.name_ja = self.get_string_pmx(buffer)?;
-                self.name_en = self.get_string_pmx(buffer)?;
-                self.comment_ja = self.get_string_pmx(buffer)?;
-                self.comment_en = self.get_string_pmx(buffer)?;
-                self.parse_pmx(buffer)?;
-            }
-            Ok(())
-        } else {
-            Err(Status::ErrorInvalidSignature)
-        }
-    }
-
-    pub fn load_from_buffer(&mut self, buffer: &mut Buffer) -> Result<(), Status> {
-        let result = self.load_from_pmx(buffer);
-        if result.err() == Some(Status::ErrorInvalidSignature) {
+    pub fn load_from_buffer(buffer: &mut Buffer) -> Result<Self, Status> {
+        let result = Self::load_from_pmx(buffer);
+        if let Err(Status::ErrorInvalidSignature) = result {
             Err(Status::ErrorNoSupportForPMD)
         } else {
             result
         }
     }
 
-    fn vertices_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn vertices_save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         buffer.write_i32_little_endian(self.vertices.len() as i32)?;
         for vertex in &self.vertices {
-            vertex.borrow().save_to_buffer(buffer, self)?;
+            vertex.save_to_buffer(buffer, self.is_pmx(), info)?;
         }
         Ok(())
     }
 
-    fn textures_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn textures_save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         buffer.write_i32_little_endian(self.textures.len() as i32)?;
         for texture in &self.textures {
-            texture.borrow().save_to_buffer(buffer, self)?;
+            texture.save_to_buffer(buffer, info)?;
         }
         Ok(())
     }
 
-    fn materials_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn materials_save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         buffer.write_i32_little_endian(self.materials.len() as i32)?;
         for material in &self.materials {
-            material.borrow().save_to_buffer(buffer, self)?;
+            material.save_to_buffer(buffer, self.is_pmx(), info)?;
         }
         Ok(())
     }
 
-    fn bones_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn bones_save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         buffer.write_integer(self.bones.len() as i32, if self.is_pmx() { 4 } else { 2 })?;
         for bone in &self.bones {
-            bone.borrow().save_to_buffer(buffer, self)?;
+            bone.save_to_buffer(buffer, self, info)?;
         }
         Ok(())
     }
 
-    fn morphs_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn morphs_save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         buffer.write_integer(self.morphs.len() as i32, if self.is_pmx() { 4 } else { 2 })?;
         for morph in &self.morphs {
-            morph.borrow().save_to_buffer(buffer, self)?;
+            morph.save_to_buffer(buffer, self.is_pmx(), info)?;
         }
         Ok(())
     }
 
-    fn labels_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn labels_save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         if self.is_pmx() {
             buffer.write_integer(self.labels.len() as i32, 4)?;
             for label in &self.labels {
-                label.borrow().save_to_buffer(buffer, self)?;
+                label.save_to_buffer(buffer, self, info)?;
             }
             Ok(())
         } else {
@@ -442,74 +523,90 @@ impl<
         }
     }
 
-    fn rigid_bodies_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn rigid_bodies_save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         buffer.write_i32_little_endian(self.rigid_bodies.len() as i32)?;
         for rigid_body in &self.rigid_bodies {
-            rigid_body.borrow().save_to_buffer(buffer, self)?;
+            rigid_body.save_to_buffer(buffer, self.is_pmx(), info)?;
         }
         Ok(())
     }
 
-    fn joints_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn joints_save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         buffer.write_i32_little_endian(self.joints.len() as i32)?;
         for joint in &self.joints {
-            joint.borrow().save_to_buffer(buffer, self)?;
+            joint.save_to_buffer(buffer, self.is_pmx(), info)?;
         }
         Ok(())
     }
 
-    fn soft_bodies_save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn soft_bodies_save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        info: &ModelInfo,
+    ) -> Result<(), Status> {
         if self.is_pmx21() {
             buffer.write_i32_little_endian(self.soft_bodies.len() as i32)?;
             for soft_body in &self.soft_bodies {
-                soft_body.borrow().save_to_buffer(buffer, self)?;
+                soft_body.save_to_buffer(buffer, self.is_pmx(), info)?;
             }
         }
         Ok(())
     }
 
-    pub fn save_to_buffer_pmx(&mut self, buffer: &mut MutableBuffer) -> Result<(), Status> {
-        let codec_type = self.get_codec_type();
-        self.info_length = 8;
-        self.info.vertex_index_size = Self::get_vertex_index_size(self.vertices.len());
-        self.info.texture_index_size = Self::get_object_index_size(self.textures.len());
-        self.info.material_index_size = Self::get_object_index_size(self.materials.len());
-        self.info.bone_index_size = Self::get_object_index_size(self.bones.len());
-        self.info.morph_index_size = Self::get_object_index_size(self.morphs.len());
-        self.info.rigid_body_index_size = Self::get_object_index_size(self.rigid_bodies.len());
+    pub fn save_to_buffer_pmx(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        let encoding = self.get_codec_type().get_encoding();
+        let info_length = 8;
+        let info = ModelInfo {
+            codec_type: self.codec_type,
+            additional_uv_size: self.additional_uv_size,
+            vertex_index_size: Self::get_vertex_index_size(self.vertices.len()),
+            texture_index_size: Self::get_object_index_size(self.textures.len()),
+            material_index_size: Self::get_object_index_size(self.materials.len()),
+            bone_index_size: Self::get_object_index_size(self.bones.len()),
+            morph_index_size: Self::get_object_index_size(self.morphs.len()),
+            rigid_body_index_size: Self::get_object_index_size(self.rigid_bodies.len()),
+        };
         buffer.write_byte_array(&Self::PMX_SIGNATURE.as_bytes()[..4])?;
-        buffer.write_f32_little_endian(self.version)?;
-        buffer.write_byte(self.info_length)?;
-        buffer.write_byte(self.info.codec_type)?;
-        buffer.write_byte(self.info.additional_uv_size)?;
-        buffer.write_byte(self.info.vertex_index_size)?;
-        buffer.write_byte(self.info.texture_index_size)?;
-        buffer.write_byte(self.info.material_index_size)?;
-        buffer.write_byte(self.info.bone_index_size)?;
-        buffer.write_byte(self.info.morph_index_size)?;
-        buffer.write_byte(self.info.rigid_body_index_size)?;
-        buffer.write_string(&self.name_ja, codec_type)?;
-        buffer.write_string(&self.name_en, codec_type)?;
-        buffer.write_string(&self.comment_ja, codec_type)?;
-        buffer.write_string(&self.comment_en, codec_type)?;
-        self.vertices_save_to_buffer(buffer)?;
-        let vertex_index_size = self.info.vertex_index_size as usize;
+        buffer.write_f32_little_endian(self.version.into())?;
+        buffer.write_byte(info_length)?;
+        buffer.write_byte(info.codec_type.to_u8(&self.version))?;
+        buffer.write_byte(info.additional_uv_size)?;
+        buffer.write_byte(info.vertex_index_size)?;
+        buffer.write_byte(info.texture_index_size)?;
+        buffer.write_byte(info.material_index_size)?;
+        buffer.write_byte(info.bone_index_size)?;
+        buffer.write_byte(info.morph_index_size)?;
+        buffer.write_byte(info.rigid_body_index_size)?;
+        buffer.write_string(&self.name_ja, encoding)?;
+        buffer.write_string(&self.name_en, encoding)?;
+        buffer.write_string(&self.comment_ja, encoding)?;
+        buffer.write_string(&self.comment_en, encoding)?;
+        self.vertices_save_to_buffer(buffer, &info)?;
+        let vertex_index_size = info.vertex_index_size as usize;
         buffer.write_i32_little_endian(self.vertex_indices.len() as i32)?;
         for vertex_index in &self.vertex_indices {
-            buffer.write_integer(vertex_index.borrow().clone() as i32, vertex_index_size)?;
+            buffer.write_integer(vertex_index.clone() as i32, vertex_index_size)?;
         }
-        self.textures_save_to_buffer(buffer)?;
-        self.materials_save_to_buffer(buffer)?;
-        self.bones_save_to_buffer(buffer)?;
-        self.morphs_save_to_buffer(buffer)?;
-        self.labels_save_to_buffer(buffer)?;
-        self.rigid_bodies_save_to_buffer(buffer)?;
-        self.joints_save_to_buffer(buffer)?;
-        self.soft_bodies_save_to_buffer(buffer)?;
+        self.textures_save_to_buffer(buffer, &info)?;
+        self.materials_save_to_buffer(buffer, &info)?;
+        self.bones_save_to_buffer(buffer, &info)?;
+        self.morphs_save_to_buffer(buffer, &info)?;
+        self.labels_save_to_buffer(buffer, &info)?;
+        self.rigid_bodies_save_to_buffer(buffer, &info)?;
+        self.joints_save_to_buffer(buffer, &info)?;
+        self.soft_bodies_save_to_buffer(buffer, &info)?;
         Ok(())
     }
 
-    pub fn save_to_buffer(&mut self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    pub fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
         if self.is_pmx() {
             self.save_to_buffer_pmx(buffer)
         } else {
@@ -517,25 +614,16 @@ impl<
         }
     }
 
-    pub fn get_format_type(&self) -> ModelFormatType {
-        ((self.version * 10f32) as i32).into()
+    pub fn get_format_type(&self) -> ModelFormatVersion {
+        self.version
     }
 
     pub fn get_codec_type(&self) -> CodecType {
-        let major_version = self.version as i32;
-        if major_version >= 2 && self.info.codec_type != 0 {
-            CodecType::Utf8
-        } else if major_version >= 2 {
-            CodecType::Utf16
-        } else if major_version == 1 {
-            CodecType::Sjis
-        } else {
-            CodecType::Unknown
-        }
+        self.codec_type
     }
 
     pub fn get_additional_uv_size(&self) -> usize {
-        self.info.additional_uv_size.into()
+        self.additional_uv_size.into()
     }
 
     pub fn get_name(&self, language_type: LanguageType) -> &str {
@@ -554,75 +642,7 @@ impl<
         }
     }
 
-    pub fn get_all_vertex_objects(&self) -> &[Rc<RefCell<ModelVertex<VertexDataType>>>] {
-        &self.vertices
-    }
-
-    pub fn get_all_vertex_indices(&self) -> &[Rc<RefCell<u32>>] {
-        &self.vertex_indices
-    }
-
-    pub fn get_all_material_objects(&self) -> &[Rc<RefCell<ModelMaterial<MaterialDataType>>>] {
-        &self.materials
-    }
-
-    pub fn get_all_bone_objects(
-        &self,
-    ) -> &[Rc<RefCell<ModelBone<BoneDataType, ConstraintDataType>>>] {
-        &self.bones
-    }
-
-    pub fn get_all_ordered_bone_object(
-        &self,
-    ) -> &[Rc<RefCell<ModelBone<BoneDataType, ConstraintDataType>>>] {
-        &self.ordered_bones
-    }
-
-    pub fn get_all_constraint_objects(
-        &self,
-    ) -> &[Rc<RefCell<ModelConstraint<ConstraintDataType>>>] {
-        &self.constraints
-    }
-
-    pub fn get_all_texture_objects(&self) -> &[Rc<RefCell<ModelTexture>>] {
-        &self.textures
-    }
-
-    pub fn get_all_morph_objects(&self) -> &[Rc<RefCell<ModelMorph<MorphDataType>>>] {
-        &self.morphs
-    }
-
-    pub fn get_all_label_objects(
-        &self,
-    ) -> &[Rc<RefCell<ModelLabel<LabelDataType, BoneDataType, ConstraintDataType, MorphDataType>>>]
-    {
-        &self.labels
-    }
-
-    pub fn get_all_rigid_body_objects(&self) -> &[Rc<RefCell<ModelRigidBody<RigidBodyDataType>>>] {
-        &self.rigid_bodies
-    }
-
-    pub fn get_all_joint_objects(&self) -> &[Rc<RefCell<ModelJoint<JointDataType>>>] {
-        &self.joints
-    }
-
-    pub fn get_all_soft_body_objects(&self) -> &[Rc<RefCell<ModelSoftBody<SoftBodyDataType>>>] {
-        &self.soft_bodies
-    }
-
-    pub fn get_user_data(&self) -> Option<Rc<RefCell<UserData>>> {
-        self.user_data.clone()
-    }
-
-    pub fn set_user_data(&mut self, user_data: Rc<RefCell<UserData>>) {
-        self.user_data = Some(user_data.clone())
-    }
-
-    pub fn get_one_vertex_object(
-        &self,
-        index: i32,
-    ) -> Option<&Rc<RefCell<ModelVertex<VertexDataType>>>> {
+    pub fn get_one_vertex_object(&self, index: i32) -> Option<&ModelVertex> {
         if index < 0 {
             None
         } else {
@@ -630,10 +650,7 @@ impl<
         }
     }
 
-    pub fn get_one_bone_object(
-        &self,
-        index: i32,
-    ) -> Option<&Rc<RefCell<ModelBone<BoneDataType, ConstraintDataType>>>> {
+    pub fn get_one_bone_object(&self, index: i32) -> Option<&ModelBone> {
         if index < 0 {
             None
         } else {
@@ -641,10 +658,7 @@ impl<
         }
     }
 
-    pub fn get_one_morph_object(
-        &self,
-        index: i32,
-    ) -> Option<&Rc<RefCell<ModelMorph<MorphDataType>>>> {
+    pub fn get_one_morph_object(&self, index: i32) -> Option<&ModelMorph> {
         if index < 0 {
             None
         } else {
@@ -652,7 +666,7 @@ impl<
         }
     }
 
-    pub fn get_one_texture_object(&self, index: i32) -> Option<&Rc<RefCell<ModelTexture>>> {
+    pub fn get_one_texture_object(&self, index: i32) -> Option<&ModelTexture> {
         if index < 0 {
             None
         } else {
@@ -661,11 +675,11 @@ impl<
     }
 
     pub fn is_pmx(&self) -> bool {
-        (self.version * 10f32) as i32 >= 20
+        self.version.is_pmx()
     }
 
     pub fn is_pmx21(&self) -> bool {
-        (self.version * 10f32) as i32 >= 21
+        self.version.is_pmx21()
     }
 
     pub fn get_vertex_index_size(size: usize) -> u8 {
@@ -690,25 +704,16 @@ impl<
 
     pub fn set_additional_uv_size(&mut self, value: usize) {
         if (0..=4).contains(&value) {
-            self.info.additional_uv_size = value as u8;
+            self.additional_uv_size = value as u8;
         }
     }
 
-    pub fn set_codec_type(&mut self, value: CodecType) {
-        self.info.codec_type = match value {
-            CodecType::Unknown => 0,
-            CodecType::Sjis => 0,
-            CodecType::Utf8 => 1,
-            CodecType::Utf16 => 0,
-        }
-    }
-
-    pub fn set_format_type(&mut self, value: ModelFormatType) {
+    pub fn set_format_type(&mut self, value: ModelFormatVersion) {
         self.version = match value {
-            ModelFormatType::Unknown => self.version,
-            ModelFormatType::Pmd1_0 => 1.0f32,
-            ModelFormatType::Pmx2_0 => 2.0f32,
-            ModelFormatType::Pmx2_1 => 2.1f32,
+            ModelFormatVersion::Unknown(_) => self.version,
+            ModelFormatVersion::Pmd1_0
+            | ModelFormatVersion::Pmx2_0
+            | ModelFormatVersion::Pmx2_1 => value,
         }
     }
 
@@ -728,74 +733,33 @@ impl<
         }
     }
 
-    fn find_indexed_rc_offset<T>(objects: &Vec<Rc<T>>, target: &Rc<T>, index: i32) -> i32 {
-        let mut offset = -1;
-        if index >= 0 && objects.len() > 0 {
-            if (index as usize) < objects.len()
-                && objects
-                    .get(index as usize)
-                    .map_or(false, |rc| Rc::ptr_eq(rc, target))
-            {
-                offset = index;
-            } else {
-                for ptr in objects.iter().enumerate() {
-                    if Rc::ptr_eq(target, ptr.1) {
-                        offset = ptr.0 as i32;
-                    }
-                }
+    pub fn insert_bone(&mut self, mut bone: ModelBone, mut index: i32) -> Result<(), Status> {
+        if index >= 0 && (index as usize) < self.bones.len() {
+            bone.base.index = index as usize;
+            self.bones.insert(index as usize, bone);
+            for bone in &mut self.bones[(index as usize) + 1..] {
+                bone.base.index += 1;
             }
-        }
-        offset
-    }
-
-    fn contains_indexed_rc<T>(objects: &Vec<Rc<T>>, target: &Rc<T>, index: i32) -> bool {
-        Self::find_indexed_rc_offset(objects, target, index) != -1
-    }
-
-    pub fn insert_bone(
-        &mut self,
-        bone: &Rc<RefCell<ModelBone<BoneDataType, ConstraintDataType>>>,
-        mut index: i32,
-    ) -> Result<(), Status> {
-        if Self::contains_indexed_rc(&self.bones, bone, index) {
-            Err(Status::ErrorModelBoneAlreadyExists)
         } else {
-            if index >= 0 && (index as usize) < self.bones.len() {
-                self.bones.insert(index as usize, bone.clone());
-                for bone in &self.bones[(index as usize) + 1..] {
-                    bone.borrow_mut().base.index += 1;
-                }
-            } else {
-                index = self.bones.len() as i32;
-                self.bones.push(bone.clone());
-            }
-            bone.borrow_mut().base.index = index;
-            Ok(())
+            index = self.bones.len() as i32;
+            bone.base.index = index as usize;
+            self.bones.push(bone);
         }
+        Ok(())
     }
 
-    pub fn insert_label(
-        &mut self,
-        label: Rc<
-            RefCell<ModelLabel<LabelDataType, BoneDataType, ConstraintDataType, MorphDataType>>,
-        >,
-        mut index: i32,
-    ) {
-        if self.labels.iter().find(|l| Rc::ptr_eq(&label, l)).is_some() {
-            return;
-        }
+    pub fn insert_label(&mut self, mut label: ModelLabel, mut index: i32) {
         if index >= 0 && (index as usize) < self.labels.len() {
-            self.labels.insert(index as usize, label.clone());
+            label.base.index = index as usize;
+            self.labels.insert(index as usize, label);
             for label in &mut self.labels[(index as usize) + 1..] {
-                label.borrow_mut().base.index += 1;
+                label.base.index += 1;
             }
         } else {
             index = self.labels.len() as i32;
-            self.labels.push(label.clone());
+            label.base.index = index as usize;
+            self.labels.push(label);
         }
-        self.labels
-            .get_mut(index as usize)
-            .map(|label| label.borrow_mut().base.index = index);
     }
 }
 
@@ -810,33 +774,10 @@ fn mutable_model_object_apply_change_object_index(target: &mut i32, object_index
     }
 }
 
-impl<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >
-    Model<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >
-{
+impl Model {
     fn apply_change_all_object_indices(&mut self, vertex_index: i32, delta: i32) {
-        for morph in &self.morphs {
-            let mut morph_mut = morph.borrow_mut();
-            match &mut morph_mut.u {
+        for morph in &mut self.morphs {
+            match &mut morph.morphs {
                 ModelMorphU::VERTICES(vertices) => {
                     for morph_vertex in vertices {
                         mutable_model_object_apply_change_object_index(
@@ -859,7 +800,7 @@ impl<
             }
         }
         for soft_body in &mut self.soft_bodies {
-            for anchor in &mut soft_body.borrow_mut().anchors {
+            for anchor in &mut soft_body.anchors {
                 mutable_model_object_apply_change_object_index(
                     &mut anchor.vertex_index,
                     vertex_index,
@@ -870,9 +811,8 @@ impl<
     }
 
     fn material_apply_change_all_object_indices(&mut self, material_index: i32, delta: i32) {
-        for morph in &self.morphs {
-            let mut morph_mut = morph.borrow_mut();
-            match &mut morph_mut.u {
+        for morph in &mut self.morphs {
+            match &mut morph.morphs {
                 ModelMorphU::MATERIALS(materials) => {
                     for morph_material in materials {
                         mutable_model_object_apply_change_object_index(
@@ -887,7 +827,7 @@ impl<
         }
         for soft_body in &mut self.soft_bodies {
             mutable_model_object_apply_change_object_index(
-                &mut soft_body.borrow_mut().material_index,
+                &mut soft_body.material_index,
                 material_index,
                 delta,
             )
@@ -896,7 +836,7 @@ impl<
 
     fn bone_apply_change_all_object_indices(&mut self, bone_index: i32, delta: i32) {
         for vertex in &mut self.vertices {
-            for vertex_bone_index in &mut vertex.borrow_mut().bone_indices {
+            for vertex_bone_index in &mut vertex.bone_indices {
                 mutable_model_object_apply_change_object_index(
                     vertex_bone_index,
                     bone_index,
@@ -906,26 +846,25 @@ impl<
         }
         for constraint in &mut self.constraints {
             mutable_model_object_apply_change_object_index(
-                &mut constraint.borrow_mut().effector_bone_index,
+                &mut constraint.effector_bone_index,
                 bone_index,
                 delta,
             );
             mutable_model_object_apply_change_object_index(
-                &mut constraint.borrow_mut().target_bone_index,
+                &mut constraint.target_bone_index,
                 bone_index,
                 delta,
             );
-            for joint in &mut constraint.borrow_mut().joints {
+            for joint in &mut constraint.joints {
                 mutable_model_object_apply_change_object_index(
-                    &mut joint.borrow_mut().bone_index,
+                    &mut joint.bone_index,
                     bone_index,
                     delta,
                 );
             }
         }
-        for morph in &self.morphs {
-            let mut morph = morph.borrow_mut();
-            if let ModelMorphU::BONES(bones) = &mut morph.u {
+        for morph in &mut self.morphs {
+            if let ModelMorphU::BONES(bones) = &mut morph.morphs {
                 for bone in bones {
                     mutable_model_object_apply_change_object_index(
                         &mut bone.bone_index,
@@ -935,8 +874,7 @@ impl<
                 }
             }
         }
-        for bone in &self.bones {
-            let mut bone = bone.borrow_mut();
+        for bone in &mut self.bones {
             mutable_model_object_apply_change_object_index(
                 &mut bone.parent_bone_index,
                 bone_index,
@@ -958,7 +896,6 @@ impl<
                 delta,
             );
             if let Some(constraint) = &mut bone.constraint {
-                let mut constraint = constraint.borrow_mut();
                 mutable_model_object_apply_change_object_index(
                     &mut constraint.effector_bone_index,
                     bone_index,
@@ -966,7 +903,7 @@ impl<
                 );
                 for joint in &mut constraint.joints {
                     mutable_model_object_apply_change_object_index(
-                        &mut joint.borrow_mut().bone_index,
+                        &mut joint.bone_index,
                         bone_index,
                         delta,
                     );
@@ -975,7 +912,7 @@ impl<
         }
         for rigid_body in &mut self.rigid_bodies {
             mutable_model_object_apply_change_object_index(
-                &mut rigid_body.borrow_mut().bone_index,
+                &mut rigid_body.bone_index,
                 bone_index,
                 delta,
             );
@@ -983,9 +920,8 @@ impl<
     }
 
     fn morph_apply_change_all_object_indices(&mut self, morph_index: i32, delta: i32) {
-        for morph in &self.morphs {
-            let mut morph = morph.borrow_mut();
-            if let ModelMorphU::GROUPS(groups) = &mut morph.u {
+        for morph in &mut self.morphs {
+            if let ModelMorphU::GROUPS(groups) = &mut morph.morphs {
                 for group in groups {
                     mutable_model_object_apply_change_object_index(
                         &mut group.morph_index,
@@ -993,7 +929,7 @@ impl<
                         delta,
                     );
                 }
-            } else if let ModelMorphU::FLIPS(flips) = &mut morph.u {
+            } else if let ModelMorphU::FLIPS(flips) = &mut morph.morphs {
                 for flip in flips {
                     mutable_model_object_apply_change_object_index(
                         &mut flip.morph_index,
@@ -1006,9 +942,8 @@ impl<
     }
 
     fn rigid_body_apply_change_all_object_indices(&mut self, rigid_body_index: i32, delta: i32) {
-        for morph in &self.morphs {
-            let mut morph = morph.borrow_mut();
-            if let ModelMorphU::IMPULSES(impulses) = &mut morph.u {
+        for morph in &mut self.morphs {
+            if let ModelMorphU::IMPULSES(impulses) = &mut morph.morphs {
                 for impulse in impulses {
                     mutable_model_object_apply_change_object_index(
                         &mut impulse.rigid_body_index,
@@ -1020,18 +955,18 @@ impl<
         }
         for joint in &mut self.joints {
             mutable_model_object_apply_change_object_index(
-                &mut joint.borrow_mut().rigid_body_a_index,
+                &mut joint.rigid_body_a_index,
                 rigid_body_index,
                 delta,
             );
             mutable_model_object_apply_change_object_index(
-                &mut joint.borrow_mut().rigid_body_b_index,
+                &mut joint.rigid_body_b_index,
                 rigid_body_index,
                 delta,
             );
         }
         for soft_body in &mut self.soft_bodies {
-            for anchor in &mut soft_body.borrow_mut().anchors {
+            for anchor in &mut soft_body.anchors {
                 mutable_model_object_apply_change_object_index(
                     &mut anchor.rigid_body_index,
                     rigid_body_index,
@@ -1044,18 +979,18 @@ impl<
     fn texture_apply_change_all_object_indices(&mut self, texture_index: i32, delta: i32) {
         for material in &mut self.materials {
             mutable_model_object_apply_change_object_index(
-                &mut material.borrow_mut().diffuse_texture_index,
+                &mut material.diffuse_texture_index,
                 texture_index,
                 delta,
             );
             mutable_model_object_apply_change_object_index(
-                &mut material.borrow_mut().sphere_map_texture_index,
+                &mut material.sphere_map_texture_index,
                 texture_index,
                 delta,
             );
-            if !material.borrow().is_toon_shared {
+            if !material.is_toon_shared {
                 mutable_model_object_apply_change_object_index(
-                    &mut material.borrow_mut().toon_texture_index,
+                    &mut material.toon_texture_index,
                     texture_index,
                     delta,
                 );
@@ -1064,32 +999,14 @@ impl<
     }
 }
 
-struct ModelObject<T> {
-    index: i32,
-    user_data: Option<Rc<RefCell<T>>>,
+#[derive(Debug, Clone, Copy, Hash)]
+pub struct ModelObject {
+    index: usize,
 }
 
-impl<T> Default for ModelObject<T> {
+impl Default for ModelObject {
     fn default() -> Self {
-        Self {
-            index: -1,
-            user_data: None,
-        }
-    }
-}
-
-impl<T> Clone for ModelObject<T> {
-    fn clone(&self) -> Self {
-        Self {
-            index: self.index.clone(),
-            user_data: self.user_data.clone(),
-        }
-    }
-}
-
-impl<T> ModelObject<T> {
-    fn get_user_data(&self) -> &Option<Rc<RefCell<T>>> {
-        &self.user_data
+        Self { index: 0 }
     }
 }
 
@@ -1135,53 +1052,33 @@ impl Default for ModelVertexType {
     }
 }
 
-pub struct ModelVertex<T> {
-    base: ModelObject<T>,
-    origin: F128,
-    normal: F128,
-    uv: F128,
-    additional_uv: [F128; 4],
-    typ: ModelVertexType,
-    num_bone_indices: usize,
-    bone_indices: [i32; 4],
-    num_bone_weights: usize,
-    bone_weights: F128,
-    sdef_c: F128,
-    sdef_r0: F128,
-    sdef_r1: F128,
-    edge_size: f32,
-    bone_weight_origin: u8,
+#[derive(Debug)]
+pub struct ModelVertex {
+    pub base: ModelObject,
+    pub origin: F128,
+    pub normal: F128,
+    pub uv: F128,
+    pub additional_uv: [F128; 4],
+    pub typ: ModelVertexType,
+    pub num_bone_indices: usize,
+    pub bone_indices: [i32; 4],
+    pub num_bone_weights: usize,
+    pub bone_weights: F128,
+    pub sdef_c: F128,
+    pub sdef_r0: F128,
+    pub sdef_r1: F128,
+    pub edge_size: f32,
+    pub bone_weight_origin: u8,
 }
 
-impl<T> ModelVertex<T> {
-    fn parse_pmx<
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        parent_model: &Model<
-            T,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+impl ModelVertex {
+    fn parse_pmx(
         buffer: &mut Buffer,
-    ) -> Result<ModelVertex<T>, Status> {
+        info: &ModelInfo,
+        index: usize,
+    ) -> Result<ModelVertex, Status> {
         let mut vertex = ModelVertex {
-            base: ModelObject {
-                index: -1,
-                user_data: None,
-            },
+            base: ModelObject { index },
             origin: buffer.read_f32_3_little_endian()?,
             normal: buffer.read_f32_3_little_endian()?,
             uv: F128([
@@ -1202,10 +1099,10 @@ impl<T> ModelVertex<T> {
             edge_size: f32::default(),
             bone_weight_origin: u8::default(),
         };
-        for i in 0..parent_model.info.additional_uv_size {
+        for i in 0..info.additional_uv_size {
             vertex.additional_uv[i as usize] = buffer.read_f32_4_little_endian()?;
         }
-        let bone_index_size = parent_model.info.bone_index_size;
+        let bone_index_size = info.bone_index_size;
         match vertex.typ {
             ModelVertexType::UNKNOWN => return Err(Status::ErrorModelVertexCorrupted),
             ModelVertexType::BDEF1 => {
@@ -1250,38 +1147,20 @@ impl<T> ModelVertex<T> {
         return Ok(vertex);
     }
 
-    fn save_to_buffer<
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
+    fn save_to_buffer(
         &self,
         buffer: &mut MutableBuffer,
-        parent_model: &Model<
-            T,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+        is_pmx: bool,
+        info: &ModelInfo,
     ) -> Result<(), Status> {
         buffer.write_f32_3_little_endian(self.origin)?;
         buffer.write_f32_3_little_endian(self.normal)?;
         buffer.write_f32_2_little_endian(self.uv)?;
-        if parent_model.is_pmx() {
-            for i in 0..parent_model.info.additional_uv_size {
+        if is_pmx {
+            for i in 0..info.additional_uv_size {
                 buffer.write_f32_4_little_endian(self.additional_uv[i as usize])?;
             }
-            let size = parent_model.info.bone_index_size as usize;
+            let size = info.bone_index_size as usize;
             match self.typ {
                 ModelVertexType::UNKNOWN => return Err(Status::ErrorModelVertexCorrupted),
                 ModelVertexType::BDEF1 => {
@@ -1340,14 +1219,6 @@ impl<T> ModelVertex<T> {
         Ok(())
     }
 
-    pub fn get_user_data(&self) -> &Option<Rc<RefCell<T>>> {
-        &self.base.user_data
-    }
-
-    pub fn set_user_data(&mut self, user_data: Rc<RefCell<T>>) {
-        self.base.user_data = Some(user_data)
-    }
-
     pub fn get_origin(&self) -> [f32; 4] {
         self.origin.0
     }
@@ -1360,15 +1231,7 @@ impl<T> ModelVertex<T> {
         self.uv.0
     }
 
-    pub fn get_edge_size(&self) -> f32 {
-        self.edge_size
-    }
-
-    pub fn get_type(&self) -> ModelVertexType {
-        self.typ
-    }
-
-    pub fn get_index(&self) -> i32 {
+    pub fn get_index(&self) -> usize {
         self.base.index
     }
 
@@ -1385,7 +1248,7 @@ impl<T> ModelVertex<T> {
     }
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct ModelMaterialFlags {
     is_culling_disabled: bool,
     is_casting_shadow_enabled: bool,
@@ -1464,64 +1327,49 @@ impl From<ModelMaterialSphereMapTextureType> for u8 {
     }
 }
 
-pub struct ModelMaterial<T> {
-    base: ModelObject<T>,
-    name_ja: String,
-    name_en: String,
-    diffuse_color: F128,
-    diffuse_opacity: f32,
-    specular_power: f32,
-    specular_color: F128,
-    ambient_color: F128,
-    edge_color: F128,
-    edge_opacity: f32,
-    edge_size: f32,
-    diffuse_texture_index: i32,
-    sphere_map_texture_index: i32,
-    toon_texture_index: i32,
-    sphere_map_texture_type: ModelMaterialSphereMapTextureType,
-    is_toon_shared: bool,
-    num_vertex_indices: usize,
-    flags: ModelMaterialFlags,
-    sphere_map_texture_sph: Option<Rc<RefCell<ModelTexture>>>,
-    sphere_map_texture_spa: Option<Rc<RefCell<ModelTexture>>>,
-    diffuse_texture: Option<Rc<RefCell<ModelTexture>>>,
-    clob: String,
+pub enum TextureResult<'a> {
+    Texture(&'a ModelTexture),
+    Index(i32),
 }
 
-impl<T> ModelMaterial<T> {
-    pub fn parse_pmx<
-        VertexDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        parent_model: &Model<
-            VertexDataType,
-            T,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+#[derive(Debug)]
+pub struct ModelMaterial {
+    pub base: ModelObject,
+    pub name_ja: String,
+    pub name_en: String,
+    pub diffuse_color: F128,
+    pub diffuse_opacity: f32,
+    pub specular_power: f32,
+    pub specular_color: F128,
+    pub ambient_color: F128,
+    pub edge_color: F128,
+    pub edge_opacity: f32,
+    pub edge_size: f32,
+    pub diffuse_texture_index: i32,
+    pub sphere_map_texture_index: i32,
+    pub toon_texture_index: i32,
+    pub sphere_map_texture_type: ModelMaterialSphereMapTextureType,
+    pub is_toon_shared: bool,
+    pub num_vertex_indices: usize,
+    pub flags: ModelMaterialFlags,
+    pub sphere_map_texture_sph: Option<ModelTexture>,
+    pub sphere_map_texture_spa: Option<ModelTexture>,
+    pub diffuse_texture: Option<ModelTexture>,
+    pub clob: String,
+}
+
+impl ModelMaterial {
+    pub fn parse_pmx(
         buffer: &mut Buffer,
-    ) -> Result<ModelMaterial<T>, Status> {
+        info: &ModelInfo,
+        index: usize,
+    ) -> Result<ModelMaterial, Status> {
         let mut error: Option<Status> = None;
-        let texture_index_size = parent_model.info.texture_index_size;
+        let texture_index_size = info.texture_index_size;
         let mut material = ModelMaterial {
-            base: ModelObject {
-                index: -1,
-                user_data: None,
-            },
-            name_ja: parent_model.get_string_pmx(buffer)?,
-            name_en: parent_model.get_string_pmx(buffer)?,
+            base: ModelObject { index },
+            name_ja: info.codec_type.get_string(buffer)?,
+            name_en: info.codec_type.get_string(buffer)?,
             diffuse_color: buffer.read_f32_3_little_endian()?,
             diffuse_opacity: buffer.read_f32_little_endian()?,
             specular_color: buffer.read_f32_3_little_endian()?,
@@ -1573,7 +1421,7 @@ impl<T> ModelMaterial<T> {
             material.toon_texture_index =
                 buffer.read_integer_nullable(texture_index_size as usize)? as i32;
         }
-        material.clob = parent_model.get_string_pmx(buffer)?;
+        material.clob = info.codec_type.get_string(buffer)?;
         material.num_vertex_indices = buffer.read_i32_little_endian()? as usize;
         if let Some(err) = error {
             Err(err)
@@ -1582,34 +1430,16 @@ impl<T> ModelMaterial<T> {
         }
     }
 
-    fn save_to_buffer<
-        VertexDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
+    fn save_to_buffer(
         &self,
         buffer: &mut MutableBuffer,
-        parent_model: &Model<
-            VertexDataType,
-            T,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+        is_pmx: bool,
+        info: &ModelInfo,
     ) -> Result<(), Status> {
-        if parent_model.is_pmx() {
-            let codec_type = parent_model.get_codec_type();
-            buffer.write_string(&self.name_ja, codec_type)?;
-            buffer.write_string(&self.name_en, codec_type)?;
+        if is_pmx {
+            let encoding = info.codec_type.get_encoding();
+            buffer.write_string(&self.name_ja, encoding)?;
+            buffer.write_string(&self.name_en, encoding)?;
             buffer.write_f32_3_little_endian(self.diffuse_color)?;
             buffer.write_f32_little_endian(self.diffuse_opacity)?;
             buffer.write_f32_3_little_endian(self.specular_color)?;
@@ -1619,13 +1449,13 @@ impl<T> ModelMaterial<T> {
             buffer.write_f32_3_little_endian(self.edge_color)?;
             buffer.write_f32_little_endian(self.edge_opacity)?;
             buffer.write_f32_little_endian(self.edge_size)?;
-            let size = parent_model.info.texture_index_size as usize;
+            let size = info.texture_index_size as usize;
             buffer.write_integer(self.diffuse_texture_index, size)?;
             buffer.write_integer(self.sphere_map_texture_index, size)?;
             buffer.write_byte(self.sphere_map_texture_type.into())?;
             buffer.write_byte(self.is_toon_shared as u8)?;
             buffer.write_integer(self.toon_texture_index, size)?;
-            buffer.write_string(&self.clob, codec_type)?;
+            buffer.write_string(&self.clob, encoding)?;
             buffer.write_i32_little_endian(self.num_vertex_indices as i32)?;
         } else {
             buffer.write_f32_3_little_endian(self.diffuse_color)?;
@@ -1636,11 +1466,8 @@ impl<T> ModelMaterial<T> {
             buffer.write_byte(self.toon_texture_index as u8)?;
             buffer.write_byte(self.flags.is_edge_enabled as u8)?;
             buffer.write_i32_little_endian(self.num_vertex_indices as i32)?;
-            let s = self
-                .diffuse_texture
-                .as_ref()
-                .map(|t| t.borrow().path.clone());
-            buffer.write_string(&s.unwrap_or("".to_string()), CodecType::Sjis)?;
+            let s = self.diffuse_texture.as_ref().map(|t| t.path.clone());
+            buffer.write_string(&s.unwrap_or("".to_string()), encoding_rs::SHIFT_JIS)?;
         }
         Ok(())
     }
@@ -1653,16 +1480,8 @@ impl<T> ModelMaterial<T> {
         }
     }
 
-    pub fn get_index(&self) -> i32 {
+    pub fn get_index(&self) -> usize {
         self.base.index
-    }
-
-    pub fn get_user_data(&self) -> &Option<Rc<RefCell<T>>> {
-        self.base.get_user_data()
-    }
-
-    pub fn set_user_data(&mut self, user_data: Rc<RefCell<T>>) {
-        self.base.user_data = Some(user_data);
     }
 
     pub fn get_ambient_color(&self) -> [f32; 4] {
@@ -1721,110 +1540,41 @@ impl<T> ModelMaterial<T> {
         self.sphere_map_texture_type
     }
 
-    pub fn get_diffuse_texture_object<
-        'a,
-        'b: 'a,
-        VertexDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        &'a self,
-        parent_model: &'b Model<
-            VertexDataType,
-            T,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
-    ) -> Option<&'a Rc<RefCell<ModelTexture>>> {
+    pub fn get_diffuse_texture_object(&self) -> TextureResult {
         let diffuse_texture_index = self.diffuse_texture_index;
         if diffuse_texture_index > -1 {
-            parent_model.get_one_texture_object(diffuse_texture_index)
+            TextureResult::Index(diffuse_texture_index)
         } else {
-            (&self.diffuse_texture).as_ref()
+            if let Some(texture) = self.diffuse_texture.as_ref() {
+                TextureResult::Texture(texture)
+            } else {
+                TextureResult::Index(-1)
+            }
         }
     }
 
-    pub fn get_sphere_map_texture_object<
-        'a,
-        'b: 'a,
-        VertexDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        &'a self,
-        parent_model: &'b Model<
-            VertexDataType,
-            T,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
-    ) -> Option<&'a Rc<RefCell<ModelTexture>>> {
+    pub fn get_sphere_map_texture_object(&self) -> TextureResult {
         let sphere_map_texture_index = self.sphere_map_texture_index;
         if sphere_map_texture_index > -1 {
-            parent_model.get_one_texture_object(sphere_map_texture_index)
-        } else if self.sphere_map_texture_spa.is_some() {
-            (&self.sphere_map_texture_spa).as_ref()
+            TextureResult::Index(sphere_map_texture_index)
         } else {
-            (&self.sphere_map_texture_sph).as_ref()
+            if let Some(texture) = self.sphere_map_texture_spa.as_ref() {
+                TextureResult::Texture(texture)
+            } else if let Some(texture) = self.sphere_map_texture_sph.as_ref() {
+                TextureResult::Texture(texture)
+            } else {
+                TextureResult::Index(-1)
+            }
         }
     }
 
-    pub fn get_toon_texture_object<
-        'a,
-        'b: 'a,
-        VertexDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        &'a self,
-        parent_model: &'b Model<
-            VertexDataType,
-            T,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
-    ) -> Option<&'a Rc<RefCell<ModelTexture>>> {
-        let toon_texture_index = self.toon_texture_index;
-        if toon_texture_index > -1 {
-            parent_model.get_one_texture_object(toon_texture_index)
-        } else {
-            None
-        }
+    pub fn get_toon_texture_object(&self) -> TextureResult {
+        TextureResult::Index(self.toon_texture_index)
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-enum ModelBoneType {
+pub enum ModelBoneType {
     Rotatable,
     RotatableAndMovable,
     ConstraintEffector,
@@ -1860,42 +1610,24 @@ impl From<ModelBoneType> for u8 {
     }
 }
 
-#[derive(Default, Clone, Copy)]
-struct ModelBoneFlags {
-    has_destination_bone_index: bool,
-    is_rotatable: bool,
-    is_movable: bool,
-    is_visible: bool,
-    is_user_handleable: bool,
-    has_constraint: bool,
-    has_local_inherent: bool,
-    has_inherent_orientation: bool,
-    has_inherent_translation: bool,
-    has_fixed_axis: bool,
-    has_local_axes: bool,
-    is_affected_by_physics_simulation: bool,
-    has_external_parent_bone: bool,
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ModelBoneFlags {
+    pub has_destination_bone_index: bool,
+    pub is_rotatable: bool,
+    pub is_movable: bool,
+    pub is_visible: bool,
+    pub is_user_handleable: bool,
+    pub has_constraint: bool,
+    pub has_local_inherent: bool,
+    pub has_inherent_orientation: bool,
+    pub has_inherent_translation: bool,
+    pub has_fixed_axis: bool,
+    pub has_local_axes: bool,
+    pub is_affected_by_physics_simulation: bool,
+    pub has_external_parent_bone: bool,
 }
 
 impl ModelBoneFlags {
-    /// Original Definition
-    /// struct nanoem_model_bone_flags_t {
-    ///     unsigned int has_destination_bone_index : 1;
-    ///     unsigned int is_rotateable : 1;
-    ///     unsigned int is_movable : 1;
-    ///     unsigned int is_visible : 1;
-    ///     unsigned int is_user_handleable : 1;
-    ///     unsigned int has_constraint : 1;
-    ///     unsigned int padding_1 : 1;
-    ///     unsigned int has_local_inherent : 1;
-    ///     unsigned int has_inherent_orientation : 1;
-    ///     unsigned int has_inherent_translation : 1;
-    ///     unsigned int has_fixed_axis : 1;
-    ///     unsigned int has_local_axes : 1;
-    ///     unsigned int is_affected_by_physics_simulation : 1;
-    ///     unsigned int has_external_parent_bone : 1;
-    ///     unsigned int padding_2 : 2;
-    /// } flags;
     fn from_raw(u: u16) -> ModelBoneFlags {
         ModelBoneFlags {
             has_destination_bone_index: u % 2 != 0,
@@ -1925,7 +1657,7 @@ impl From<ModelBoneFlags> for u16 {
             | (v.has_constraint as u16) << 5
             | (v.has_local_inherent as u16) << 7
             | (v.has_inherent_orientation as u16) << 8
-            | (v.has_inherent_orientation as u16) << 9
+            | (v.has_inherent_translation as u16) << 9
             | (v.has_fixed_axis as u16) << 10
             | (v.has_local_axes as u16) << 11
             | (v.is_affected_by_physics_simulation as u16) << 12
@@ -1941,28 +1673,29 @@ fn test_model_bone_flags_from_value() {
     assert_eq!(false, f.has_inherent_translation);
 }
 
-pub struct ModelBone<T, ConstraintDataType> {
-    base: ModelObject<T>,
-    name_ja: String,
-    name_en: String,
-    constraint: Option<Rc<RefCell<ModelConstraint<ConstraintDataType>>>>,
-    origin: F128,
-    destination_origin: F128,
-    fixed_axis: F128,
-    local_x_axis: F128,
-    local_z_axis: F128,
-    inherent_coefficient: f32,
-    parent_bone_index: i32,
-    parent_inherent_bone_index: i32,
-    effector_bone_index: i32,
-    target_bone_index: i32,
-    global_bone_index: i32,
-    stage_index: i32,
-    typ: ModelBoneType,
-    flags: ModelBoneFlags,
+#[derive(Debug)]
+pub struct ModelBone {
+    pub base: ModelObject,
+    pub name_ja: String,
+    pub name_en: String,
+    pub constraint: Option<ModelConstraint>,
+    pub origin: F128,
+    pub destination_origin: F128,
+    pub fixed_axis: F128,
+    pub local_x_axis: F128,
+    pub local_z_axis: F128,
+    pub inherent_coefficient: f32,
+    pub parent_bone_index: i32,
+    pub parent_inherent_bone_index: i32,
+    pub effector_bone_index: i32,
+    pub target_bone_index: i32,
+    pub global_bone_index: i32,
+    pub stage_index: i32,
+    pub typ: ModelBoneType,
+    pub flags: ModelBoneFlags,
 }
 
-impl<T, ConstraintDataType> Default for ModelBone<T, ConstraintDataType> {
+impl Default for ModelBone {
     fn default() -> Self {
         Self {
             base: Default::default(),
@@ -1987,13 +1720,13 @@ impl<T, ConstraintDataType> Default for ModelBone<T, ConstraintDataType> {
     }
 }
 
-impl<T, ConstraintDataType> ModelBone<T, ConstraintDataType> {
+impl ModelBone {
     fn compare_pmx(&self, other: &Self) -> i32 {
         if self.flags.is_affected_by_physics_simulation
             == other.flags.is_affected_by_physics_simulation
         {
             if self.stage_index == other.stage_index {
-                return self.base.index - other.base.index;
+                return self.base.index as i32 - other.base.index as i32;
             }
             return self.stage_index - other.stage_index;
         }
@@ -2004,36 +1737,12 @@ impl<T, ConstraintDataType> ModelBone<T, ConstraintDataType> {
         };
     }
 
-    fn parse_pmx<
-        VertexDataType,
-        MaterialDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            T,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
-        buffer: &mut Buffer,
-    ) -> Result<ModelBone<T, ConstraintDataType>, Status> {
-        let bone_index_size = parent_model.info.bone_index_size;
+    fn parse_pmx(buffer: &mut Buffer, info: &ModelInfo, index: usize) -> Result<ModelBone, Status> {
+        let bone_index_size = info.bone_index_size;
         let mut bone = ModelBone {
-            base: ModelObject {
-                index: -1,
-                user_data: None,
-            },
-            name_ja: parent_model.get_string_pmx(buffer)?,
-            name_en: parent_model.get_string_pmx(buffer)?,
+            base: ModelObject { index },
+            name_ja: info.codec_type.get_string(buffer)?,
+            name_en: info.codec_type.get_string(buffer)?,
             origin: buffer.read_f32_3_little_endian()?,
             destination_origin: F128::default(),
             fixed_axis: F128::default(),
@@ -2076,43 +1785,23 @@ impl<T, ConstraintDataType> ModelBone<T, ConstraintDataType> {
             bone.global_bone_index = buffer.read_i32_little_endian()?;
         }
         if bone.flags.has_constraint {
-            bone.constraint = Some(Rc::new(RefCell::new(ModelConstraint::parse_pmx(
-                parent_model,
-                buffer,
-            )?)))
+            bone.constraint = Some(ModelConstraint::parse_pmx(buffer, info, usize::MAX, index)?);
         }
         Ok(bone)
     }
 
-    fn save_to_buffer<
-        VertexDataType,
-        MaterialDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
+    fn save_to_buffer(
         &self,
         buffer: &mut MutableBuffer,
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            T,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+        parent_model: &Model,
+        info: &ModelInfo,
     ) -> Result<(), Status> {
         if parent_model.is_pmx() {
-            let codec_type = parent_model.get_codec_type();
-            buffer.write_string(&self.name_ja, codec_type)?;
-            buffer.write_string(&self.name_en, codec_type)?;
+            let encoding = parent_model.get_codec_type().get_encoding();
+            buffer.write_string(&self.name_ja, encoding)?;
+            buffer.write_string(&self.name_en, encoding)?;
             buffer.write_f32_3_little_endian(self.origin)?;
-            let size = parent_model.info.bone_index_size as usize;
+            let size = info.bone_index_size as usize;
             buffer.write_integer(self.parent_bone_index, size)?;
             buffer.write_i32_little_endian(self.stage_index)?;
             buffer.write_u16_little_endian(self.flags.into())?;
@@ -2137,11 +1826,11 @@ impl<T, ConstraintDataType> ModelBone<T, ConstraintDataType> {
             }
             if self.flags.has_constraint {
                 if let Some(constraint) = &self.constraint {
-                    constraint.borrow().save_to_buffer(buffer, parent_model)?;
+                    constraint.save_to_buffer(buffer, parent_model, info)?;
                 }
             }
         } else {
-            buffer.write_string(&self.name_ja, CodecType::Sjis)?;
+            buffer.write_string(&self.name_ja, encoding_rs::SHIFT_JIS)?;
             buffer.write_i16_little_endian(self.parent_bone_index as i16)?;
             buffer.write_i16_little_endian(self.target_bone_index as i16)?;
             buffer.write_byte(self.typ.into())?;
@@ -2167,18 +1856,8 @@ impl<T, ConstraintDataType> ModelBone<T, ConstraintDataType> {
         }
     }
 
-    pub fn get_constraint_object(
-        &self,
-    ) -> Option<&Rc<RefCell<ModelConstraint<ConstraintDataType>>>> {
+    pub fn get_constraint_object(&self) -> Option<&ModelConstraint> {
         self.constraint.as_ref()
-    }
-
-    pub fn get_user_data(&self) -> Option<&Rc<RefCell<T>>> {
-        self.base.user_data.as_ref()
-    }
-
-    pub fn set_user_data(&mut self, user_data: &Rc<RefCell<T>>) {
-        self.base.user_data = Some(user_data.clone());
     }
 
     pub fn set_visible(&mut self, value: bool) {
@@ -2229,7 +1908,7 @@ impl<T, ConstraintDataType> ModelBone<T, ConstraintDataType> {
         self.flags.has_external_parent_bone = value;
     }
 
-    pub fn get_index(&self) -> i32 {
+    pub fn get_index(&self) -> usize {
         self.base.index
     }
 
@@ -2250,46 +1929,29 @@ impl<T, ConstraintDataType> ModelBone<T, ConstraintDataType> {
     }
 }
 
-pub struct ModelConstraintJoint<T> {
-    base: ModelObject<T>,
-    bone_index: i32,
-    has_angle_limit: bool,
-    lower_limit: F128,
-    upper_limit: F128,
+#[derive(Debug)]
+pub struct ModelConstraintJoint {
+    pub base: ModelObject,
+    pub bone_index: i32,
+    pub has_angle_limit: bool,
+    pub lower_limit: F128,
+    pub upper_limit: F128,
 }
 
-impl<T> ModelConstraintJoint<T> {
-    fn save_to_buffer<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
+impl ModelConstraintJoint {
+    fn save_to_buffer(
         &self,
         buffer: &mut MutableBuffer,
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+        parent_model: &Model,
+        info: &ModelInfo,
     ) -> Result<(), Status> {
         if parent_model.is_pmx() {
             let bone_index = parent_model
-                .get_one_bone_object(self.bone_index)
-                .map(|rc| rc.borrow().base.index)
+                .bones
+                .get(self.bone_index as usize)
+                .map(|rc| rc.base.index as i32)
                 .unwrap_or(-1);
-            buffer.write_integer(bone_index, parent_model.info.bone_index_size as usize)?;
+            buffer.write_integer(bone_index, info.bone_index_size as usize)?;
             buffer.write_byte(self.has_angle_limit as u8)?;
             if self.has_angle_limit {
                 buffer.write_f32_3_little_endian(self.lower_limit)?;
@@ -2306,47 +1968,28 @@ impl<T> ModelConstraintJoint<T> {
     }
 }
 
-pub struct ModelConstraint<T> {
-    base: ModelObject<T>,
-    effector_bone_index: i32,
-    target_bone_index: i32,
-    num_iterations: i32,
-    angle_limit: f32,
-    joints: Vec<Rc<RefCell<ModelConstraintJoint<()>>>>,
+#[derive(Debug)]
+pub struct ModelConstraint {
+    pub base: ModelObject,
+    pub effector_bone_index: i32,
+    pub target_bone_index: i32,
+    pub num_iterations: i32,
+    pub angle_limit: f32,
+    pub joints: Vec<ModelConstraintJoint>,
 }
 
-impl<T> ModelConstraint<T> {
-    fn parse_pmx<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            T,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+impl ModelConstraint {
+    fn parse_pmx(
         buffer: &mut Buffer,
-    ) -> Result<ModelConstraint<T>, Status> {
-        let bone_index_size = parent_model.info.bone_index_size as usize;
+        info: &ModelInfo,
+        index: usize,
+        target_bone_index: usize,
+    ) -> Result<ModelConstraint, Status> {
+        let bone_index_size = info.bone_index_size as usize;
         let mut constraint = ModelConstraint {
-            base: ModelObject {
-                index: -1,
-                user_data: None,
-            },
+            base: ModelObject { index },
             effector_bone_index: buffer.read_integer_nullable(bone_index_size)?,
-            target_bone_index: i32::default(),
+            target_bone_index: target_bone_index as i32,
             num_iterations: buffer.read_i32_little_endian()?,
             angle_limit: buffer.read_f32_little_endian()?,
             joints: vec![],
@@ -2354,10 +1997,7 @@ impl<T> ModelConstraint<T> {
         let num_joints = buffer.read_len()?;
         for i in 0..num_joints {
             let mut joint = ModelConstraintJoint {
-                base: ModelObject {
-                    index: -1,
-                    user_data: None,
-                },
+                base: ModelObject { index: i },
                 bone_index: buffer.read_integer_nullable(bone_index_size)?,
                 has_angle_limit: buffer.read_byte()? != (0 as u8),
                 lower_limit: F128::default(),
@@ -2367,40 +2007,19 @@ impl<T> ModelConstraint<T> {
                 joint.lower_limit = buffer.read_f32_3_little_endian()?;
                 joint.upper_limit = buffer.read_f32_3_little_endian()?;
             }
-            constraint.joints.push(Rc::new(RefCell::new(joint)));
+            constraint.joints.push(joint);
         }
         Ok(constraint)
     }
 
-    fn save_to_buffer<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
+    fn save_to_buffer(
         &self,
         buffer: &mut MutableBuffer,
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            T,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+        parent_model: &Model,
+        info: &ModelInfo,
     ) -> Result<(), Status> {
         if parent_model.is_pmx() {
-            buffer.write_integer(
-                self.effector_bone_index,
-                parent_model.info.bone_index_size as usize,
-            )?;
+            buffer.write_integer(self.effector_bone_index, info.bone_index_size as usize)?;
             buffer.write_i32_little_endian(self.num_iterations)?;
             buffer.write_f32_little_endian(self.angle_limit)?;
             buffer.write_i32_little_endian(self.joints.len() as i32)?;
@@ -2412,17 +2031,13 @@ impl<T> ModelConstraint<T> {
             buffer.write_f32_little_endian(self.angle_limit)?;
         }
         for joint in &self.joints {
-            joint.borrow().save_to_buffer(buffer, parent_model)?;
+            joint.save_to_buffer(buffer, parent_model, info)?;
         }
         Ok(())
     }
 
-    pub fn get_index(&self) -> i32 {
+    pub fn get_index(&self) -> usize {
         self.base.index
-    }
-
-    pub fn set_user_data(&mut self, user_data: &Rc<RefCell<T>>) {
-        self.base.user_data = Some(user_data.clone());
     }
 
     pub fn get_effector_bone_index(&self) -> i32 {
@@ -2432,32 +2047,26 @@ impl<T> ModelConstraint<T> {
     pub fn get_target_bone_index(&self) -> i32 {
         self.target_bone_index
     }
-
-    pub fn get_all_joint_objects(&self) -> &[Rc<RefCell<ModelConstraintJoint<()>>>] {
-        &self.joints[..]
-    }
 }
 
+#[derive(Debug, Clone)]
 pub struct ModelMorphBone {
-    base: ModelObject<()>,
-    bone_index: i32,
-    translation: F128,
-    orientation: F128,
+    pub base: ModelObject,
+    pub bone_index: i32,
+    pub translation: F128,
+    pub orientation: F128,
 }
 
 impl ModelMorphBone {
     fn parse_pmx(
-        bone_index_size: usize,
         buffer: &mut Buffer,
+        bone_index_size: usize,
     ) -> Result<Vec<ModelMorphBone>, Status> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
-        for _ in 0..num_objects {
+        for index in 0..num_objects {
             let item = ModelMorphBone {
-                base: ModelObject {
-                    index: -1,
-                    user_data: None,
-                },
+                base: ModelObject { index },
                 bone_index: buffer.read_integer_nullable(bone_index_size)?,
                 translation: buffer.read_f32_3_little_endian()?,
                 orientation: buffer.read_f32_3_little_endian()?,
@@ -2479,25 +2088,23 @@ impl ModelMorphBone {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ModelMorphGroup {
-    base: ModelObject<()>,
-    morph_index: i32,
-    weight: f32,
+    pub base: ModelObject,
+    pub morph_index: i32,
+    pub weight: f32,
 }
 
 impl ModelMorphGroup {
     fn parse_pmx(
-        morph_index_size: usize,
         buffer: &mut Buffer,
+        morph_index_size: usize,
     ) -> Result<Vec<ModelMorphGroup>, Status> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
-        for _ in 0..num_objects {
+        for index in 0..num_objects {
             let item = ModelMorphGroup {
-                base: ModelObject {
-                    index: -1,
-                    user_data: None,
-                },
+                base: ModelObject { index },
                 morph_index: buffer.read_integer_nullable(morph_index_size)?,
                 weight: buffer.read_f32_little_endian()?,
             };
@@ -2517,25 +2124,23 @@ impl ModelMorphGroup {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ModelMorphFlip {
-    base: ModelObject<()>,
-    morph_index: i32,
-    weight: f32,
+    pub base: ModelObject,
+    pub morph_index: i32,
+    pub weight: f32,
 }
 
 impl ModelMorphFlip {
     fn parse_pmx(
-        morph_index_size: usize,
         buffer: &mut Buffer,
+        morph_index_size: usize,
     ) -> Result<Vec<ModelMorphFlip>, Status> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
-        for i in 0..num_objects {
+        for index in 0..num_objects {
             let item = ModelMorphFlip {
-                base: ModelObject {
-                    index: -1,
-                    user_data: None,
-                },
+                base: ModelObject { index },
                 morph_index: buffer.read_integer_nullable(morph_index_size)?,
                 weight: buffer.read_f32_little_endian()?,
             };
@@ -2555,27 +2160,25 @@ impl ModelMorphFlip {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ModelMorphImpulse {
-    base: ModelObject<()>,
-    rigid_body_index: i32,
-    is_local: bool,
-    velocity: F128,
-    torque: F128,
+    pub base: ModelObject,
+    pub rigid_body_index: i32,
+    pub is_local: bool,
+    pub velocity: F128,
+    pub torque: F128,
 }
 
 impl ModelMorphImpulse {
     fn parse_pmx(
-        rigid_body_index_size: usize,
         buffer: &mut Buffer,
+        rigid_body_index_size: usize,
     ) -> Result<Vec<ModelMorphImpulse>, Status> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
-        for _ in 0..num_objects {
+        for index in 0..num_objects {
             let item = ModelMorphImpulse {
-                base: ModelObject {
-                    index: -1,
-                    user_data: None,
-                },
+                base: ModelObject { index },
                 rigid_body_index: buffer.read_integer_nullable(rigid_body_index_size)?,
                 is_local: buffer.read_byte()? != 0,
                 velocity: buffer.read_f32_3_little_endian()?,
@@ -2626,36 +2229,34 @@ impl From<ModelMorphMaterialOperationType> for u8 {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ModelMorphMaterial {
-    base: ModelObject<()>,
-    material_index: i32,
-    operation: ModelMorphMaterialOperationType,
-    diffuse_color: F128,
-    diffuse_opacity: f32,
-    specular_color: F128,
-    specular_power: f32,
-    ambient_color: F128,
-    edge_color: F128,
-    edge_opacity: f32,
-    edge_size: f32,
-    diffuse_texture_blend: F128,
-    sphere_map_texture_blend: F128,
-    toon_texture_blend: F128,
+    pub base: ModelObject,
+    pub material_index: i32,
+    pub operation: ModelMorphMaterialOperationType,
+    pub diffuse_color: F128,
+    pub diffuse_opacity: f32,
+    pub specular_color: F128,
+    pub specular_power: f32,
+    pub ambient_color: F128,
+    pub edge_color: F128,
+    pub edge_opacity: f32,
+    pub edge_size: f32,
+    pub diffuse_texture_blend: F128,
+    pub sphere_map_texture_blend: F128,
+    pub toon_texture_blend: F128,
 }
 
 impl ModelMorphMaterial {
     fn parse_pmx(
-        material_index_size: usize,
         buffer: &mut Buffer,
+        material_index_size: usize,
     ) -> Result<Vec<ModelMorphMaterial>, Status> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
-        for _ in 0..num_objects {
+        for index in 0..num_objects {
             let item = ModelMorphMaterial {
-                base: ModelObject {
-                    index: -1,
-                    user_data: None,
-                },
+                base: ModelObject { index },
                 material_index: buffer.read_integer_nullable(material_index_size)?,
                 operation: buffer.read_byte()?.into(),
                 diffuse_color: buffer.read_f32_3_little_endian()?,
@@ -2697,25 +2298,23 @@ impl ModelMorphMaterial {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ModelMorphUv {
-    base: ModelObject<()>,
-    vertex_index: i32,
-    position: F128,
+    pub base: ModelObject,
+    pub vertex_index: i32,
+    pub position: F128,
 }
 
 impl ModelMorphUv {
     fn parse_pmx(
-        vertex_index_size: usize,
         buffer: &mut Buffer,
+        vertex_index_size: usize,
     ) -> Result<Vec<ModelMorphUv>, Status> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
-        for _ in 0..num_objects {
+        for index in 0..num_objects {
             let item = ModelMorphUv {
-                base: ModelObject {
-                    index: -1,
-                    user_data: None,
-                },
+                base: ModelObject { index },
                 vertex_index: buffer.read_integer(vertex_index_size)?,
                 position: buffer.read_f32_4_little_endian()?,
             };
@@ -2735,26 +2334,24 @@ impl ModelMorphUv {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ModelMorphVertex {
-    base: ModelObject<()>,
-    vertex_index: i32,
-    relative_index: i32,
-    position: F128,
+    pub base: ModelObject,
+    pub vertex_index: i32,
+    pub relative_index: i32,
+    pub position: F128,
 }
 
 impl ModelMorphVertex {
     fn parse_pmx(
-        vertex_index_size: usize,
         buffer: &mut Buffer,
+        vertex_index_size: usize,
     ) -> Result<Vec<ModelMorphVertex>, Status> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
-        for _ in 0..num_objects {
+        for index in 0..num_objects {
             let item = ModelMorphVertex {
-                base: ModelObject {
-                    index: -1,
-                    user_data: None,
-                },
+                base: ModelObject { index },
                 vertex_index: buffer.read_integer(vertex_index_size)?,
                 relative_index: -1,
                 position: buffer.read_f32_3_little_endian()?,
@@ -2779,6 +2376,7 @@ impl ModelMorphVertex {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum ModelMorphU {
     GROUPS(Vec<ModelMorphGroup>),
     VERTICES(Vec<ModelMorphVertex>),
@@ -2839,6 +2437,7 @@ impl From<ModelMorphCategory> for u8 {
     }
 }
 
+// TODO: 整合type和u
 #[derive(Debug, Clone, Copy)]
 pub enum ModelMorphType {
     Unknown = -1,
@@ -2893,79 +2492,60 @@ impl From<ModelMorphType> for u8 {
     }
 }
 
-pub struct ModelMorph<T> {
-    base: ModelObject<T>,
-    name_ja: String,
-    name_en: String,
-    typ: ModelMorphType,
-    category: ModelMorphCategory,
-    u: ModelMorphU,
+#[derive(Debug, Clone)]
+pub struct ModelMorph {
+    pub base: ModelObject,
+    pub name_ja: String,
+    pub name_en: String,
+    pub typ: ModelMorphType,
+    pub category: ModelMorphCategory,
+    pub morphs: ModelMorphU,
 }
 
-impl<T> ModelMorph<T> {
-    fn parse_pmx<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            T,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+impl ModelMorph {
+    fn parse_pmx(
         buffer: &mut Buffer,
-    ) -> Result<ModelMorph<T>, Status> {
+        info: &ModelInfo,
+        index: usize,
+    ) -> Result<ModelMorph, Status> {
+        let codec_type = info.codec_type;
         let mut morph = ModelMorph {
-            base: ModelObject {
-                index: -1,
-                user_data: None,
-            },
-            name_ja: parent_model.get_string_pmx(buffer)?,
-            name_en: parent_model.get_string_pmx(buffer)?,
+            base: ModelObject { index },
+            name_ja: codec_type.get_string(buffer)?,
+            name_en: codec_type.get_string(buffer)?,
             category: ModelMorphCategory::from(buffer.read_byte()?),
             typ: ModelMorphType::from(buffer.read_byte()?),
-            u: ModelMorphU::BONES(vec![]),
+            morphs: ModelMorphU::BONES(vec![]),
         };
         match morph.typ {
             ModelMorphType::Bone => {
-                morph.u = ModelMorphU::BONES(ModelMorphBone::parse_pmx(
-                    parent_model.info.bone_index_size as usize,
+                morph.morphs = ModelMorphU::BONES(ModelMorphBone::parse_pmx(
                     buffer,
+                    info.bone_index_size as usize,
                 )?)
             }
             ModelMorphType::Flip => {
-                morph.u = ModelMorphU::FLIPS(ModelMorphFlip::parse_pmx(
-                    parent_model.info.morph_index_size as usize,
+                morph.morphs = ModelMorphU::FLIPS(ModelMorphFlip::parse_pmx(
                     buffer,
+                    info.morph_index_size as usize,
                 )?)
             }
             ModelMorphType::Group => {
-                morph.u = ModelMorphU::GROUPS(ModelMorphGroup::parse_pmx(
-                    parent_model.info.morph_index_size as usize,
+                morph.morphs = ModelMorphU::GROUPS(ModelMorphGroup::parse_pmx(
                     buffer,
+                    info.morph_index_size as usize,
                 )?)
             }
             ModelMorphType::Impulse => {
-                morph.u = ModelMorphU::IMPULSES(ModelMorphImpulse::parse_pmx(
-                    parent_model.info.rigid_body_index_size as usize,
+                morph.morphs = ModelMorphU::IMPULSES(ModelMorphImpulse::parse_pmx(
                     buffer,
+                    info.rigid_body_index_size as usize,
                 )?)
             }
             ModelMorphType::Material => {
-                morph.u = ModelMorphU::MATERIALS(ModelMorphMaterial::parse_pmx(
-                    parent_model.info.material_index_size as usize,
+                morph.morphs = ModelMorphU::MATERIALS(ModelMorphMaterial::parse_pmx(
                     buffer,
+                    info.material_index_size as usize,
                 )?)
             }
             ModelMorphType::Texture
@@ -2973,15 +2553,15 @@ impl<T> ModelMorph<T> {
             | ModelMorphType::Uva2
             | ModelMorphType::Uva3
             | ModelMorphType::Uva4 => {
-                morph.u = ModelMorphU::UVS(ModelMorphUv::parse_pmx(
-                    parent_model.info.vertex_index_size as usize,
+                morph.morphs = ModelMorphU::UVS(ModelMorphUv::parse_pmx(
                     buffer,
+                    info.vertex_index_size as usize,
                 )?)
             }
             ModelMorphType::Vertex => {
-                morph.u = ModelMorphU::VERTICES(ModelMorphVertex::parse_pmx(
-                    parent_model.info.vertex_index_size as usize,
+                morph.morphs = ModelMorphU::VERTICES(ModelMorphVertex::parse_pmx(
                     buffer,
+                    info.vertex_index_size as usize,
                 )?)
             }
             ModelMorphType::Unknown => return Err(Status::ErrorModelMorphCorrupted),
@@ -2989,66 +2569,39 @@ impl<T> ModelMorph<T> {
         Ok(morph)
     }
 
-    fn save_to_buffer<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
+    fn save_to_buffer(
         &self,
         buffer: &mut MutableBuffer,
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            T,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+        is_pmx: bool,
+        info: &ModelInfo,
     ) -> Result<(), Status> {
-        if parent_model.is_pmx() {
-            let codec_type = parent_model.get_codec_type();
-            buffer.write_string(&self.name_ja, codec_type)?;
-            buffer.write_string(&self.name_en, codec_type)?;
+        if is_pmx {
+            let encoding = info.codec_type.get_encoding();
+            buffer.write_string(&self.name_ja, encoding)?;
+            buffer.write_string(&self.name_en, encoding)?;
             buffer.write_byte(self.category.into())?;
             buffer.write_byte(self.typ.into())?;
-            buffer.write_i32_little_endian(self.u.len() as i32)?;
+            buffer.write_i32_little_endian(self.morphs.len() as i32)?;
             match self.typ {
                 ModelMorphType::Unknown => return Err(Status::ErrorModelMorphCorrupted),
                 ModelMorphType::Group => {
-                    if let ModelMorphU::GROUPS(groups) = &self.u {
+                    if let ModelMorphU::GROUPS(groups) = &self.morphs {
                         for group in groups {
-                            group.save_to_buffer(
-                                buffer,
-                                parent_model.info.morph_index_size as usize,
-                            )?;
+                            group.save_to_buffer(buffer, info.morph_index_size as usize)?;
                         }
                     }
                 }
                 ModelMorphType::Vertex => {
-                    if let ModelMorphU::VERTICES(vertices) = &self.u {
+                    if let ModelMorphU::VERTICES(vertices) = &self.morphs {
                         for vertex in vertices {
-                            vertex.save_to_buffer(
-                                buffer,
-                                parent_model.info.vertex_index_size as usize,
-                            )?;
+                            vertex.save_to_buffer(buffer, info.vertex_index_size as usize)?;
                         }
                     }
                 }
                 ModelMorphType::Bone => {
-                    if let ModelMorphU::BONES(bones) = &self.u {
+                    if let ModelMorphU::BONES(bones) = &self.morphs {
                         for bone in bones {
-                            bone.save_to_buffer(
-                                buffer,
-                                parent_model.info.bone_index_size as usize,
-                            )?;
+                            bone.save_to_buffer(buffer, info.bone_index_size as usize)?;
                         }
                     }
                 }
@@ -3057,53 +2610,41 @@ impl<T> ModelMorph<T> {
                 | ModelMorphType::Uva2
                 | ModelMorphType::Uva3
                 | ModelMorphType::Uva4 => {
-                    if let ModelMorphU::UVS(uvs) = &self.u {
+                    if let ModelMorphU::UVS(uvs) = &self.morphs {
                         for uv in uvs {
-                            uv.save_to_buffer(
-                                buffer,
-                                parent_model.info.vertex_index_size as usize,
-                            )?;
+                            uv.save_to_buffer(buffer, info.vertex_index_size as usize)?;
                         }
                     }
                 }
                 ModelMorphType::Material => {
-                    if let ModelMorphU::MATERIALS(materials) = &self.u {
+                    if let ModelMorphU::MATERIALS(materials) = &self.morphs {
                         for material in materials {
-                            material.save_to_buffer(
-                                buffer,
-                                parent_model.info.material_index_size as usize,
-                            )?;
+                            material.save_to_buffer(buffer, info.material_index_size as usize)?;
                         }
                     }
                 }
                 ModelMorphType::Flip => {
-                    if let ModelMorphU::FLIPS(flips) = &self.u {
+                    if let ModelMorphU::FLIPS(flips) = &self.morphs {
                         for flip in flips {
-                            flip.save_to_buffer(
-                                buffer,
-                                parent_model.info.morph_index_size as usize,
-                            )?;
+                            flip.save_to_buffer(buffer, info.morph_index_size as usize)?;
                         }
                     }
                 }
                 ModelMorphType::Impulse => {
-                    if let ModelMorphU::IMPULSES(impulses) = &self.u {
+                    if let ModelMorphU::IMPULSES(impulses) = &self.morphs {
                         for impulse in impulses {
-                            impulse.save_to_buffer(
-                                buffer,
-                                parent_model.info.rigid_body_index_size as usize,
-                            )?;
+                            impulse.save_to_buffer(buffer, info.rigid_body_index_size as usize)?;
                         }
                     }
                 }
             }
         } else {
-            buffer.write_string(&self.name_ja, CodecType::Sjis)?;
-            buffer.write_i32_little_endian(self.u.len() as i32)?;
+            buffer.write_string(&self.name_ja, encoding_rs::SHIFT_JIS)?;
+            buffer.write_i32_little_endian(self.morphs.len() as i32)?;
             buffer.write_byte(self.category.into())?;
             match self.category {
                 ModelMorphCategory::Base => {
-                    if let ModelMorphU::VERTICES(vertices) = &self.u {
+                    if let ModelMorphU::VERTICES(vertices) = &self.morphs {
                         for vertex in vertices {
                             buffer.write_i32_little_endian(vertex.vertex_index)?;
                             buffer.write_f32_3_little_endian(vertex.position)?;
@@ -3111,7 +2652,7 @@ impl<T> ModelMorph<T> {
                     }
                 }
                 _ => {
-                    if let ModelMorphU::VERTICES(vertices) = &self.u {
+                    if let ModelMorphU::VERTICES(vertices) = &self.morphs {
                         for vertex in vertices {
                             buffer.write_i32_little_endian(vertex.relative_index)?;
                             buffer.write_f32_3_little_endian(vertex.position)?;
@@ -3131,12 +2672,8 @@ impl<T> ModelMorph<T> {
         }
     }
 
-    pub fn get_index(&self) -> i32 {
+    pub fn get_index(&self) -> usize {
         self.base.index
-    }
-
-    pub fn set_user_data(&mut self, user_data: &Rc<RefCell<T>>) {
-        self.base.user_data = Some(user_data.clone())
     }
 
     pub fn get_type(&self) -> ModelMorphType {
@@ -3148,15 +2685,21 @@ impl<T> ModelMorph<T> {
     }
 
     pub fn get_u(&self) -> &ModelMorphU {
-        &self.u
+        &self.morphs
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, Copy)]
 enum ModelLabelItemType {
     Unknown = -1,
     Bone,
     Morph,
+}
+
+impl Default for ModelLabelItemType {
+    fn default() -> Self {
+        Self::Unknown
+    }
 }
 
 impl From<u8> for ModelLabelItemType {
@@ -3179,225 +2722,102 @@ impl From<ModelLabelItemType> for u8 {
     }
 }
 
-/// TODO: need option really?
-enum ModelLabelItemU<BoneDataType, ConstraintDataType, MorphDataType> {
-    BONE(Weak<RefCell<ModelBone<BoneDataType, ConstraintDataType>>>),
-    MORPH(Weak<RefCell<ModelMorph<MorphDataType>>>),
-}
-
-impl<BoneDataType, ConstraintDataType, MorphDataType> Clone
-    for ModelLabelItemU<BoneDataType, ConstraintDataType, MorphDataType>
-{
-    fn clone(&self) -> Self {
-        match self {
-            Self::BONE(arg0) => Self::BONE(arg0.clone()),
-            Self::MORPH(arg0) => Self::MORPH(arg0.clone()),
-        }
-    }
-}
-
-pub struct ModelLabelItem<BoneDataType, ConstraintDataType, MorphDataType> {
-    base: ModelObject<()>,
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ModelLabelItem {
+    base: ModelObject,
     typ: ModelLabelItemType,
-    u: ModelLabelItemU<BoneDataType, ConstraintDataType, MorphDataType>,
+    item_idx: i32,
 }
 
-impl<BoneDataType, ConstraintDataType, MorphDataType> Clone
-    for ModelLabelItem<BoneDataType, ConstraintDataType, MorphDataType>
-{
-    fn clone(&self) -> Self {
-        Self {
-            base: self.base.clone(),
-            typ: self.typ.clone(),
-            u: self.u.clone(),
-        }
-    }
-}
-
-impl<BoneDataType, ConstraintDataType, MorphDataType>
-    ModelLabelItem<BoneDataType, ConstraintDataType, MorphDataType>
-{
-    pub fn create_from_bone_object(
-        bone: Rc<RefCell<ModelBone<BoneDataType, ConstraintDataType>>>,
-    ) -> Self {
+impl ModelLabelItem {
+    pub fn create_from_bone_object(bone: &ModelBone) -> Self {
         Self {
             base: ModelObject::default(),
             typ: ModelLabelItemType::Bone,
-            u: ModelLabelItemU::BONE(Rc::downgrade(&bone)),
+            item_idx: bone.base.index as i32,
         }
     }
 }
 
-pub struct ModelLabel<T, BoneDataType, ConstraintDataType, MorphDataType> {
-    base: ModelObject<T>,
+#[derive(Debug, Clone)]
+pub struct ModelLabel {
+    base: ModelObject,
     name_ja: String,
     name_en: String,
     is_special: bool,
-    items: Vec<ModelLabelItem<BoneDataType, ConstraintDataType, MorphDataType>>,
+    items: Vec<ModelLabelItem>,
 }
 
-impl<T, BoneDataType, ConstraintDataType, MorphDataType> Default
-    for ModelLabel<T, BoneDataType, ConstraintDataType, MorphDataType>
-{
-    fn default() -> Self {
-        Self {
-            base: Default::default(),
-            name_ja: Default::default(),
-            name_en: Default::default(),
-            is_special: Default::default(),
-            items: Default::default(),
-        }
-    }
-}
-
-impl<T, BoneDataType, ConstraintDataType, MorphDataType> Clone
-    for ModelLabel<T, BoneDataType, ConstraintDataType, MorphDataType>
-{
-    fn clone(&self) -> Self {
-        Self {
-            base: self.base.clone(),
-            name_ja: self.name_ja.clone(),
-            name_en: self.name_en.clone(),
-            is_special: self.is_special.clone(),
-            items: self.items.clone(),
-        }
-    }
-}
-
-impl<LabelDataType, BoneDataType, ConstraintDataType, MorphDataType>
-    ModelLabel<LabelDataType, BoneDataType, ConstraintDataType, MorphDataType>
-{
-    fn parse_pmx<
-        VertexDataType,
-        MaterialDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+impl ModelLabel {
+    fn parse_pmx(
         buffer: &mut Buffer,
-    ) -> Result<ModelLabel<LabelDataType, BoneDataType, ConstraintDataType, MorphDataType>, Status>
-    {
-        let bone_index_size = parent_model.info.bone_index_size as usize;
-        let morph_index_size = parent_model.info.morph_index_size as usize;
+        info: &ModelInfo,
+        index: usize,
+    ) -> Result<ModelLabel, Status> {
+        let codec_type = info.codec_type;
+        let bone_index_size = info.bone_index_size as usize;
+        let morph_index_size = info.morph_index_size as usize;
         let mut label = ModelLabel {
-            base: ModelObject {
-                index: -1,
-                user_data: None,
-            },
-            name_ja: parent_model.get_string_pmx(buffer)?,
-            name_en: parent_model.get_string_pmx(buffer)?,
+            base: ModelObject { index },
+            name_ja: codec_type.get_string(buffer)?,
+            name_en: codec_type.get_string(buffer)?,
             is_special: buffer.read_byte()? != 0,
             items: vec![],
         };
         let num_items = buffer.read_len()?;
-        for _ in 0..num_items {
+        for index in 0..num_items {
             let item_type = ModelLabelItemType::from(buffer.read_byte()?);
             match item_type {
-                ModelLabelItemType::Bone => {
-                    if let Some(bone) = parent_model
-                        .get_one_bone_object(buffer.read_integer_nullable(bone_index_size)?)
-                    {
-                        label.items.push(ModelLabelItem {
-                            base: ModelObject {
-                                index: -1,
-                                user_data: None,
-                            },
-                            typ: ModelLabelItemType::Bone,
-                            u: ModelLabelItemU::BONE(Rc::downgrade(bone)),
-                        })
-                    } else {
-                        return Err(Status::ErrorModelLabelItemNotFound);
-                    }
-                }
-                ModelLabelItemType::Morph => {
-                    if let Some(morph) = parent_model
-                        .get_one_morph_object(buffer.read_integer_nullable(morph_index_size)?)
-                    {
-                        label.items.push(ModelLabelItem {
-                            base: ModelObject {
-                                index: -1,
-                                user_data: None,
-                            },
-                            typ: ModelLabelItemType::Morph,
-                            u: ModelLabelItemU::MORPH(Rc::downgrade(morph)),
-                        })
-                    } else {
-                        return Err(Status::ErrorModelLabelItemNotFound);
-                    }
-                }
+                // TODO: need verify idx valid
+                ModelLabelItemType::Bone => label.items.push(ModelLabelItem {
+                    base: ModelObject { index },
+                    typ: ModelLabelItemType::Bone,
+                    item_idx: buffer.read_integer_nullable(bone_index_size)?,
+                }),
+                ModelLabelItemType::Morph => label.items.push(ModelLabelItem {
+                    base: ModelObject { index },
+                    typ: ModelLabelItemType::Morph,
+                    item_idx: buffer.read_integer_nullable(morph_index_size)?,
+                }),
                 ModelLabelItemType::Unknown => return Err(Status::ErrorModelLabelCorrupted),
             }
         }
         Ok(label)
     }
 
-    fn save_to_buffer<
-        VertexDataType,
-        MaterialDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
+    fn save_to_buffer(
         &self,
         buffer: &mut MutableBuffer,
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+        parent_model: &Model,
+        info: &ModelInfo,
     ) -> Result<(), Status> {
         if parent_model.is_pmx() {
-            let codec_type = parent_model.get_codec_type();
-            buffer.write_string(&self.name_ja, codec_type)?;
-            buffer.write_string(&self.name_en, codec_type)?;
+            let encoding = parent_model.get_codec_type().get_encoding();
+            buffer.write_string(&self.name_ja, encoding)?;
+            buffer.write_string(&self.name_en, encoding)?;
             buffer.write_byte(self.is_special as u8)?;
             buffer.write_i32_little_endian(self.items.len() as i32)?;
             for item in &self.items {
                 match item.typ {
                     ModelLabelItemType::Unknown => return Err(Status::ErrorModelLabelCorrupted),
                     ModelLabelItemType::Bone => {
-                        if let ModelLabelItemU::BONE(bone) = &item.u {
-                            if let Some(bone) = &bone.upgrade() {
-                                buffer.write_byte(ModelLabelItemType::Bone.into())?;
-                                buffer.write_integer(
-                                    bone.borrow().base.index,
-                                    parent_model.info.bone_index_size as usize,
-                                )?;
-                            } else {
-                                return Err(Status::ErrorModelLabelCorrupted);
-                            }
+                        if let Some(bone) = parent_model.get_one_bone_object(item.item_idx) {
+                            buffer.write_byte(ModelLabelItemType::Bone.into())?;
+                            buffer.write_integer(
+                                bone.base.index as i32,
+                                info.bone_index_size as usize,
+                            )?;
                         } else {
                             return Err(Status::ErrorModelLabelCorrupted);
                         }
                     }
                     ModelLabelItemType::Morph => {
-                        if let ModelLabelItemU::MORPH(morph) = &item.u {
-                            if let Some(morph) = &morph.upgrade() {
-                                buffer.write_byte(ModelLabelItemType::Morph.into())?;
-                                buffer.write_integer(
-                                    morph.borrow().base.index,
-                                    parent_model.info.morph_index_size as usize,
-                                )?;
-                            } else {
-                                return Err(Status::ErrorModelLabelCorrupted);
-                            }
+                        if let Some(morph) = parent_model.get_one_morph_object(item.item_idx) {
+                            buffer.write_byte(ModelLabelItemType::Morph.into())?;
+                            buffer.write_integer(
+                                morph.base.index as i32,
+                                info.morph_index_size as usize,
+                            )?;
                         } else {
                             return Err(Status::ErrorModelLabelCorrupted);
                         }
@@ -3416,7 +2836,7 @@ impl<LabelDataType, BoneDataType, ConstraintDataType, MorphDataType>
         }
     }
 
-    pub fn get_index(&self) -> i32 {
+    pub fn get_index(&self) -> usize {
         self.base.index
     }
 
@@ -3432,28 +2852,17 @@ impl<LabelDataType, BoneDataType, ConstraintDataType, MorphDataType>
         self.is_special = value;
     }
 
-    pub fn set_user_data(&mut self, user_data: &Rc<RefCell<LabelDataType>>) {
-        self.base.user_data = Some(user_data.clone())
-    }
-
-    /// Not consider Already Existing
-    pub fn insert_item_object(
-        &mut self,
-        item: &ModelLabelItem<BoneDataType, ConstraintDataType, MorphDataType>,
-        mut index: i32,
-    ) -> () {
+    pub fn insert_item_object(&mut self, mut item: ModelLabelItem, mut index: i32) -> () {
         if index >= 0 && (index as usize) < self.items.len() {
-            self.items.insert(index as usize, item.clone());
+            item.base.index = index as usize;
+            self.items.insert(index as usize, item);
             for item in &mut self.items[(index as usize) + 1..] {
                 item.base.index += 1;
             }
         } else {
-            index = self.items.len() as i32;
+            item.base.index = self.items.len();
             self.items.push(item.clone());
         }
-        self.items
-            .get_mut(index as usize)
-            .map(|item| item.base.index = index);
     }
 }
 
@@ -3517,59 +2926,39 @@ impl From<ModelRigidBodyTransformType> for u8 {
     }
 }
 
-pub struct ModelRigidBody<T> {
-    base: ModelObject<T>,
-    name_ja: String,
-    name_en: String,
-    bone_index: i32,
-    collision_group_id: i32,
-    collision_mask: i32,
-    shape_type: ModelRigidBodyShapeType,
-    size: F128,
-    origin: F128,
-    orientation: F128,
-    mass: f32,
-    linear_damping: f32,
-    angular_damping: f32,
-    restitution: f32,
-    friction: f32,
-    transform_type: ModelRigidBodyTransformType,
-    is_bone_relative: bool,
+#[derive(Debug, Clone)]
+pub struct ModelRigidBody {
+    pub base: ModelObject,
+    pub name_ja: String,
+    pub name_en: String,
+    pub bone_index: i32,
+    pub collision_group_id: i32,
+    pub collision_mask: i32,
+    pub shape_type: ModelRigidBodyShapeType,
+    pub size: F128,
+    pub origin: F128,
+    pub orientation: F128,
+    pub mass: f32,
+    pub linear_damping: f32,
+    pub angular_damping: f32,
+    pub restitution: f32,
+    pub friction: f32,
+    pub transform_type: ModelRigidBodyTransformType,
+    pub is_bone_relative: bool,
 }
 
-impl<T> ModelRigidBody<T> {
-    fn parse_pmx<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            T,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+impl ModelRigidBody {
+    fn parse_pmx(
         buffer: &mut Buffer,
-    ) -> Result<ModelRigidBody<T>, Status> {
+        info: &ModelInfo,
+        index: usize,
+    ) -> Result<ModelRigidBody, Status> {
         // TODO: not process Unknown for shpe_type and transform_type
         let mut rigid_body = ModelRigidBody {
-            base: ModelObject {
-                index: -1,
-                user_data: None,
-            },
-            name_ja: parent_model.get_string_pmx(buffer)?,
-            name_en: parent_model.get_string_pmx(buffer)?,
-            bone_index: buffer.read_integer_nullable(parent_model.info.bone_index_size as usize)?,
+            base: ModelObject { index },
+            name_ja: info.codec_type.get_string(buffer)?,
+            name_en: info.codec_type.get_string(buffer)?,
+            bone_index: buffer.read_integer_nullable(info.bone_index_size as usize)?,
             collision_group_id: buffer.read_byte()? as i32,
             collision_mask: buffer.read_i16_little_endian()? as i32,
             shape_type: buffer.read_byte()?.into(),
@@ -3587,37 +2976,19 @@ impl<T> ModelRigidBody<T> {
         Ok(rigid_body)
     }
 
-    fn save_to_buffer<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
+    fn save_to_buffer(
         &self,
         buffer: &mut MutableBuffer,
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            T,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+        is_pmx: bool,
+        info: &ModelInfo,
     ) -> Result<(), Status> {
-        if parent_model.is_pmx() {
-            let codec_type = parent_model.get_codec_type();
-            buffer.write_string(&self.name_ja, codec_type)?;
-            buffer.write_string(&self.name_en, codec_type)?;
-            buffer.write_integer(self.bone_index, parent_model.info.bone_index_size as usize)?;
+        if is_pmx {
+            let encoding = info.codec_type.get_encoding();
+            buffer.write_string(&self.name_ja, encoding)?;
+            buffer.write_string(&self.name_en, encoding)?;
+            buffer.write_integer(self.bone_index, info.bone_index_size as usize)?;
         } else {
-            buffer.write_string(&self.name_ja, CodecType::Sjis)?;
+            buffer.write_string(&self.name_ja, encoding_rs::SHIFT_JIS)?;
             buffer.write_i16_little_endian(self.bone_index as i16)?;
         }
         buffer.write_byte(self.collision_group_id as u8)?;
@@ -3643,16 +3014,12 @@ impl<T> ModelRigidBody<T> {
         }
     }
 
-    pub fn get_index(&self) -> i32 {
+    pub fn get_index(&self) -> usize {
         self.base.index
     }
 
     pub fn get_bone_index(&self) -> i32 {
         self.bone_index
-    }
-
-    pub fn set_user_data(&mut self, user_data: &Rc<RefCell<T>>) {
-        self.base.user_data = Some(user_data.clone());
     }
 
     pub fn get_transform_type(&self) -> ModelRigidBodyTransformType {
@@ -3699,55 +3066,35 @@ impl From<ModelJointType> for u8 {
     }
 }
 
-pub struct ModelJoint<T> {
-    base: ModelObject<T>,
-    name_ja: String,
-    name_en: String,
-    rigid_body_a_index: i32,
-    rigid_body_b_index: i32,
-    typ: ModelJointType,
-    origin: F128,
-    orientation: F128,
-    linear_lower_limit: F128,
-    linear_upper_limit: F128,
-    angular_lower_limit: F128,
-    angular_upper_limit: F128,
-    linear_stiffness: F128,
-    angular_stiffness: F128,
+#[derive(Debug, Clone)]
+pub struct ModelJoint {
+    pub base: ModelObject,
+    pub name_ja: String,
+    pub name_en: String,
+    pub rigid_body_a_index: i32,
+    pub rigid_body_b_index: i32,
+    pub typ: ModelJointType,
+    pub origin: F128,
+    pub orientation: F128,
+    pub linear_lower_limit: F128,
+    pub linear_upper_limit: F128,
+    pub angular_lower_limit: F128,
+    pub angular_upper_limit: F128,
+    pub linear_stiffness: F128,
+    pub angular_stiffness: F128,
 }
 
-impl<T> ModelJoint<T> {
-    fn parse_pmx<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        SoftBodyDataType,
-    >(
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            T,
-            SoftBodyDataType,
-        >,
+impl ModelJoint {
+    fn parse_pmx(
         buffer: &mut Buffer,
-    ) -> Result<ModelJoint<T>, Status> {
-        let rigid_body_index_size = parent_model.info.rigid_body_index_size as usize;
+        info: &ModelInfo,
+        index: usize,
+    ) -> Result<ModelJoint, Status> {
+        let rigid_body_index_size = info.rigid_body_index_size as usize;
         let mut joint = ModelJoint {
-            base: ModelObject {
-                index: -1,
-                user_data: None,
-            },
-            name_ja: parent_model.get_string_pmx(buffer)?,
-            name_en: parent_model.get_string_pmx(buffer)?,
+            base: ModelObject { index },
+            name_ja: info.codec_type.get_string(buffer)?,
+            name_en: info.codec_type.get_string(buffer)?,
             typ: buffer.read_byte()?.into(),
             rigid_body_a_index: buffer.read_integer_nullable(rigid_body_index_size)?,
             rigid_body_b_index: buffer.read_integer_nullable(rigid_body_index_size)?,
@@ -3763,40 +3110,22 @@ impl<T> ModelJoint<T> {
         Ok(joint)
     }
 
-    fn save_to_buffer<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        SoftBodyDataType,
-    >(
+    fn save_to_buffer(
         &self,
         buffer: &mut MutableBuffer,
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            T,
-            SoftBodyDataType,
-        >,
+        is_pmx: bool,
+        info: &ModelInfo,
     ) -> Result<(), Status> {
-        if parent_model.is_pmx() {
-            let codec_type = parent_model.get_codec_type();
-            let size = parent_model.info.rigid_body_index_size as usize;
-            buffer.write_string(&self.name_ja, codec_type)?;
-            buffer.write_string(&self.name_en, codec_type)?;
+        if is_pmx {
+            let encoding = info.codec_type.get_encoding();
+            let size = info.rigid_body_index_size as usize;
+            buffer.write_string(&self.name_ja, encoding)?;
+            buffer.write_string(&self.name_en, encoding)?;
             buffer.write_byte(self.typ.into())?;
             buffer.write_integer(self.rigid_body_a_index, size)?;
             buffer.write_integer(self.rigid_body_b_index, size)?;
         } else {
-            buffer.write_string(&self.name_ja, CodecType::Sjis)?;
+            buffer.write_string(&self.name_ja, encoding_rs::SHIFT_JIS)?;
             buffer.write_i32_little_endian(self.rigid_body_a_index)?;
             buffer.write_i32_little_endian(self.rigid_body_b_index)?;
         }
@@ -3819,12 +3148,8 @@ impl<T> ModelJoint<T> {
         }
     }
 
-    pub fn get_index(&self) -> i32 {
+    pub fn get_index(&self) -> usize {
         self.base.index
-    }
-
-    pub fn set_user_data(&mut self, user_data: &Rc<RefCell<T>>) {
-        self.base.user_data = Some(user_data.clone());
     }
 }
 
@@ -3891,90 +3216,71 @@ impl From<ModelSoftBodyAeroModelType> for i32 {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct ModelSoftBodyAnchor {
-    base: ModelObject<()>,
-    rigid_body_index: i32,
-    vertex_index: i32,
-    is_near_enabled: bool,
+    pub base: ModelObject,
+    pub rigid_body_index: i32,
+    pub vertex_index: i32,
+    pub is_near_enabled: bool,
 }
 
-pub struct ModelSoftBody<T> {
-    base: ModelObject<T>,
-    name_ja: String,
-    name_en: String,
-    shape_type: ModelSoftBodyShapeType,
-    material_index: i32,
-    collision_group_id: u8,
-    collision_mask: u16,
-    flags: u8,
-    bending_constraints_distance: i32,
-    cluster_count: i32,
-    total_mass: f32,
-    collision_margin: f32,
-    aero_model: ModelSoftBodyAeroModelType,
-    velocity_correction_factor: f32,
-    damping_coefficient: f32,
-    drag_coefficient: f32,
-    lift_coefficient: f32,
-    pressure_coefficient: f32,
-    volume_conversation_coefficient: f32,
-    dynamic_friction_coefficient: f32,
-    pose_matching_coefficient: f32,
-    rigid_contact_hardness: f32,
-    kinetic_contact_hardness: f32,
-    soft_contact_hardness: f32,
-    anchor_hardness: f32,
-    soft_vs_rigid_hardness: f32,
-    soft_vs_kinetic_hardness: f32,
-    soft_vs_soft_hardness: f32,
-    soft_vs_rigid_impulse_split: f32,
-    soft_vs_kinetic_impulse_split: f32,
-    soft_vs_soft_impulse_split: f32,
-    velocity_solver_iterations: i32,
-    positions_solver_iterations: i32,
-    drift_solver_iterations: i32,
-    cluster_solver_iterations: i32,
-    linear_stiffness_coefficient: f32,
-    angular_stiffness_coefficient: f32,
-    volume_stiffness_coefficient: f32,
-    anchors: Vec<ModelSoftBodyAnchor>,
-    pinned_vertex_indices: Vec<u32>,
+#[derive(Debug, Clone)]
+pub struct ModelSoftBody {
+    pub base: ModelObject,
+    pub name_ja: String,
+    pub name_en: String,
+    pub shape_type: ModelSoftBodyShapeType,
+    pub material_index: i32,
+    pub collision_group_id: u8,
+    pub collision_mask: u16,
+    pub flags: u8,
+    pub bending_constraints_distance: i32,
+    pub cluster_count: i32,
+    pub total_mass: f32,
+    pub collision_margin: f32,
+    pub aero_model: ModelSoftBodyAeroModelType,
+    pub velocity_correction_factor: f32,
+    pub damping_coefficient: f32,
+    pub drag_coefficient: f32,
+    pub lift_coefficient: f32,
+    pub pressure_coefficient: f32,
+    pub volume_conversation_coefficient: f32,
+    pub dynamic_friction_coefficient: f32,
+    pub pose_matching_coefficient: f32,
+    pub rigid_contact_hardness: f32,
+    pub kinetic_contact_hardness: f32,
+    pub soft_contact_hardness: f32,
+    pub anchor_hardness: f32,
+    pub soft_vs_rigid_hardness: f32,
+    pub soft_vs_kinetic_hardness: f32,
+    pub soft_vs_soft_hardness: f32,
+    pub soft_vs_rigid_impulse_split: f32,
+    pub soft_vs_kinetic_impulse_split: f32,
+    pub soft_vs_soft_impulse_split: f32,
+    pub velocity_solver_iterations: i32,
+    pub positions_solver_iterations: i32,
+    pub drift_solver_iterations: i32,
+    pub cluster_solver_iterations: i32,
+    pub linear_stiffness_coefficient: f32,
+    pub angular_stiffness_coefficient: f32,
+    pub volume_stiffness_coefficient: f32,
+    pub anchors: Vec<ModelSoftBodyAnchor>,
+    pub pinned_vertex_indices: Vec<u32>,
 }
 
-impl<T> ModelSoftBody<T> {
-    fn parse_pmx<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-    >(
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            T,
-        >,
+impl ModelSoftBody {
+    fn parse_pmx(
         buffer: &mut Buffer,
-    ) -> Result<ModelSoftBody<T>, Status> {
-        let material_index_size = parent_model.info.material_index_size as usize;
-        let rigid_body_index_size = parent_model.info.rigid_body_index_size as usize;
-        let vertex_index_size = parent_model.info.vertex_index_size as usize;
+        info: &ModelInfo,
+        index: usize,
+    ) -> Result<ModelSoftBody, Status> {
+        let material_index_size = info.material_index_size as usize;
+        let rigid_body_index_size = info.rigid_body_index_size as usize;
+        let vertex_index_size = info.vertex_index_size as usize;
         let mut soft_body = ModelSoftBody {
-            base: ModelObject {
-                index: -1,
-                user_data: None,
-            },
-            name_ja: parent_model.get_string_pmx(buffer)?,
-            name_en: parent_model.get_string_pmx(buffer)?,
+            base: ModelObject { index },
+            name_ja: info.codec_type.get_string(buffer)?,
+            name_en: info.codec_type.get_string(buffer)?,
             shape_type: buffer.read_byte()?.into(),
             material_index: buffer.read_integer_nullable(material_index_size)?,
             collision_group_id: buffer.read_byte()?,
@@ -4014,12 +3320,9 @@ impl<T> ModelSoftBody<T> {
             pinned_vertex_indices: vec![],
         };
         let num_anchors = buffer.read_len()?;
-        for _ in 0..num_anchors {
+        for index in 0..num_anchors {
             soft_body.anchors.push(ModelSoftBodyAnchor {
-                base: ModelObject {
-                    index: -1,
-                    user_data: None,
-                },
+                base: ModelObject { index },
                 rigid_body_index: buffer.read_integer_nullable(rigid_body_index_size)?,
                 vertex_index: buffer.read_integer_nullable(vertex_index_size)?,
                 is_near_enabled: buffer.read_byte()? != 0,
@@ -4034,36 +3337,18 @@ impl<T> ModelSoftBody<T> {
         Ok(soft_body)
     }
 
-    fn save_to_buffer<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-    >(
+    fn save_to_buffer(
         &self,
         buffer: &mut MutableBuffer,
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            T,
-        >,
+        is_pmx: bool,
+        info: &ModelInfo,
     ) -> Result<(), Status> {
-        let material_index_size = parent_model.info.material_index_size as usize;
-        let rigid_body_index_size = parent_model.info.rigid_body_index_size as usize;
-        let vertex_index_size = parent_model.info.vertex_index_size as usize;
-        let codec_type = parent_model.get_codec_type();
-        buffer.write_string(&self.name_ja, codec_type)?;
-        buffer.write_string(&self.name_en, codec_type)?;
+        let material_index_size = info.material_index_size as usize;
+        let rigid_body_index_size = info.rigid_body_index_size as usize;
+        let vertex_index_size = info.vertex_index_size as usize;
+        let encoding = info.codec_type.get_encoding();
+        buffer.write_string(&self.name_ja, encoding)?;
+        buffer.write_string(&self.name_en, encoding)?;
         buffer.write_byte(self.shape_type.into())?;
         buffer.write_integer(self.material_index, material_index_size)?;
         buffer.write_byte(self.collision_group_id as u8)?;
@@ -4119,82 +3404,29 @@ impl<T> ModelSoftBody<T> {
             LanguageType::English => &self.name_en,
         }
     }
-
-    pub fn get_index(&self) -> i32 {
-        self.base.index
-    }
-
-    pub fn set_user_data(&mut self, user_data: &Rc<RefCell<T>>) {
-        self.base.user_data = Some(user_data.clone())
-    }
 }
 
+#[derive(Debug, Clone)]
 pub struct ModelTexture {
-    base: ModelObject<()>,
-    path: String,
+    pub base: ModelObject,
+    pub path: String,
 }
 
 impl ModelTexture {
-    pub fn parse_pmx<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
+    pub fn parse_pmx(
         buffer: &mut Buffer,
+        info: &ModelInfo,
+        index: usize,
     ) -> Result<ModelTexture, Status> {
         Ok(ModelTexture {
-            base: ModelObject {
-                index: -1,
-                user_data: None,
-            },
-            path: parent_model.get_string_pmx(buffer)?,
+            base: ModelObject { index },
+            path: info.codec_type.get_string(buffer)?,
         })
     }
 
-    fn save_to_buffer<
-        VertexDataType,
-        MaterialDataType,
-        BoneDataType,
-        ConstraintDataType,
-        MorphDataType,
-        LabelDataType,
-        RigidBodyDataType,
-        JointDataType,
-        SoftBodyDataType,
-    >(
-        &self,
-        buffer: &mut MutableBuffer,
-        parent_model: &Model<
-            VertexDataType,
-            MaterialDataType,
-            BoneDataType,
-            ConstraintDataType,
-            MorphDataType,
-            LabelDataType,
-            RigidBodyDataType,
-            JointDataType,
-            SoftBodyDataType,
-        >,
-    ) -> Result<(), Status> {
-        let codec_type = parent_model.get_codec_type();
-        buffer.write_string(&self.path, codec_type)
+    fn save_to_buffer(&self, buffer: &mut MutableBuffer, info: &ModelInfo) -> Result<(), Status> {
+        let encoding = info.codec_type.get_encoding();
+        buffer.write_string(&self.path, encoding)
     }
 
     pub fn get_path(&self) -> &str {
@@ -4204,42 +3436,36 @@ impl ModelTexture {
 
 #[test]
 fn test_read_pmx_resource() -> Result<(), Box<dyn std::error::Error + 'static>> {
-    let mut model: Model<(), (), (), (), (), (), (), (), ()> = Model {
-        version: 0f32,
-        info_length: 0,
-        info: Info {
-            codec_type: 0,
-            additional_uv_size: 0,
-            vertex_index_size: 0,
-            texture_index_size: 0,
-            material_index_size: 0,
-            bone_index_size: 0,
-            morph_index_size: 0,
-            rigid_body_index_size: 0,
-        },
-        name_ja: String::default(),
-        name_en: String::default(),
-        comment_ja: String::default(),
-        comment_en: String::default(),
-        vertices: vec![],
-        vertex_indices: vec![],
-        materials: vec![],
-        bones: vec![],
-        ordered_bones: vec![],
-        constraints: vec![],
-        textures: vec![],
-        morphs: vec![],
-        labels: vec![],
-        rigid_bodies: vec![],
-        joints: vec![],
-        soft_bodies: vec![],
-        user_data: None,
-    };
-
     let model_data = std::fs::read("test/example/Alicia/MMD/Alicia_solid.pmx")?;
     let mut buffer = Buffer::create(&model_data);
-    match model.load_from_buffer(&mut buffer) {
+    match Model::load_from_buffer(&mut buffer) {
         Ok(_) => println!("Parse PMX Success"),
+        Err(e) => println!("Parse PMX with {:?}", &e),
+    }
+    Ok(())
+}
+
+#[test]
+fn test_save_pmx_resource() -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let model_data = std::fs::read("test/example/Alicia/MMD/Alicia_solid.pmx")?;
+    let mut buffer = Buffer::create(&model_data);
+    match Model::load_from_buffer(&mut buffer) {
+        Ok(model) => {
+            let mut mutable_buffer = MutableBuffer::create().unwrap();
+            match model.save_to_buffer(&mut mutable_buffer) {
+                Ok(()) => {
+                    if let Ok(mut buffer) = mutable_buffer.create_buffer_object() {
+                        match Model::load_from_buffer(&mut buffer) {
+                            Ok(model) => {
+                                println!("Parse Recomposed PMX successfully");
+                            }
+                            Err(e) => println!("Parse Recomposed PMX with {:?}", &e),
+                        }
+                    }
+                }
+                Err(e) => println!("Save PMX with {:?}", &e),
+            }
+        }
         Err(e) => println!("Parse PMX with {:?}", &e),
     }
     Ok(())
