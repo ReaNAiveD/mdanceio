@@ -2,8 +2,8 @@ use std::{cell::RefCell, collections::HashMap, iter, mem, ops::Deref, rc::Rc};
 
 use bytemuck::Zeroable;
 use cgmath::{Matrix4, Vector4};
-use nanoem::model::ModelMaterialSphereMapTextureType;
 use wgpu::util::DeviceExt;
+use crate::model::Material;
 
 use crate::{
     camera::Camera,
@@ -117,12 +117,10 @@ impl CommonPass {
 
     pub fn set_material_parameters(
         &mut self,
-        nanoem_material: &NanoemMaterial,
+        material: &Material,
         technique_type: TechniqueType,
         fallback: &wgpu::Texture,
     ) {
-        if let Some(material) = nanoem_material.get_user_data() {
-            let material = material.borrow();
             let color = material.color();
             self.uniform_buffer.material_ambient = color.ambient.extend(1.0f32).into();
             self.uniform_buffer.material_diffuse = color
@@ -137,22 +135,22 @@ impl CommonPass {
                 color.sphere_texture_blend_factor.into();
             self.uniform_buffer.toon_texture_blend_factor = color.toon_texture_blend_factor.into();
             let texture_type = if material.sphere_map_image().is_some() {
-                nanoem_material.get_spheremap_texture_type()
+                material.spheremap_texture_type()
             } else {
-                ModelMaterialSphereMapTextureType::TypeNone
+                nanoem::model::ModelMaterialSphereMapTextureType::TypeNone
             };
             let sphere_texture_type = [
-                if texture_type == ModelMaterialSphereMapTextureType::TypeMultiply {
+                if texture_type == nanoem::model::ModelMaterialSphereMapTextureType::TypeMultiply {
                     1.0f32
                 } else {
                     0.0f32
                 },
-                if texture_type == ModelMaterialSphereMapTextureType::TypeSubTexture {
+                if texture_type == nanoem::model::ModelMaterialSphereMapTextureType::TypeSubTexture {
                     1.0f32
                 } else {
                     0.0f32
                 },
-                if texture_type == ModelMaterialSphereMapTextureType::TypeAdd {
+                if texture_type == nanoem::model::ModelMaterialSphereMapTextureType::TypeAdd {
                     1.0f32
                 } else {
                     0.0f32
@@ -160,7 +158,7 @@ impl CommonPass {
                 0f32,
             ];
             self.uniform_buffer.sphere_texture_type = sphere_texture_type;
-            let enable_vertex_color = if nanoem_material.is_vertex_color_enabled() {
+            let enable_vertex_color = if material.is_vertex_color_enabled() {
                 1.0f32
             } else {
                 0.0f32
@@ -199,16 +197,16 @@ impl CommonPass {
             } else {
                 0.0f32
             };
-            if nanoem_material.is_line_draw_enabled() {
+            if material.is_line_draw_enabled() {
                 self.primitive_type = wgpu::PrimitiveTopology::LineList;
-            } else if nanoem_material.is_point_draw_enabled() {
+            } else if material.is_point_draw_enabled() {
                 self.primitive_type = wgpu::PrimitiveTopology::PointList;
             } else {
                 self.primitive_type = wgpu::PrimitiveTopology::TriangleList;
             }
             self.cull_mode = match technique_type {
                 TechniqueType::Color | TechniqueType::Zplot => {
-                    if nanoem_material.is_culling_disabled() {
+                    if material.is_culling_disabled() {
                         None
                     } else {
                         Some(wgpu::Face::Back)
@@ -217,17 +215,16 @@ impl CommonPass {
                 TechniqueType::Edge => Some(wgpu::Face::Front),
                 TechniqueType::GroundShadow => None,
             }
-        }
+        
     }
 
     pub fn set_edge_parameters(
         &mut self,
-        nanoem_material: &NanoemMaterial,
+        material: &Material,
         edge_size: f32,
         fallback: &wgpu::Texture,
     ) {
-        if let Some(material) = nanoem_material.get_user_data() {
-            let material = material.borrow();
+            let material = material;
             let edge = material.edge();
             let edge_color = edge.color.extend(edge.opacity);
             self.uniform_buffer.light_color = edge_color.into();
@@ -237,7 +234,6 @@ impl CommonPass {
                 TextureSamplerStage::ShadowMapTextureSamplerStage0,
                 fallback.create_view(&wgpu::TextureViewDescriptor::default()),
             );
-        }
     }
 
     pub fn set_ground_shadow_parameters(

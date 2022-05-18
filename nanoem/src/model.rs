@@ -733,19 +733,25 @@ impl Model {
         }
     }
 
-    pub fn insert_bone(&mut self, mut bone: ModelBone, mut index: i32) -> Result<(), Status> {
+    pub fn insert_bone<'a, 'b: 'a>(
+        &'b mut self,
+        mut bone: ModelBone,
+        index: i32,
+    ) -> Result<&'a ModelBone, Status> {
+        let mut result_idx = 0usize;
         if index >= 0 && (index as usize) < self.bones.len() {
-            bone.base.index = index as usize;
-            self.bones.insert(index as usize, bone);
+            result_idx = index as usize;
+            bone.base.index = result_idx;
+            self.bones.insert(result_idx, bone);
             for bone in &mut self.bones[(index as usize) + 1..] {
                 bone.base.index += 1;
             }
         } else {
-            index = self.bones.len() as i32;
-            bone.base.index = index as usize;
+            result_idx = self.bones.len();
+            bone.base.index = result_idx;
             self.bones.push(bone);
         }
-        Ok(())
+        Ok(self.bones.get(result_idx).unwrap())
     }
 
     pub fn insert_label(&mut self, mut label: ModelLabel, mut index: i32) {
@@ -1001,7 +1007,7 @@ impl Model {
 
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct ModelObject {
-    index: usize,
+    pub index: usize,
 }
 
 impl Default for ModelObject {
@@ -1052,7 +1058,7 @@ impl Default for ModelVertexType {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModelVertex {
     pub base: ModelObject,
     pub origin: F128,
@@ -1250,14 +1256,14 @@ impl ModelVertex {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ModelMaterialFlags {
-    is_culling_disabled: bool,
-    is_casting_shadow_enabled: bool,
-    is_casting_shadow_map_enabled: bool,
-    is_shadow_map_enabled: bool,
-    is_edge_enabled: bool,
-    is_vertex_color_enabled: bool,
-    is_point_draw_enabled: bool,
-    is_line_draw_enabled: bool,
+    pub is_culling_disabled: bool,
+    pub is_casting_shadow_enabled: bool,
+    pub is_casting_shadow_map_enabled: bool,
+    pub is_shadow_map_enabled: bool,
+    pub is_edge_enabled: bool,
+    pub is_vertex_color_enabled: bool,
+    pub is_point_draw_enabled: bool,
+    pub is_line_draw_enabled: bool,
 }
 
 impl ModelMaterialFlags {
@@ -1327,12 +1333,13 @@ impl From<ModelMaterialSphereMapTextureType> for u8 {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum TextureResult<'a> {
     Texture(&'a ModelTexture),
     Index(i32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModelMaterial {
     pub base: ModelObject,
     pub name_ja: String,
@@ -1540,7 +1547,7 @@ impl ModelMaterial {
         self.sphere_map_texture_type
     }
 
-    pub fn get_diffuse_texture_object(&self) -> TextureResult {
+    pub fn get_diffuse_texture_result(&self) -> TextureResult {
         let diffuse_texture_index = self.diffuse_texture_index;
         if diffuse_texture_index > -1 {
             TextureResult::Index(diffuse_texture_index)
@@ -1553,7 +1560,22 @@ impl ModelMaterial {
         }
     }
 
-    pub fn get_sphere_map_texture_object(&self) -> TextureResult {
+    pub fn get_diffuse_texture_object<'a, 'b: 'a, 'c: 'a>(&'c self, texture_lut: &'b Vec<ModelTexture>) -> Option<&'a ModelTexture> {
+        match self.get_diffuse_texture_result() {
+            TextureResult::Texture(texture) => {
+                Some(texture)
+            },
+            TextureResult::Index(idx) => {
+                if idx < 0 {
+                    None
+                } else {
+                    texture_lut.get(idx as usize)
+                }
+            }
+        }
+    }
+
+    pub fn get_sphere_map_texture_result(&self) -> TextureResult {
         let sphere_map_texture_index = self.sphere_map_texture_index;
         if sphere_map_texture_index > -1 {
             TextureResult::Index(sphere_map_texture_index)
@@ -1568,8 +1590,38 @@ impl ModelMaterial {
         }
     }
 
-    pub fn get_toon_texture_object(&self) -> TextureResult {
+    pub fn get_sphere_map_texture_object<'a, 'b: 'a, 'c: 'a>(&'c self, texture_lut: &'b Vec<ModelTexture>) -> Option<&'a ModelTexture> {
+        match self.get_sphere_map_texture_result() {
+            TextureResult::Texture(texture) => {
+                Some(texture)
+            },
+            TextureResult::Index(idx) => {
+                if idx < 0 {
+                    None
+                } else {
+                    texture_lut.get(idx as usize)
+                }
+            }
+        }
+    }
+
+    pub fn get_toon_texture_result(&self) -> TextureResult {
         TextureResult::Index(self.toon_texture_index)
+    }
+
+    pub fn get_toon_texture_object<'a, 'b: 'a, 'c: 'a>(&'c self, texture_lut: &'b Vec<ModelTexture>) -> Option<&'a ModelTexture> {
+        match self.get_toon_texture_result() {
+            TextureResult::Texture(texture) => {
+                Some(texture)
+            },
+            TextureResult::Index(idx) => {
+                if idx < 0 {
+                    None
+                } else {
+                    texture_lut.get(idx as usize)
+                }
+            }
+        }
     }
 }
 
@@ -1673,7 +1725,7 @@ fn test_model_bone_flags_from_value() {
     assert_eq!(false, f.has_inherent_translation);
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModelBone {
     pub base: ModelObject,
     pub name_ja: String,
@@ -1929,7 +1981,7 @@ impl ModelBone {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModelConstraintJoint {
     pub base: ModelObject,
     pub bone_index: i32,
@@ -1968,7 +2020,7 @@ impl ModelConstraintJoint {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModelConstraint {
     pub base: ModelObject,
     pub effector_bone_index: i32,
@@ -2741,11 +2793,11 @@ impl ModelLabelItem {
 
 #[derive(Debug, Clone)]
 pub struct ModelLabel {
-    base: ModelObject,
-    name_ja: String,
-    name_en: String,
-    is_special: bool,
-    items: Vec<ModelLabelItem>,
+    pub base: ModelObject,
+    pub name_ja: String,
+    pub name_en: String,
+    pub is_special: bool,
+    pub items: Vec<ModelLabelItem>,
 }
 
 impl ModelLabel {
