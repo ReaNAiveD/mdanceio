@@ -1,9 +1,9 @@
 use std::{cell::RefCell, collections::HashMap, iter, mem, ops::Deref, rc::Rc};
 
+use crate::model::Material;
 use bytemuck::Zeroable;
 use cgmath::{Matrix4, Vector4};
 use wgpu::util::DeviceExt;
-use crate::model::Material;
 
 use crate::{
     camera::Camera,
@@ -66,25 +66,124 @@ pub enum TextureSamplerStage {
     ToonTextureSamplerStage,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct CommonPassCacheKey {
+    cull_mode: Option<wgpu::Face>,
+    primitive_type: wgpu::PrimitiveTopology,
+    is_add_blend: bool,
+    is_depth_enabled: bool,
+    is_offscreen_render_pass_active: bool,
+}
+
 pub struct CommonPass {
     // TODO: uncompleted
+    shader: wgpu::ShaderModule,
     uniform_buffer: ModelParametersUniform,
-    pipelines: HashMap<u32, wgpu::RenderPipeline>,
     bindings: HashMap<TextureSamplerStage, wgpu::TextureView>,
     cull_mode: Option<wgpu::Face>,
     primitive_type: wgpu::PrimitiveTopology,
     opacity: f32,
+    pipeline_cache: RefCell<HashMap<CommonPassCacheKey, wgpu::RenderPipeline>>,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
+    uniform_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl CommonPass {
-    pub fn new() -> Self {
+    pub fn new(device: &wgpu::Device, shader: wgpu::ShaderModule) -> Self {
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("ModelProgramBundle/BindGroupLayout/Texture"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 6,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 7,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("ModelProgramBundle/BindGroupLayout/Uniform"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
         Self {
+            shader,
             uniform_buffer: ModelParametersUniform::zeroed(),
-            pipelines: HashMap::new(),
             bindings: HashMap::new(),
             cull_mode: None,
             primitive_type: wgpu::PrimitiveTopology::TriangleList,
             opacity: 1.0f32,
+            pipeline_cache: RefCell::new(HashMap::new()),
+            texture_bind_group_layout,
+            uniform_bind_group_layout,
         }
     }
 }
@@ -121,101 +220,98 @@ impl CommonPass {
         technique_type: TechniqueType,
         fallback: &wgpu::Texture,
     ) {
-            let color = material.color();
-            self.uniform_buffer.material_ambient = color.ambient.extend(1.0f32).into();
-            self.uniform_buffer.material_diffuse = color
-                .diffuse
-                .extend(color.diffuse_opacity * self.opacity)
-                .into();
-            self.uniform_buffer.material_specular =
-                color.specular.extend(color.specular_power).into();
-            self.uniform_buffer.diffuse_texture_blend_factor =
-                color.diffuse_texture_blend_factor.into();
-            self.uniform_buffer.sphere_texture_blend_factor =
-                color.sphere_texture_blend_factor.into();
-            self.uniform_buffer.toon_texture_blend_factor = color.toon_texture_blend_factor.into();
-            let texture_type = if material.sphere_map_image().is_some() {
-                material.spheremap_texture_type()
-            } else {
-                nanoem::model::ModelMaterialSphereMapTextureType::TypeNone
-            };
-            let sphere_texture_type = [
-                if texture_type == nanoem::model::ModelMaterialSphereMapTextureType::TypeMultiply {
-                    1.0f32
-                } else {
-                    0.0f32
-                },
-                if texture_type == nanoem::model::ModelMaterialSphereMapTextureType::TypeSubTexture {
-                    1.0f32
-                } else {
-                    0.0f32
-                },
-                if texture_type == nanoem::model::ModelMaterialSphereMapTextureType::TypeAdd {
-                    1.0f32
-                } else {
-                    0.0f32
-                },
-                0f32,
-            ];
-            self.uniform_buffer.sphere_texture_type = sphere_texture_type;
-            let enable_vertex_color = if material.is_vertex_color_enabled() {
-                1.0f32
-            } else {
-                0.0f32
-            };
-            self.uniform_buffer.enable_vertex_color = Vector4::new(
-                enable_vertex_color,
-                enable_vertex_color,
-                enable_vertex_color,
-                enable_vertex_color,
-            )
+        let color = material.color();
+        self.uniform_buffer.material_ambient = color.ambient.extend(1.0f32).into();
+        self.uniform_buffer.material_diffuse = color
+            .diffuse
+            .extend(color.diffuse_opacity * self.opacity)
             .into();
-            self.uniform_buffer.use_texture_sampler[0] = if self.set_image(
-                material.diffuse_image(),
-                TextureSamplerStage::DiffuseTextureSamplerStage,
-                fallback,
-            ) {
+        self.uniform_buffer.material_specular = color.specular.extend(color.specular_power).into();
+        self.uniform_buffer.diffuse_texture_blend_factor =
+            color.diffuse_texture_blend_factor.into();
+        self.uniform_buffer.sphere_texture_blend_factor = color.sphere_texture_blend_factor.into();
+        self.uniform_buffer.toon_texture_blend_factor = color.toon_texture_blend_factor.into();
+        let texture_type = if material.sphere_map_image().is_some() {
+            material.spheremap_texture_type()
+        } else {
+            nanoem::model::ModelMaterialSphereMapTextureType::TypeNone
+        };
+        let sphere_texture_type = [
+            if texture_type == nanoem::model::ModelMaterialSphereMapTextureType::TypeMultiply {
                 1.0f32
             } else {
                 0.0f32
-            };
-            self.uniform_buffer.use_texture_sampler[1] = if self.set_image(
-                material.sphere_map_image(),
-                TextureSamplerStage::SphereTextureSamplerStage,
-                fallback,
-            ) {
+            },
+            if texture_type == nanoem::model::ModelMaterialSphereMapTextureType::TypeSubTexture {
                 1.0f32
             } else {
                 0.0f32
-            };
-            self.uniform_buffer.use_texture_sampler[2] = if self.set_image(
-                material.toon_image(),
-                TextureSamplerStage::ToonTextureSamplerStage,
-                fallback,
-            ) {
+            },
+            if texture_type == nanoem::model::ModelMaterialSphereMapTextureType::TypeAdd {
                 1.0f32
             } else {
                 0.0f32
-            };
-            if material.is_line_draw_enabled() {
-                self.primitive_type = wgpu::PrimitiveTopology::LineList;
-            } else if material.is_point_draw_enabled() {
-                self.primitive_type = wgpu::PrimitiveTopology::PointList;
-            } else {
-                self.primitive_type = wgpu::PrimitiveTopology::TriangleList;
-            }
-            self.cull_mode = match technique_type {
-                TechniqueType::Color | TechniqueType::Zplot => {
-                    if material.is_culling_disabled() {
-                        None
-                    } else {
-                        Some(wgpu::Face::Back)
-                    }
+            },
+            0f32,
+        ];
+        self.uniform_buffer.sphere_texture_type = sphere_texture_type;
+        let enable_vertex_color = if material.is_vertex_color_enabled() {
+            1.0f32
+        } else {
+            0.0f32
+        };
+        self.uniform_buffer.enable_vertex_color = Vector4::new(
+            enable_vertex_color,
+            enable_vertex_color,
+            enable_vertex_color,
+            enable_vertex_color,
+        )
+        .into();
+        self.uniform_buffer.use_texture_sampler[0] = if self.set_image(
+            material.diffuse_image(),
+            TextureSamplerStage::DiffuseTextureSamplerStage,
+            fallback,
+        ) {
+            1.0f32
+        } else {
+            0.0f32
+        };
+        self.uniform_buffer.use_texture_sampler[1] = if self.set_image(
+            material.sphere_map_image(),
+            TextureSamplerStage::SphereTextureSamplerStage,
+            fallback,
+        ) {
+            1.0f32
+        } else {
+            0.0f32
+        };
+        self.uniform_buffer.use_texture_sampler[2] = if self.set_image(
+            material.toon_image(),
+            TextureSamplerStage::ToonTextureSamplerStage,
+            fallback,
+        ) {
+            1.0f32
+        } else {
+            0.0f32
+        };
+        if material.is_line_draw_enabled() {
+            self.primitive_type = wgpu::PrimitiveTopology::LineList;
+        } else if material.is_point_draw_enabled() {
+            self.primitive_type = wgpu::PrimitiveTopology::PointList;
+        } else {
+            self.primitive_type = wgpu::PrimitiveTopology::TriangleList;
+        }
+        self.cull_mode = match technique_type {
+            TechniqueType::Color | TechniqueType::Zplot => {
+                if material.is_culling_disabled() {
+                    None
+                } else {
+                    Some(wgpu::Face::Back)
                 }
-                TechniqueType::Edge => Some(wgpu::Face::Front),
-                TechniqueType::GroundShadow => None,
             }
-        
+            TechniqueType::Edge => Some(wgpu::Face::Front),
+            TechniqueType::GroundShadow => None,
+        }
     }
 
     pub fn set_edge_parameters(
@@ -224,16 +320,16 @@ impl CommonPass {
         edge_size: f32,
         fallback: &wgpu::Texture,
     ) {
-            let material = material;
-            let edge = material.edge();
-            let edge_color = edge.color.extend(edge.opacity);
-            self.uniform_buffer.light_color = edge_color.into();
-            self.uniform_buffer.light_direction =
-                (Vector4::new(1f32, 1f32, 1f32, 1f32) * edge.size * edge_size).into();
-            self.bindings.insert(
-                TextureSamplerStage::ShadowMapTextureSamplerStage0,
-                fallback.create_view(&wgpu::TextureViewDescriptor::default()),
-            );
+        let material = material;
+        let edge = material.edge();
+        let edge_color = edge.color.extend(edge.opacity);
+        self.uniform_buffer.light_color = edge_color.into();
+        self.uniform_buffer.light_direction =
+            (Vector4::new(1f32, 1f32, 1f32, 1f32) * edge.size * edge_size).into();
+        self.bindings.insert(
+            TextureSamplerStage::ShadowMapTextureSamplerStage0,
+            fallback.create_view(&wgpu::TextureViewDescriptor::default()),
+        );
     }
 
     pub fn set_ground_shadow_parameters(
@@ -439,108 +535,30 @@ impl CommonPass {
         buffer: &pass::Buffer,
         color_attachment_view: &wgpu::TextureView,
         depth_stencil_attachment_view: Option<&wgpu::TextureView>,
-        shader: Option<&wgpu::ShaderModule>,
         technique_type: TechniqueType,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         model: &Model,
         project: &Project,
     ) {
-        if let Some(shader) = shader {
+        let is_add_blend = model.is_add_blend_enabled();
+        let is_depth_enabled = buffer.is_depth_enabled();
+        let key = CommonPassCacheKey {
+            cull_mode: self.cull_mode,
+            primitive_type: self.primitive_type,
+            is_add_blend,
+            is_depth_enabled,
+            is_offscreen_render_pass_active: false,
+        };
+        let mut cache = self.pipeline_cache.borrow_mut();
+        let pipeline = cache.entry(key).or_insert_with(||{
             let vertex_size = mem::size_of::<crate::model::VertexUnit>();
-            let is_add_blend = model.is_add_blend_enabled();
-            let is_depth_enabled = buffer.is_depth_enabled();
             let texture_format = project.viewport_texture_format();
-
-            let texture_bind_group_layout =
-                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("ModelProgramBundle/BindGroupLayout/Texture"),
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 2,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 3,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 4,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 5,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 6,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 7,
-                            visibility: wgpu::ShaderStages::FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                });
-            let uniform_bind_group_layout =
-                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("ModelProgramBundle/BindGroupLayout/Uniform"),
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                });
 
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("ModelProgramBundle/PipelineLayout"),
-                    bind_group_layouts: &[&texture_bind_group_layout, &uniform_bind_group_layout],
+                    bind_group_layouts: &[&self.texture_bind_group_layout, &self.uniform_bind_group_layout],
                     push_constant_ranges: &[],
                 });
             // No Difference between technique type edge and other.
@@ -566,7 +584,7 @@ impl CommonPass {
             };
             let depth_state = if technique_type == TechniqueType::GroundShadow && is_depth_enabled {
                 wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth24PlusStencil8, // TODO: set to depth pixel format
+                    format: wgpu::TextureFormat::Depth24PlusStencil8,
                     depth_write_enabled: true,
                     depth_compare: wgpu::CompareFunction::Less,
                     // stencil: wgpu::StencilState {
@@ -601,16 +619,16 @@ impl CommonPass {
                     bias: wgpu::DepthBiasState::default(),
                 }
             };
-            let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("ModelProgramBundle/Pipelines"),
                 layout: Some(&render_pipeline_layout),
                 vertex: wgpu::VertexState {
-                    module: shader,
+                    module: &self.shader,
                     entry_point: "vs_main",
                     buffers: &[vertex_buffer_layout],
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: shader,
+                    module: &self.shader,
                     entry_point: "fs_main",
                     targets: &[color_target_state],
                 }),
@@ -630,65 +648,64 @@ impl CommonPass {
                     alpha_to_coverage_enabled: false,
                 },
                 multiview: None,
-            });
-            let texture_bind_group =
-                self.get_texture_bind_group(&device, &texture_bind_group_layout);
-            let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("ModelProgramBundle/BindGroupBuffer/Uniform"),
-                contents: bytemuck::bytes_of(&[self.uniform_buffer]),
-                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
-            });
-            let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("ModelProgramBundle/BindGroup/Uniform"),
-                layout: &uniform_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniform_buffer.as_entire_binding(),
-                }],
-            });
+            })
+        });
+        let texture_bind_group = self.get_texture_bind_group(&device, &self.texture_bind_group_layout);
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("ModelProgramBundle/BindGroupBuffer/Uniform"),
+            contents: bytemuck::bytes_of(&[self.uniform_buffer]),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+        });
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ModelProgramBundle/BindGroup/Uniform"),
+            layout: &self.uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
 
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Model Pass Executor Encoder"),
-            });
-            encoder.push_debug_group("ModelProgramBundle::execute");
-            {
-                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Model Pass Render Pass"),
-                    color_attachments: &[wgpu::RenderPassColorAttachment {
-                        view: color_attachment_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Model Pass Executor Encoder"),
+        });
+        encoder.push_debug_group("ModelProgramBundle::execute");
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Model Pass Render Pass"),
+                color_attachments: &[wgpu::RenderPassColorAttachment {
+                    view: color_attachment_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: depth_stencil_attachment_view.map(|view| {
+                    wgpu::RenderPassDepthStencilAttachment {
+                        view,
+                        depth_ops: Some(wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: true,
-                        },
-                    }],
-                    depth_stencil_attachment: depth_stencil_attachment_view.map(|view| {
-                        wgpu::RenderPassDepthStencilAttachment {
-                            view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: true,
-                            }),
-                            stencil_ops: None,
-                        }
-                    }), // TODO: there should be depth view
-                });
-                // m_lastDrawnRenderPass = handle;
-                rpass.set_pipeline(&pipeline);
-                rpass.set_bind_group(0, &texture_bind_group, &[]);
-                rpass.set_bind_group(1, &uniform_bind_group, &[]);
-                rpass.set_vertex_buffer(0, buffer.vertex_buffer.slice(..));
-                rpass.set_index_buffer(buffer.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                // rpass.draw(buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32, 0..1);
-                rpass.draw_indexed(
-                    buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32,
-                    0,
-                    0..1,
-                );
-            }
-            encoder.pop_debug_group();
-            queue.submit(iter::once(encoder.finish()));
-        };
+                        }),
+                        stencil_ops: None,
+                    }
+                }), // TODO: there should be depth view
+            });
+            // m_lastDrawnRenderPass = handle;
+            rpass.set_pipeline(&pipeline);
+            rpass.set_bind_group(0, &texture_bind_group, &[]);
+            rpass.set_bind_group(1, &uniform_bind_group, &[]);
+            rpass.set_vertex_buffer(0, buffer.vertex_buffer.slice(..));
+            rpass.set_index_buffer(buffer.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            // rpass.draw(buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32, 0..1);
+            rpass.draw_indexed(
+                buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32,
+                0,
+                0..1,
+            );
+        }
+        encoder.pop_debug_group();
+        queue.submit(iter::once(encoder.finish()));
     }
 
     pub fn set_image(
@@ -723,18 +740,7 @@ pub enum TechniqueType {
 pub struct BaseTechnique {
     technique_type: TechniqueType,
     executed: bool,
-    shader: Option<wgpu::ShaderModule>,
     pass: CommonPass,
-}
-
-impl BaseTechnique {
-    pub fn shader(&self) -> Option<&wgpu::ShaderModule> {
-        (&self.shader).as_ref()
-    }
-
-    pub fn get_mut_pass_and_shader(&mut self) -> (&mut CommonPass, Option<&wgpu::ShaderModule>) {
-        (&mut self.pass, (&self.shader).as_ref())
-    }
 }
 
 pub struct ObjectTechnique {
@@ -751,14 +757,22 @@ impl Deref for ObjectTechnique {
 }
 
 impl ObjectTechnique {
-    pub fn new(is_point_draw_enabled: bool) -> Self {
+    pub fn new(device: &wgpu::Device, is_point_draw_enabled: bool) -> Self {
+        log::trace!("Load model_color.wgsl");
+        let sd = &wgpu::ShaderModuleDescriptor {
+            label: Some("ModelProgramBundle/ObjectTechnique/ModelColor"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("resources/shaders/model_color.wgsl").into(),
+            ),
+        };
+        let shader = device.create_shader_module(sd);
+        log::trace!("Finish Load model_color.wgsl");
         Self {
             is_point_draw_enabled,
             base: BaseTechnique {
                 technique_type: TechniqueType::Color,
                 executed: false,
-                shader: None,
-                pass: CommonPass::new(),
+                pass: CommonPass::new(device, shader),
             },
         }
     }
@@ -769,24 +783,10 @@ impl ObjectTechnique {
         self.base.technique_type
     }
 
-    pub fn execute(
-        &mut self,
-        device: &wgpu::Device,
-    ) -> Option<(&mut CommonPass, Option<&wgpu::ShaderModule>)> {
+    pub fn execute(&mut self, device: &wgpu::Device) -> Option<&mut CommonPass> {
         if !self.base.executed {
-            if self.base.shader.is_none() {
-                log::trace!("Load model_color.wgsl");
-                let sd = &wgpu::ShaderModuleDescriptor {
-                    label: Some("ModelProgramBundle/ObjectTechnique/ModelColor"),
-                    source: wgpu::ShaderSource::Wgsl(
-                        include_str!("resources/shaders/model_color.wgsl").into(),
-                    ),
-                };
-                self.base.shader = Some(device.create_shader_module(sd));
-                log::trace!("Finish Load model_color.wgsl");
-            }
             self.base.executed = true;
-            Some(self.base.get_mut_pass_and_shader())
+            Some(&mut self.base.pass)
         } else {
             None
         }

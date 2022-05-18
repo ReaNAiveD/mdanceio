@@ -427,8 +427,7 @@ impl Model {
                     .collect::<Vec<_>>();
                 for morph in &opaque.morphs {
                     if let nanoem::model::ModelMorphType::Vertex = morph.get_type() {
-                        if let nanoem::model::ModelMorphU::VERTICES(morph_vertices) = &morph.morphs
-                        {
+                        if let nanoem::model::ModelMorphU::VERTICES(morph_vertices) = &morph.morphs {
                             for morph_vertex in morph_vertices {
                                 if let Some(vertex) =
                                     opaque.get_one_vertex_object(morph_vertex.vertex_index)
@@ -677,7 +676,7 @@ impl Model {
         let center_bone = center_bone;
         let center_bone = model.insert_bone(center_bone, -1)?;
         {
-            let mut root_labggel = nanoem::model::ModelLabel {
+            let mut root_label = nanoem::model::ModelLabel {
                 base: nanoem::model::ModelObject { index: 0 },
                 name_ja: "Root".to_string(),
                 name_en: "Root".to_string(),
@@ -710,24 +709,9 @@ impl Model {
     pub fn create_all_images(&mut self, texture_lut: &HashMap<String, Rc<wgpu::Texture>>) {
         // TODO: 创建所有材质贴图并绑定到Material上
         for material in &mut self.materials {
-            material.diffuse_image = material
-                .origin
-                .get_diffuse_texture_object(&self.opaque.textures)
-                .map(|texture_object| texture_lut.get(&texture_object.path))
-                .flatten()
-                .map(|rc| rc.clone());
-            material.sphere_map_image = material
-                .origin
-                .get_sphere_map_texture_object(&self.opaque.textures)
-                .map(|texture_object| texture_lut.get(&texture_object.path))
-                .flatten()
-                .map(|rc| rc.clone());
-            material.toon_image = material
-                .origin
-                .get_toon_texture_object(&self.opaque.textures)
-                .map(|texture_object| texture_lut.get(&texture_object.path))
-                .flatten()
-                .map(|rc| rc.clone());
+            material.diffuse_image = material.origin.get_diffuse_texture_object(&self.opaque.textures).map(|texture_object| texture_lut.get(&texture_object.path)).flatten().map(|rc| rc.clone());
+            material.sphere_map_image = material.origin.get_sphere_map_texture_object(&self.opaque.textures).map(|texture_object| texture_lut.get(&texture_object.path)).flatten().map(|rc| rc.clone());
+            material.toon_image = material.origin.get_toon_texture_object(&self.opaque.textures).map(|texture_object| texture_lut.get(&texture_object.path)).flatten().map(|rc| rc.clone());
         }
     }
 
@@ -816,9 +800,9 @@ impl Model {
             if material.is_visible() {
                 // TODO: get technique by discovery
                 let mut technique =
-                    ObjectTechnique::new(material.origin.flags.is_point_draw_enabled);
+                    ObjectTechnique::new(device, material.origin.flags.is_point_draw_enabled);
                 let technique_type = technique.technique_type();
-                while let Some((pass, shader)) = technique.execute(device) {
+                while let Some(pass) = technique.execute(device) {
                     pass.set_global_parameters(self, project);
                     pass.set_camera_parameters(
                         project.active_camera(),
@@ -844,7 +828,6 @@ impl Model {
                         &buffer,
                         view,
                         Some(&project.viewport_primary_depth_view()),
-                        shader,
                         technique_type,
                         device,
                         queue,
