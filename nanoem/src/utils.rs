@@ -1,17 +1,15 @@
 use std::cmp;
 
-use crate::common::CodecType;
-
 pub fn fourcc(a: u8, b: u8, c: u8, d: u8) -> u32 {
     u32::from_le_bytes([a, b, c, d])
 }
 
-pub fn u8_slice_get_string(slice: &[u8], codec: CodecType) -> Option<String> {
+pub fn u8_slice_get_string(slice: &[u8], encoding: &'static encoding_rs::Encoding) -> Option<String> {
     let mut src = slice;
     if let Some(pos) = src.iter().position(|c| *c == 0u8) {
         src = src.split_at(pos).0;
     }
-    let (cow, _, had_errors) = codec.get_encoding_object().decode(src);
+    let (cow, _, had_errors) = encoding.decode(src);
     if had_errors {
         None
     } else {

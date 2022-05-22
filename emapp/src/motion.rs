@@ -8,14 +8,14 @@ use crate::{
 
 pub struct Motion {
     selection: Box<dyn MotionKeyframeSelection>,
-    opaque: Rc<RefCell<nanoem::motion::Motion>>,
+    opaque: nanoem::motion::Motion,
     bezier_curves_data: RefCell<HashMap<u64, BezierCurve>>,
     keyframe_bezier_curves: RefCell<HashMap<Rc<RefCell<MotionBoneKeyframe>>, BezierCurve>>,
     annotations: HashMap<String, String>,
     file_uri: Uri,
     format_type: MotionFormatType,
     handle: u16,
-    dirty: bool,
+    pub dirty: bool,
 }
 
 impl Motion {
@@ -95,6 +95,10 @@ impl Motion {
     }
 
     pub fn duration(&self) -> u32 {
-        self.opaque.borrow().get_max_frame_index().min(Project::MAXIMUM_BASE_DURATION)
+        self.opaque.get_max_frame_index().min(Project::MAXIMUM_BASE_DURATION)
+    }
+
+    pub fn find_camera_keyframe(&self, frame_index: u32) -> Option<&nanoem::motion::MotionCameraKeyframe> {
+        self.opaque.find_camera_keyframe_object(frame_index)
     }
 }

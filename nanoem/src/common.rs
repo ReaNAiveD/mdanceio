@@ -342,11 +342,11 @@ impl<'a> Buffer<'a> {
         }
     }
 
-    pub fn try_get_string_with_byte_len(&self, len: usize) -> (&[u8], usize) {
+    pub fn try_get_string_with_byte_len(&self, len: usize) -> &[u8] {
         let remaining_len = self.len() - self.offset;
         let read_len = usize::min(len, remaining_len);
         let str_raw = &self.data[self.offset..self.offset + read_len];
-        (str_raw, read_len)
+        str_raw
         // let (cow, _, had_errors)  = encoding_rs::UTF_8.decode(str_raw);
         // if had_errors {
         //     return Err(Status::ErrorDecodeUnicodeStringFailed);
