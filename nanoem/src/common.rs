@@ -24,7 +24,7 @@ pub enum Status {
     ErrorModelRigidBodyCorrupted,   //< Rigid body data is corrupted
     ErrorModelJointCorrupted,       //< Joint data is corrupted
     ErrorPmdEnglishCorrupted,       //< PMD English data is corrupted
-    ErrorPmxInfoCorrupted,         //< PMX Metadata is corrupted
+    ErrorPmxInfoCorrupted,          //< PMX Metadata is corrupted
     ErrorMotionTargetNameCorrupted, //< Vertex data is corrupted
     ErrorMotionBoneKeyframeCorrupted, //< The bone keyframe is corrupted
     ErrorMotionCameraKeyframeCorrupted, //< The camera keyframe data is corrupted
@@ -172,7 +172,7 @@ impl Default for LanguageType {
 }
 
 impl LanguageType {
-    pub fn all() -> &'static[Self] {
+    pub fn all() -> &'static [Self] {
         &[Self::Japanese, Self::English]
     }
 }
@@ -215,7 +215,7 @@ macro_rules! read_primitive {
 }
 
 pub struct Buffer<'a> {
-    data: &'a[u8],
+    data: &'a [u8],
     idx: usize,
     offset: usize,
 }
@@ -427,7 +427,11 @@ impl MutableBuffer {
     write_primitive!(i32, write_i32_little_endian);
     write_primitive!(f32, write_f32_little_endian);
 
-    pub fn write_string(&mut self, value: &str, encoding: &'static encoding_rs::Encoding) -> Result<(), Status> {
+    pub fn write_string(
+        &mut self,
+        value: &str,
+        encoding: &'static encoding_rs::Encoding,
+    ) -> Result<(), Status> {
         if encoding == encoding_rs::UTF_16LE {
             let bytes = value.encode_utf16().collect::<Vec<_>>();
             self.write_u32_little_endian((bytes.len() * 2) as u32)?;
@@ -445,7 +449,7 @@ impl MutableBuffer {
                 self.write_byte_array(&bytes)?;
                 Ok(())
             }
-    }
+        }
     }
 
     pub fn write_integer(&mut self, value: i32, size: usize) -> Result<(), Status> {
@@ -531,7 +535,7 @@ fn test_buffer_read_primitive() {
 
 #[test]
 fn test_u8_to_string_too_short() {
-    let mut v = vec!['a' as u8, 0u8, 0u8, 'b' as u8];
+    let v = vec!['a' as u8, 0u8, 0u8, 'b' as u8];
     let (cow, encoding_used, had_errors) = encoding_rs::UTF_8.decode(&v[0..4]);
     assert_eq!(false, had_errors);
     println!("{}", &cow);
@@ -539,8 +543,8 @@ fn test_u8_to_string_too_short() {
 
 #[test]
 fn test_u8_to_string_len0() {
-    let mut v = vec![];
-    let (cow, encoding_used, had_errors) = encoding_rs::UTF_8.decode(&v[0..0]);
+    let v = vec![];
+    let (cow, encoding_use_d, had_errors) = encoding_rs::UTF_8.decode(&v[0..0]);
     assert_eq!(false, had_errors);
     println!("{}", &cow);
 }

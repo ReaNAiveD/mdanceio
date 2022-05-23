@@ -347,7 +347,7 @@ impl Model {
         if num_morphs > 0 {
             self.morphs.clear();
             for i in 0..num_morphs {
-                let mut morph = ModelMorph::parse_pmx(buffer, info, i)?;
+                let morph = ModelMorph::parse_pmx(buffer, info, i)?;
                 self.morphs.push(morph);
             }
         }
@@ -363,7 +363,7 @@ impl Model {
         if num_labels > 0 {
             self.labels.clear();
             for i in 0..num_labels {
-                let mut label = ModelLabel::parse_pmx(buffer, info, i)?;
+                let label = ModelLabel::parse_pmx(buffer, info, i)?;
                 self.labels.push(label);
             }
         }
