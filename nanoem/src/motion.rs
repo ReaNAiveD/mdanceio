@@ -182,6 +182,10 @@ where
             key_index: 0,
         }
     }
+
+    pub fn max_frame_index(&self) -> Option<u32> {
+        self.tracks.values().filter_map(|track| track.ordered_frame_index.last()).max().map(|n| *n)
+    }
 }
 
 // TODO: 需要更快的有序迭代解决方案
@@ -289,10 +293,6 @@ impl Motion {
     const VMD_TARGET_MODEL_NAME_LENGTH_V2: usize = 20;
     const VMD_TARGET_MODEL_NAME_LENGTH_V1: usize = 10;
 
-    pub fn load_from_buffer(buffer: &mut Buffer, offset: u32) -> Result<Self, Status> {
-        Self::load_from_buffer_vmd(buffer, offset)
-    }
-
     fn resolve_local_bone_track_name(&mut self, name: &String) -> i32 {
         self.local_bone_motion_track_bundle
             .resolve_name_or_new(name)
@@ -310,6 +310,88 @@ impl Motion {
     fn set_max_frame_index(&mut self, base: &MotionKeyframeBase) {
         if base.frame_index > self.max_frame_index {
             self.max_frame_index = base.frame_index;
+        }
+    }
+
+    pub fn load_from_buffer(buffer: &mut Buffer, offset: u32) -> Result<Self, Status> {
+        Self::load_from_buffer_vmd(buffer, offset)
+    }
+
+    fn load_from_buffer_vmd(buffer: &mut Buffer, offset: u32) -> Result<Self, Status> {
+        let mut motion = Self {
+            annotations: HashMap::new(),
+            target_model_name: "".to_owned(),
+            accessory_keyframes: vec![],
+            camera_keyframes: vec![],
+            light_keyframes: vec![],
+            model_keyframes: vec![],
+            self_shadow_keyframes: vec![],
+            local_bone_motion_track_bundle: MotionTrackBundle::new(),
+            local_morph_motion_track_bundle: MotionTrackBundle::new(),
+            global_motion_track_bundle: MotionTrackBundle::new(),
+            typ: MotionFormatType::Unknown,
+            max_frame_index: 0,
+            preferred_fps: 30f32,
+        };
+        let sig = buffer.read_buffer(Self::VMD_SIGNATURE_SIZE)?;
+        if compare(
+            &sig[0..Self::VMD_SIGNATURE_TYPE2.len()],
+            Self::VMD_SIGNATURE_TYPE2,
+        ) == Ordering::Equal
+        {
+            motion.typ = MotionFormatType::VMD;
+            motion.target_model_name =
+                buffer.read_string_from_cp932(Self::VMD_TARGET_MODEL_NAME_LENGTH_V2)?;
+            motion.parse_vmd(buffer, offset)?;
+        } else if compare(
+            &sig[0..Self::VMD_SIGNATURE_TYPE1.len()],
+            Self::VMD_SIGNATURE_TYPE1,
+        ) == Ordering::Equal
+        {
+            motion.typ = MotionFormatType::VMD;
+            motion.target_model_name =
+                buffer.read_string_from_cp932(Self::VMD_TARGET_MODEL_NAME_LENGTH_V1)?;
+            motion.parse_vmd(buffer, offset)?;
+        } else {
+            motion.typ = MotionFormatType::Unknown;
+            return Err(Status::ErrorInvalidSignature);
+        }
+        Ok(motion)
+    }
+
+    fn parse_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
+        self.local_bone_motion_track_bundle = Self::parse_bone_keyframe_block_vmd(buffer, offset)?;
+        self.local_morph_motion_track_bundle =
+            Self::parse_morph_keyframe_block_vmd(buffer, offset)?;
+        if buffer.is_end() {
+            self.update_max_frame_index();
+            return Ok(());
+        }
+        self.camera_keyframes = Self::parse_camera_keyframe_block_vmd(buffer, offset)?;
+        if buffer.is_end() {
+            self.update_max_frame_index();
+            return Ok(());
+        }
+        self.light_keyframes = Self::parse_light_keyframe_block_vmd(buffer, offset)?;
+        if buffer.is_end() {
+            self.update_max_frame_index();
+            return Ok(());
+        }
+        self.self_shadow_keyframes = Self::parse_self_shadow_keyframe_block_vmd(buffer, offset)?;
+        if buffer.is_end() {
+            self.update_max_frame_index();
+            return Ok(());
+        }
+        self.model_keyframes = Self::parse_model_keyframe_block_vmd(
+            buffer,
+            offset,
+            &mut self.local_bone_motion_track_bundle,
+        )?;
+        self.update_max_frame_index();
+        if buffer.is_end() {
+            return Ok(());
+        } else {
+            return Err(Status::ErrorBufferNotEnd);
         }
     }
 
@@ -422,77 +504,18 @@ impl Motion {
         Ok(model_keyframes)
     }
 
-    fn parse_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
-        self.local_bone_motion_track_bundle = Self::parse_bone_keyframe_block_vmd(buffer, offset)?;
-        self.local_morph_motion_track_bundle =
-            Self::parse_morph_keyframe_block_vmd(buffer, offset)?;
-        if buffer.is_end() {
-            return Ok(());
-        }
-        self.camera_keyframes = Self::parse_camera_keyframe_block_vmd(buffer, offset)?;
-        if buffer.is_end() {
-            return Ok(());
-        }
-        self.light_keyframes = Self::parse_light_keyframe_block_vmd(buffer, offset)?;
-        if buffer.is_end() {
-            return Ok(());
-        }
-        self.self_shadow_keyframes = Self::parse_self_shadow_keyframe_block_vmd(buffer, offset)?;
-        if buffer.is_end() {
-            return Ok(());
-        }
-        self.model_keyframes = Self::parse_model_keyframe_block_vmd(
-            buffer,
-            offset,
-            &mut self.local_bone_motion_track_bundle,
-        )?;
-        if buffer.is_end() {
-            return Ok(());
-        } else {
-            return Err(Status::ErrorBufferNotEnd);
-        }
-    }
-
-    fn load_from_buffer_vmd(buffer: &mut Buffer, offset: u32) -> Result<Self, Status> {
-        let mut motion = Self {
-            annotations: HashMap::new(),
-            target_model_name: "".to_owned(),
-            accessory_keyframes: vec![],
-            camera_keyframes: vec![],
-            light_keyframes: vec![],
-            model_keyframes: vec![],
-            self_shadow_keyframes: vec![],
-            local_bone_motion_track_bundle: MotionTrackBundle::new(),
-            local_morph_motion_track_bundle: MotionTrackBundle::new(),
-            global_motion_track_bundle: MotionTrackBundle::new(),
-            typ: MotionFormatType::Unknown,
-            max_frame_index: 0,
-            preferred_fps: 30f32,
-        };
-        let sig = buffer.read_buffer(Self::VMD_SIGNATURE_SIZE)?;
-        if compare(
-            &sig[0..Self::VMD_SIGNATURE_TYPE2.len()],
-            Self::VMD_SIGNATURE_TYPE2,
-        ) == Ordering::Equal
-        {
-            motion.typ = MotionFormatType::VMD;
-            motion.target_model_name =
-                buffer.read_string_from_cp932(Self::VMD_TARGET_MODEL_NAME_LENGTH_V2)?;
-            motion.parse_vmd(buffer, offset)?;
-        } else if compare(
-            &sig[0..Self::VMD_SIGNATURE_TYPE1.len()],
-            Self::VMD_SIGNATURE_TYPE1,
-        ) == Ordering::Equal
-        {
-            motion.typ = MotionFormatType::VMD;
-            motion.target_model_name =
-                buffer.read_string_from_cp932(Self::VMD_TARGET_MODEL_NAME_LENGTH_V1)?;
-            motion.parse_vmd(buffer, offset)?;
-        } else {
-            motion.typ = MotionFormatType::Unknown;
-            return Err(Status::ErrorInvalidSignature);
-        }
-        Ok(motion)
+    fn update_max_frame_index(&mut self) {
+        self.max_frame_index = self.local_bone_motion_track_bundle.max_frame_index().unwrap_or(0).max(
+            self.local_morph_motion_track_bundle.max_frame_index().unwrap_or(0)
+        ).max(
+            self.camera_keyframes.last().map(|keyframe| keyframe.base.frame_index).unwrap_or(0)
+        ).max(
+            self.light_keyframes.last().map(|keyframe| keyframe.base.frame_index).unwrap_or(0)
+        ).max(
+            self.self_shadow_keyframes.last().map(|keyframe| keyframe.base.frame_index).unwrap_or(0)
+        ).max(
+            self.model_keyframes.last().map(|keyframe| keyframe.base.frame_index).unwrap_or(0)
+        )
     }
 
     pub fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
