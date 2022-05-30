@@ -8,8 +8,8 @@ pub struct BezierCurve {
 }
 
 impl BezierCurve {
-    const p0: Vector2<f32> = Vector2 { x: 0f32, y: 0f32 };
-    const p1: Vector2<f32> = Vector2 {
+    const P0: Vector2<f32> = Vector2 { x: 0f32, y: 0f32 };
+    const P1: Vector2<f32> = Vector2 {
         x: 127f32,
         y: 127f32,
     };
@@ -27,7 +27,7 @@ impl BezierCurve {
         for i in 0..=interval {
             let t = i as f32 / interval_f;
             let it = 1f32 - t;
-            curve.parameters.push((Self::p0 * it.powi(3) + c0f * t * it.powi(2) * 3f32 + c1f * t.powi(2) * it * 3f32 + Self::p1 * t.powi(3)).zip(Self::p1, |a, b| a / b));
+            curve.parameters.push((Self::P0 * it.powi(3) + c0f * t * it.powi(2) * 3f32 + c1f * t.powi(2) * it * 3f32 + Self::P1 * t.powi(3)).zip(Self::P1, |a, b| a / b));
         }
         curve
     }
@@ -37,7 +37,7 @@ impl BezierCurve {
     }
 
     pub fn value(&self, value: f32) -> f32 {
-        let mut nearest = &Self::p1;
+        let mut nearest = &Self::P1;
         for i in 0..self.length() {
             if (nearest.x - value).abs() > (self.parameters[i].x - value).abs() {
                 nearest = &self.parameters[i];
@@ -48,7 +48,7 @@ impl BezierCurve {
 
     pub fn split(&self, t: f32) -> (Self, Self) {
         let tv = t.clamp(0f32, 1f32);
-        let points = vec![Self::p0, self.c0.map(|u| u as f32), self.c1.map(|u| u as f32), Self::p1];
+        let points = vec![Self::P0, self.c0.map(|u| u as f32), self.c1.map(|u| u as f32), Self::P1];
         let mut left = vec![];
         let mut right = vec![];
         Self::split_bezier_curve(&points, tv, &mut left, &mut right);

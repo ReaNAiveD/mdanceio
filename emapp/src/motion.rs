@@ -1,14 +1,20 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use nanoem::{motion::{MotionBoneKeyframe, MotionFormatType, MotionAccessoryKeyframe}, common::Status};
+use nanoem::{
+    common::Status,
+    motion::{MotionAccessoryKeyframe, MotionBoneKeyframe, MotionCameraKeyframe, MotionFormatType},
+};
 
 use crate::{
-    bezier_curve::BezierCurve, motion_keyframe_selection::MotionKeyframeSelection, uri::Uri, project::Project, model::Model,
+    bezier_curve::BezierCurve, model::Model, motion_keyframe_selection::MotionKeyframeSelection,
+    project::Project, uri::Uri,
 };
+
+pub type NanoemMotion = nanoem::motion::Motion;
 
 pub struct Motion {
     selection: Box<dyn MotionKeyframeSelection>,
-    opaque: nanoem::motion::Motion,
+    pub opaque: NanoemMotion,
     bezier_curves_data: RefCell<HashMap<u64, BezierCurve>>,
     keyframe_bezier_curves: RefCell<HashMap<Rc<RefCell<MotionBoneKeyframe>>, BezierCurve>>,
     annotations: HashMap<String, String>,
@@ -32,7 +38,9 @@ impl Motion {
     }
 
     pub fn is_loadable_extension(extension: &str) -> bool {
-        Self::loadable_extensions().iter().any(|ext| ext.to_lowercase().eq(extension))
+        Self::loadable_extensions()
+            .iter()
+            .any(|ext| ext.to_lowercase().eq(extension))
     }
 
     pub fn uri_has_loadable_extension(uri: &Uri) -> bool {
@@ -43,27 +51,29 @@ impl Motion {
         }
     }
 
-    pub fn add_frame_index_delta(value: i32, frame_index: u32, new_frame_index: &mut u32) -> bool {
+    pub fn add_frame_index_delta(value: i32, frame_index: u32) -> Option<u32> {
         let mut result = false;
         if value > 0 {
             if frame_index <= Self::MAX_KEYFRAME_INDEX - value as u32 {
-                *new_frame_index = frame_index + (value as u32);
-                result = true;
-            } 
+                return Some(frame_index + (value as u32));
+            }
         } else if value < 0 {
             if frame_index >= value.abs() as u32 {
-                *new_frame_index = frame_index - (value.abs() as u32);
-                result = true;
+                return Some(frame_index - (value.abs() as u32));
             }
         }
-        result
+        None
     }
 
-    pub fn subtract_frame_index_delta(value: i32, frame_index: u32, new_frame_index: &mut u32) -> bool {
-        Self::add_frame_index_delta(-value, frame_index, new_frame_index)
+    pub fn subtract_frame_index_delta(value: i32, frame_index: u32) -> Option<u32> {
+        Self::add_frame_index_delta(-value, frame_index)
     }
 
-    pub fn copy_all_accessory_keyframes(keyframes: &[MotionAccessoryKeyframe], target: &mut nanoem::motion::Motion, offset: i32) -> Result<(), Status> {
+    pub fn copy_all_accessory_keyframes(
+        keyframes: &[MotionAccessoryKeyframe],
+        target: &mut NanoemMotion,
+        offset: i32,
+    ) -> Result<(), Status> {
         for keyframe in keyframes {
             let frame_index = keyframe.frame_index_with_offset(offset);
             let mut n_keyframe = keyframe.clone();
@@ -74,11 +84,26 @@ impl Motion {
         Ok(())
     }
 
-    pub fn copy_all_accessory_keyframes_from_motion(source: &nanoem::motion::Motion, target: &mut nanoem::motion::Motion, offset: i32) -> Result<(), Status> {
-        Self::copy_all_accessory_keyframes(source.get_all_accessory_keyframe_objects(), target, offset)
+    pub fn copy_all_accessory_keyframes_from_motion(
+        source: &NanoemMotion,
+        target: &mut NanoemMotion,
+        offset: i32,
+    ) -> Result<(), Status> {
+        Self::copy_all_accessory_keyframes(
+            source.get_all_accessory_keyframe_objects(),
+            target,
+            offset,
+        )
     }
 
-    pub fn copy_all_bone_keyframes(keyframes: &[MotionBoneKeyframe], parent_motion: &nanoem::motion::Motion, selection: &(dyn MotionKeyframeSelection), model: &Model, target: &mut nanoem::motion::Motion, offset: i32) -> Result<(), Status> {
+    pub fn copy_all_bone_keyframes(
+        keyframes: &[MotionBoneKeyframe],
+        parent_motion: &NanoemMotion,
+        selection: &(dyn MotionKeyframeSelection),
+        model: &Model,
+        target: &mut NanoemMotion,
+        offset: i32,
+    ) -> Result<(), Status> {
         for keyframe in keyframes {
             let name = keyframe.get_name(parent_motion);
             // TODO: unfinished
@@ -95,10 +120,21 @@ impl Motion {
     }
 
     pub fn duration(&self) -> u32 {
-        self.opaque.get_max_frame_index().min(Project::MAXIMUM_BASE_DURATION)
+        self.opaque
+            .get_max_frame_index()
+            .min(Project::MAXIMUM_BASE_DURATION)
     }
 
-    pub fn find_camera_keyframe(&self, frame_index: u32) -> Option<&nanoem::motion::MotionCameraKeyframe> {
+    pub fn find_camera_keyframe(&self, frame_index: u32) -> Option<&MotionCameraKeyframe> {
         self.opaque.find_camera_keyframe_object(frame_index)
+    }
+
+    pub fn coefficient(prev_frame_index: u32, next_frame_index: u32, frame_index: u32) -> f32 {
+        let interval = next_frame_index - prev_frame_index;
+        if prev_frame_index == next_frame_index {
+            1f32
+        } else {
+            (frame_index - prev_frame_index) as f32 / (interval as f32)
+        }
     }
 }

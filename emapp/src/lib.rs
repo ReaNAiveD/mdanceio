@@ -42,6 +42,7 @@ mod uri;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_init;
 mod utils;
+mod ray;
 
 #[cfg(test)]
 mod tests {

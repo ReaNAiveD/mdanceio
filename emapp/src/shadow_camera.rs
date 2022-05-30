@@ -98,6 +98,38 @@ impl ShadowCamera {
         }
     }
 
+    pub fn update(&mut self, device: &wgpu::Device) {
+        if self.enabled {
+            let color_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("ShadowCamera/color"),
+                size: wgpu::Extent3d{
+                    width: self.texture_size.x as u32,
+                    height: self.texture_size.y as u32,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            });
+            let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("ShadowCamera/color"),
+                size: wgpu::Extent3d{
+                    width: self.texture_size.x as u32,
+                    height: self.texture_size.y as u32,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth24PlusStencil8,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            });
+            // TODO: register render pass
+        }
+    } 
+
     fn get_view_matrix(&self, project: &Project) -> Matrix4<f32> {
         let camera = project.global_camera();
         let light = project.global_light();

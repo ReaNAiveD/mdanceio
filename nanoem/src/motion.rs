@@ -111,13 +111,17 @@ impl<K> MotionTrackBundle<K> {
         self.allocator.next()
     }
 
-    fn resolve_id(&self, id: i32) -> Option<&String> {
+    pub fn resolve_id(&self, id: i32) -> Option<&String> {
         for track in self.tracks.values() {
             if track.id == id {
                 return Some(&track.name);
             }
         }
         None
+    }
+
+    pub fn resolve_name(&self, name: &String) -> Option<i32> {
+        self.get_by_name(name).map(|track| track.id)
     }
 
     fn resolve_name_or_new(&mut self, name: &String) -> i32 {

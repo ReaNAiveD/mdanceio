@@ -717,11 +717,23 @@ impl Model {
 
     fn create_image() {}
 
-    pub fn find_bone(&self, name: &String) -> Option<&Bone> {
+    pub fn bones(&self) -> &[Bone] {
+        &self.bones
+    }
+
+    pub fn active_bone(&self) -> Option<&Bone> {
+        todo!()
+    }
+
+    pub fn find_bone(&self, name: &str) -> Option<&Bone> {
         self.bones_by_name
             .get(name)
             .map(|index| self.bones.get(*index))
             .flatten()
+    }
+
+    pub fn parent_bone(&self, bone: &Bone) -> Option<&Bone> {
+        todo!()
     }
 
     pub fn get_name(&self) -> &String {
@@ -892,32 +904,40 @@ pub struct Bone {
     local_user_translation: Vector3<f32>,
     bezier_control_points: BezierControlPoints,
     states: u32,
-    origin: NanoemBone,
+    pub origin: NanoemBone,
 }
 
 impl Bone {
     const DEFAULT_BAZIER_CONTROL_POINT: [u8; 4] = [20, 20, 107, 107];
     const DEFAULT_AUTOMATIC_BAZIER_CONTROL_POINT: [u8; 4] = [64, 0, 64, 127];
-    const NAME_ROOT_PARENT_IN_JAPANESE: &'static [u8] = &[
+    const NAME_ROOT_PARENT_IN_JAPANESE_UTF8: &'static [u8] = &[
         0xe5, 0x85, 0xa8, 0xe3, 0x81, 0xa6, 0xe3, 0x81, 0xae, 0xe8, 0xa6, 0xaa, 0x0,
     ];
+    pub const NAME_ROOT_PARENT_IN_JAPANESE: &'static str = "全ての親";
     const NAME_CENTER_IN_JAPANESE_UTF8: &'static [u8] = &[
         0xe3, 0x82, 0xbb, 0xe3, 0x83, 0xb3, 0xe3, 0x82, 0xbf, 0xe3, 0x83, 0xbc, 0,
     ];
-    const NAME_CENTER_IN_JAPANESE: &'static str = "センター";
-    const NAME_CENTER_OF_VIEWPOINT_IN_JAPANESE: &'static [u8] = &[
+    pub const NAME_CENTER_IN_JAPANESE: &'static str = "センター";
+    const NAME_CENTER_OF_VIEWPOINT_IN_JAPANESE_UTF8: &'static [u8] = &[
         0xe6, 0x93, 0x8d, 0xe4, 0xbd, 0x9c, 0xe4, 0xb8, 0xad, 0xe5, 0xbf, 0x83, 0,
     ];
-    const NAME_CENTER_OFFSET_IN_JAPANESE: &'static [u8] = &[
+    pub const NAME_CENTER_OF_VIEWPOINT_IN_JAPANESE: &'static str = "操作中心";
+    const NAME_CENTER_OFFSET_IN_JAPANESE_UTF8: &'static [u8] = &[
         0xe3, 0x82, 0xbb, 0xe3, 0x83, 0xb3, 0xe3, 0x82, 0xbf, 0xe3, 0x83, 0xbc, 0xe5, 0x85, 0x88, 0,
     ];
-    const NAME_LEFT_IN_JAPANESE: &'static [u8] = &[0xe5, 0xb7, 0xa6, 0x0];
-    const NAME_RIGHT_IN_JAPANESE: &'static [u8] = &[0xe5, 0x8f, 0xb3, 0x0];
-    const NAME_DESTINATION_IN_JAPANESE: &'static [u8] = &[0xe5, 0x85, 0x88, 0x0];
-    const LEFT_KNEE_IN_JAPANESE: &'static [u8] =
+    pub const NAME_CENTER_OFFSET_IN_JAPANESE: &'static str = "セコター先";
+    const NAME_LEFT_IN_JAPANESE_UTF8: &'static [u8] = &[0xe5, 0xb7, 0xa6, 0x0];
+    pub const NAME_LEFT_IN_JAPANESE: &'static str = "左";
+    const NAME_RIGHT_IN_JAPANESE_UTF8: &'static [u8] = &[0xe5, 0x8f, 0xb3, 0x0];
+    pub const NAME_RIGHT_IN_JAPANESE: &'static str = "右";
+    const NAME_DESTINATION_IN_JAPANESE_UTF8: &'static [u8] = &[0xe5, 0x85, 0x88, 0x0];
+    pub const NAME_DESTINATION_IN_JAPANESE: &'static str = "先";
+    const LEFT_KNEE_IN_JAPANESE_UTF8: &'static [u8] =
         &[0xe5, 0xb7, 0xa6, 0xe3, 0x81, 0xb2, 0xe3, 0x81, 0x96, 0x0];
-    const RIGHT_KNEE_IN_JAPANESE: &'static [u8] =
+    pub const LEFT_KNEE_IN_JAPANESE: &'static str = "左ひざ";
+    const RIGHT_KNEE_IN_JAPANESE_UTF8: &'static [u8] =
         &[0xe5, 0x8f, 0xb3, 0xe3, 0x81, 0xb2, 0xe3, 0x81, 0x96, 0x0];
+    pub const RIGHT_KNEE_IN_JAPANESE: &'static str = "右ひざ";
 
     const PRIVATE_STATE_LINEAR_INTERPOLATION_TRANSLATION_X: u32 = 1u32 << 1;
     const PRIVATE_STATE_LINEAR_INTERPOLATION_TRANSLATION_Y: u32 = 1u32 << 2;
@@ -976,6 +996,14 @@ impl Bone {
     //     let name = model_bone.get_name(LanguageType::Japanese).unwrap();
     //     if let Some(Keyframe) = motion.find_bone_keyframe_object(name, index)
     // }
+
+    pub fn skinning_transform(&self) -> Matrix4<f32> {
+        todo!()
+    }
+
+    pub fn world_transform_origin(&self) -> Vector3<f32> {
+        todo!()
+    }
 }
 
 #[derive(Debug, Clone, Copy)]

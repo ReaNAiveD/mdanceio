@@ -28,7 +28,7 @@ use crate::{
     injector::Injector,
     internal::{BlitPass, ClearPass, DebugDrawer},
     light::{DirectionalLight, Light},
-    model::{BindPose, Model, SkinDeformer, VisualizationClause},
+    model::{BindPose, Model, SkinDeformer, VisualizationClause, Bone},
     model_program_bundle::ModelProgramBundle,
     motion::Motion,
     physics_engine::PhysicsEngine,
@@ -468,6 +468,26 @@ impl Project {
     // }
 
     // pub fn create_camera()
+
+    pub fn active_model(&self) -> Option<&Model> {
+        todo!()
+    }
+
+    pub fn find_model_by_name(&self, name: &str) -> Option<&Model> {
+        todo!()
+    }
+
+    pub fn resolve_bone(&self, value: (&str, &str)) -> Option<&Bone> {
+        todo!()
+    }
+
+    pub fn resolve_logical_cursor_position_in_viewport(&self, value: &Vector2<i32>) -> Vector2<i32> {
+        todo!()
+    }
+
+    pub fn logical_scale_uniformed_viewport_image_size(&self) -> Vector2<u16> {
+        todo!()
+    }
 }
 
 impl Project {
