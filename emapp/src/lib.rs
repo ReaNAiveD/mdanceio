@@ -43,6 +43,9 @@ mod uri;
 pub mod wasm_init;
 mod utils;
 mod ray;
+mod clear_pass;
+mod technique;
+mod line_drawer;
 
 #[cfg(test)]
 mod tests {

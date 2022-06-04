@@ -3,7 +3,7 @@ use cgmath::{
     VectorSpace,
 };
 
-use crate::project::Project;
+use crate::{project::Project, clear_pass::ClearPass};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoverageMode {
@@ -38,9 +38,9 @@ pub struct ShadowCamera {
     // sg_pass_desc m_shadowPassDesc;
     // sg_pass m_fallbackPass;
     // sg_pass_desc m_fallbackPassDesc;
-    shadow_color_texture: Option<wgpu::Texture>,
+    shadow_color_texture: wgpu::Texture,
     fallback_color_texture: wgpu::Texture,
-    shadow_depth_texture: Option<wgpu::Texture>,
+    shadow_depth_texture: wgpu::Texture,
     fallback_depth_texture: wgpu::Texture,
     texture_size: Vector2<u16>,
     coverage_mode: CoverageMode,
@@ -59,6 +59,32 @@ impl ShadowCamera {
     pub const INITIAL_TEXTURE_SIZE: u16 = 2048;
 
     pub fn new(device: &wgpu::Device) -> Self {
+        let color_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("ShadowCamera/color"),
+            size: wgpu::Extent3d {
+                width: Self::INITIAL_TEXTURE_SIZE as u32,
+                height: Self::INITIAL_TEXTURE_SIZE as u32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        });
+        let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("ShadowCamera/color"),
+            size: wgpu::Extent3d {
+                width: Self::INITIAL_TEXTURE_SIZE as u32,
+                height: Self::INITIAL_TEXTURE_SIZE as u32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        });
         let fallback_color_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("@mdanceio/ShadowCamera/FallbackColorImage"),
             size: wgpu::Extent3d {
@@ -86,9 +112,9 @@ impl ShadowCamera {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
         Self {
-            shadow_color_texture: None,
+            shadow_color_texture: color_texture,
             fallback_color_texture,
-            shadow_depth_texture: None,
+            shadow_depth_texture: depth_texture,
             fallback_depth_texture,
             texture_size: Vector2::new(Self::INITIAL_TEXTURE_SIZE, Self::INITIAL_TEXTURE_SIZE),
             coverage_mode: CoverageMode::Type1,
@@ -98,11 +124,70 @@ impl ShadowCamera {
         }
     }
 
+    pub fn clear(
+        &mut self,
+        clear_pass: &ClearPass,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let pipeline = clear_pass.get_pipeline(&[wgpu::TextureFormat::R32Float], wgpu::TextureFormat::Depth24PlusStencil8, device);
+        encoder.push_debug_group("ShadowCamera::clear");
+        {
+            let color_texture_view = self
+                .shadow_color_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            let depth_texture_view = self
+                .shadow_depth_texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+            let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("ShadowCamera/Clear/Pass"),
+                color_attachments: &[wgpu::RenderPassColorAttachment {
+                    view: &color_texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 1.0,
+                            g: 1.0,
+                            b: 1.0,
+                            a: 1.0,
+                        }),
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_texture_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1f32),
+                        store: true,
+                    }),
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: true,
+                    }),
+                }),
+            });
+            _render_pass.set_vertex_buffer(0, clear_pass.vertex_buffer.slice(..));
+            _render_pass.set_pipeline(&pipeline);
+            _render_pass.draw(0..4, 0..1);
+        }
+        encoder.pop_debug_group();
+        queue.submit(Some(encoder.finish()));
+    }
+
+    pub fn resize(&mut self, size: Vector2<u16>, device: &wgpu::Device) {
+        if size != self.texture_size {
+            self.texture_size = size.map(|s| s.max(256u16));
+            self.update(device)
+        }
+    }
+
     pub fn update(&mut self, device: &wgpu::Device) {
         if self.enabled {
             let color_texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("ShadowCamera/color"),
-                size: wgpu::Extent3d{
+                size: wgpu::Extent3d {
                     width: self.texture_size.x as u32,
                     height: self.texture_size.y as u32,
                     depth_or_array_layers: 1,
@@ -111,11 +196,12 @@ impl ShadowCamera {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::R32Float,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
             });
             let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("ShadowCamera/color"),
-                size: wgpu::Extent3d{
+                size: wgpu::Extent3d {
                     width: self.texture_size.x as u32,
                     height: self.texture_size.y as u32,
                     depth_or_array_layers: 1,
@@ -124,11 +210,12 @@ impl ShadowCamera {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format: wgpu::TextureFormat::Depth24PlusStencil8,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
             });
             // TODO: register render pass
         }
-    } 
+    }
 
     fn get_view_matrix(&self, project: &Project) -> Matrix4<f32> {
         let camera = project.global_camera();
@@ -287,11 +374,19 @@ impl ShadowCamera {
     }
 
     pub fn color_image(&self) -> &wgpu::Texture {
-        if let Some(color_texture) = &self.shadow_color_texture {
-            color_texture
-        } else {
-            &self.fallback_color_texture
-        }
+        &self.shadow_color_texture
+    }
+
+    pub fn color_texture_view(&self) -> wgpu::TextureView {
+        self.shadow_color_texture.create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    pub fn depth_image(&self) -> &wgpu::Texture {
+        &self.shadow_depth_texture
+    }
+
+    pub fn depth_texture_view(&self) -> wgpu::TextureView {
+        self.shadow_depth_texture.create_view(&wgpu::TextureViewDescriptor::default())
     }
 }
 

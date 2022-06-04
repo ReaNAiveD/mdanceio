@@ -1,4 +1,6 @@
-use cgmath::{Vector3, Matrix4, InnerSpace, Zero, Matrix};
+use cgmath::{AbsDiffEq, InnerSpace, Matrix, Matrix4, Vector3, VectorSpace, Zero};
+
+use crate::{motion::Motion, utils::f128_to_vec3};
 
 pub trait Light {
     // TODO
@@ -10,7 +12,7 @@ pub trait Light {
 }
 
 pub struct DirectionalLight {
-    // TODO
+    // TODO: undo_stack
     color: Vector3<f32>,
     direction: Vector3<f32>,
     translucent: bool,
@@ -18,7 +20,8 @@ pub struct DirectionalLight {
 }
 
 impl DirectionalLight {
-    pub const INITIAL_COLOR: Vector3<f32> = Vector3::new(154f32 / 255f32, 154f32 / 255f32, 154f32 / 255f32);
+    pub const INITIAL_COLOR: Vector3<f32> =
+        Vector3::new(154f32 / 255f32, 154f32 / 255f32, 154f32 / 255f32);
     pub const INITIAL_DIRECTION: Vector3<f32> = Vector3::new(-0.5f32, -1.0f32, 0.5f32);
 
     pub fn new() -> Self {
@@ -28,6 +31,49 @@ impl DirectionalLight {
             translucent: false,
             dirty: false,
         }
+    }
+
+    pub fn reset(&mut self) {
+        self.color = Self::INITIAL_COLOR;
+        self.direction = Self::INITIAL_DIRECTION;
+    }
+
+    pub fn synchronize_parameters(&mut self, motion: &Motion, frame_index: u32) {
+        if let Some(keyframe) = motion.find_light_keyframe(frame_index) {
+            self.set_color(f128_to_vec3(keyframe.color));
+            self.set_direction(f128_to_vec3(keyframe.direction));
+        } else {
+            if let (Some(prev_frame), Some(next_frame)) =
+                motion.opaque.search_closest_light_keyframes(frame_index)
+            {
+                let coef = Motion::coefficient(
+                    prev_frame.base.frame_index,
+                    next_frame.base.frame_index,
+                    frame_index,
+                );
+                let color0 = f128_to_vec3(prev_frame.color);
+                let color1 = f128_to_vec3(next_frame.color);
+                self.set_color(color0.lerp(color1, coef));
+                let direction0 = f128_to_vec3(prev_frame.direction);
+                let direction1 = f128_to_vec3(next_frame.direction);
+                self.set_direction(direction0.lerp(direction1, coef));
+            }
+        }
+    }
+
+    pub fn set_color(&mut self, value: Vector3<f32>) {
+        self.color = value;
+        self.dirty = true;
+    }
+
+    pub fn set_direction(&mut self, value: Vector3<f32>) {
+        self.direction = if !value.abs_diff_eq(&Vector3::<f32>::zero(), Vector3::<f32>::default_epsilon())
+        {
+            value
+        } else {
+            Self::INITIAL_DIRECTION
+        };
+        self.dirty = true;
     }
 }
 
@@ -47,7 +93,13 @@ impl Light for DirectionalLight {
         let m2 = (Vector3::unit_y() * dot - position.y * Vector3::unit_y()).extend(0f32);
         let m3 = (Vector3::unit_z() * dot - position.z * Vector3::unit_y()).extend(0f32);
         let m4 = Vector3::zero().extend(dot);
-        Matrix4 { x: m1, y: m2, z: m3, w: m4 }.transpose()
+        Matrix4 {
+            x: m1,
+            y: m2,
+            z: m3,
+            w: m4,
+        }
+        .transpose()
     }
 
     fn ground_shadow_color(&self) -> Vector3<f32> {

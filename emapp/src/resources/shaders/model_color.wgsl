@@ -113,37 +113,6 @@ fn is_sphere_texture_as_sub_texture() -> bool {
     return model_parameters.sphere_texture_type.y != 0.0;
 }
 
-fn coverage_alpha(frag_input: FragmentInput, rgba: vec4<f32>) -> vec4<f32> {
-    var result = rgba;
-    if (has_diffuse_texture()) {
-        let texcoord0 = frag_input.texcoord0;
-        let texelr = textureSample(diffuse_texture, diffuse_texture_sampler, texcoord0).r;
-        result.a *= texelr;
-    }
-    if (has_sphere_texture()) {
-        let texcoord1 = frag_input.texcoord1;
-        if (is_sphere_texture_multiply()) {
-            result.a *= textureSample(sphere_map_texture, sphere_map_texture_sampler, texcoord1).a;
-        } 
-        else if (is_sphere_texture_as_sub_texture()) {
-            result.a *= textureSample(sphere_map_texture, sphere_map_texture_sampler, texcoord1).a;
-        } 
-        else if (is_sphere_texture_additive()) {
-            result.a *= textureSample(sphere_map_texture, sphere_map_texture_sampler, texcoord1).a;
-        }
-    }
-    if (has_toon_texture()) {
-        let light_position = normalize(-model_parameters.light_direction.xyz);
-        let normal = normalize(frag_input.normal);
-        let y = 1.0 - saturate(dot(normal, light_position) * 16.0 + 0.5);
-        result.a *= textureSample(toon_texture, toon_texture_sampler, vec2<f32>(0.0, y)).a;
-    }
-    if (result.a - alpha_test_threshold < 0.0) {
-        discard;
-    }
-    return result;
-}
-
 @group(0)
 @binding(0)
 var shadow_texture: texture_2d<f32>;

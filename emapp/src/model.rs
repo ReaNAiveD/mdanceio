@@ -20,9 +20,10 @@ use crate::{
     image_view::ImageView,
     internal::LinearDrawer,
     model_object_selection::ModelObjectSelection,
-    model_program_bundle::{ModelProgramBundle, ObjectTechnique},
+    model_program_bundle::{ModelProgramBundle, ObjectTechnique, ZplotTechnique},
     pass,
     project::Project,
+    technique::Technique,
     undo::UndoStack,
     uri::Uri,
 };
@@ -427,7 +428,8 @@ impl Model {
                     .collect::<Vec<_>>();
                 for morph in &opaque.morphs {
                     if let nanoem::model::ModelMorphType::Vertex = morph.get_type() {
-                        if let nanoem::model::ModelMorphU::VERTICES(morph_vertices) = &morph.morphs {
+                        if let nanoem::model::ModelMorphU::VERTICES(morph_vertices) = &morph.morphs
+                        {
                             for morph_vertex in morph_vertices {
                                 if let Some(vertex) =
                                     opaque.get_one_vertex_object(morph_vertex.vertex_index)
@@ -709,9 +711,24 @@ impl Model {
     pub fn create_all_images(&mut self, texture_lut: &HashMap<String, Rc<wgpu::Texture>>) {
         // TODO: 创建所有材质贴图并绑定到Material上
         for material in &mut self.materials {
-            material.diffuse_image = material.origin.get_diffuse_texture_object(&self.opaque.textures).map(|texture_object| texture_lut.get(&texture_object.path)).flatten().map(|rc| rc.clone());
-            material.sphere_map_image = material.origin.get_sphere_map_texture_object(&self.opaque.textures).map(|texture_object| texture_lut.get(&texture_object.path)).flatten().map(|rc| rc.clone());
-            material.toon_image = material.origin.get_toon_texture_object(&self.opaque.textures).map(|texture_object| texture_lut.get(&texture_object.path)).flatten().map(|rc| rc.clone());
+            material.diffuse_image = material
+                .origin
+                .get_diffuse_texture_object(&self.opaque.textures)
+                .map(|texture_object| texture_lut.get(&texture_object.path))
+                .flatten()
+                .map(|rc| rc.clone());
+            material.sphere_map_image = material
+                .origin
+                .get_sphere_map_texture_object(&self.opaque.textures)
+                .map(|texture_object| texture_lut.get(&texture_object.path))
+                .flatten()
+                .map(|rc| rc.clone());
+            material.toon_image = material
+                .origin
+                .get_toon_texture_object(&self.opaque.textures)
+                .map(|texture_object| texture_lut.get(&texture_object.path))
+                .flatten()
+                .map(|rc| rc.clone());
         }
     }
 
@@ -761,7 +778,8 @@ impl Model {
 impl Drawable for Model {
     fn draw(
         &self,
-        view: &wgpu::TextureView,
+        color_view: &wgpu::TextureView,
+        depth_view: Option<&wgpu::TextureView>,
         typ: DrawType,
         project: &Project,
         device: &wgpu::Device,
@@ -770,7 +788,9 @@ impl Drawable for Model {
     ) {
         if self.is_visible() {
             match typ {
-                DrawType::Color => self.draw_color(view, project, device, queue, adapter_info),
+                DrawType::Color => {
+                    self.draw_color(color_view, depth_view, project, device, queue, adapter_info)
+                }
                 DrawType::Edge => todo!(),
                 DrawType::GroundShadow => todo!(),
                 DrawType::ShadowMap => todo!(),
@@ -788,7 +808,8 @@ impl Drawable for Model {
 impl Model {
     fn draw_color(
         &self,
-        view: &wgpu::TextureView,
+        color_view: &wgpu::TextureView,
+        depth_view: Option<&wgpu::TextureView>,
         project: &Project,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -838,8 +859,8 @@ impl Model {
                     );
                     pass.execute(
                         &buffer,
-                        view,
-                        Some(&project.viewport_primary_depth_view()),
+                        color_view,
+                        depth_view,
                         technique_type,
                         device,
                         queue,
@@ -853,6 +874,59 @@ impl Model {
                 // }
             }
             index_offset += num_indices;
+        }
+    }
+
+    fn draw_shadow_map(
+        &self,
+        color_view: &wgpu::TextureView,
+        depth_view: Option<&wgpu::TextureView>,
+        project: &Project,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        adapter_info: wgpu::AdapterInfo,
+    ) {
+        let mut index_offset = 0usize;
+        for material in &self.materials {
+            let num_indices = material.origin.num_vertex_indices;
+            if material.is_casting_shadow_map_enabled() && !material.is_point_draw_enabled() {
+                let buffer = pass::Buffer::new(
+                    num_indices,
+                    index_offset,
+                    &self.vertex_buffers[1 - self.stage_vertex_buffer_index as usize],
+                    &self.index_buffer,
+                    true,
+                );
+                if material.is_visible() {
+                    let mut technique = ZplotTechnique::new(device);
+                    let technique_type = technique.technique_type();
+                    while let Some(pass) = technique.execute(device) {
+                        pass.set_global_parameters(self, project);
+                        pass.set_camera_parameters(project.active_camera(), &Self::INITIAL_WORLD_MATRIX, self);
+                        pass.set_light_parameters(project.global_light(), false);
+                        pass.set_all_model_parameters(self, project);
+                        pass.set_shadow_map_parameters(
+                            project.shadow_camera(),
+                            &Self::INITIAL_WORLD_MATRIX,
+                            project,
+                            adapter_info.backend,
+                            technique_type,
+                            project.shared_fallback_image(),
+                        );
+                        pass.execute(
+                            &buffer,
+                            color_view,
+                            depth_view,
+                            technique_type,
+                            device,
+                            queue,
+                            self,
+                            project,
+                        );
+                        // TODO: process technique hasNextScriptCommand
+                    }
+                }
+            }
         }
     }
 }

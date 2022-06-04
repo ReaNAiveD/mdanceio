@@ -1,4 +1,13 @@
 use cgmath::{BaseFloat, Vector3, Matrix3, Matrix4, ElementWise, BaseNum, SquareMatrix, Vector4, InnerSpace};
+use nanoem::common::F128;
+
+pub fn f128_to_vec3(v: F128) -> Vector3<f32> {
+    Vector3 {
+        x: v.0[0],
+        y: v.0[1],
+        z: v.0[2],
+    }
+}
 
 pub trait Invert {
     fn affine_invert(&self) -> Option<Self> where Self: Sized;

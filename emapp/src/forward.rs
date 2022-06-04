@@ -3,16 +3,17 @@ use cgmath::{Vector3, Vector4};
 pub const MAX_COLOR_ATTACHMENTS: usize = 4;
 
 #[repr(C, align(16))]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LineVertexUnit {
-    position: Vector3<f32>,
-    color: Vector4<u8>,
+    pub position: [f32; 3],
+    pub color: [u8; 4],
 }
 
-#[repr(C)]
+#[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct QuadVertexUnit {
-    position: [f32; 4],
-    texcoord: [f32; 4],
+    pub position: [f32; 4],
+    pub texcoord: [f32; 4],
 }
 
 impl QuadVertexUnit {

@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use nanoem::{
     common::Status,
-    motion::{MotionAccessoryKeyframe, MotionBoneKeyframe, MotionCameraKeyframe, MotionFormatType},
+    motion::{MotionAccessoryKeyframe, MotionBoneKeyframe, MotionCameraKeyframe, MotionFormatType, MotionLightKeyframe},
 };
 
 use crate::{
@@ -127,6 +127,10 @@ impl Motion {
 
     pub fn find_camera_keyframe(&self, frame_index: u32) -> Option<&MotionCameraKeyframe> {
         self.opaque.find_camera_keyframe_object(frame_index)
+    }
+
+    pub fn find_light_keyframe(&self, frame_index: u32) -> Option<&MotionLightKeyframe> {
+        self.opaque.find_light_keyframe_object(frame_index)
     }
 
     pub fn coefficient(prev_frame_index: u32, next_frame_index: u32, frame_index: u32) -> f32 {

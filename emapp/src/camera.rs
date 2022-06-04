@@ -12,7 +12,7 @@ use crate::{
     motion::Motion,
     project::Project,
     ray::Ray,
-    utils::{intersect_ray_plane, project, un_project, Invert},
+    utils::{f128_to_vec3, intersect_ray_plane, project, un_project, Invert},
 };
 
 use nanoem::{
@@ -29,14 +29,6 @@ enum FollowingType {
     None = 1,
     Model,
     Bone,
-}
-
-fn f128_to_vec3(v: F128) -> Vector3<f32> {
-    Vector3 {
-        x: v.0[0],
-        y: v.0[1],
-        z: v.0[2],
-    }
 }
 
 fn bone_pos(bone: &Bone) -> Vector3<f32> {
@@ -202,13 +194,13 @@ impl PerspectiveCamera {
         project: &Project,
         global_track_bundle: &MotionTrackBundle<()>,
     ) {
-        const distance_factor: f32 = -1.0f32;
+        const DISTANCE_FACTOR: f32 = -1.0f32;
         let outside_parent = ("".to_owned(), "".to_owned());
         if let Some(keyframe) = motion.find_camera_keyframe(frame_index) {
             self.set_look_at(f128_to_vec3(keyframe.look_at));
             self.set_angle(f128_to_vec3(keyframe.angle));
             self.set_fov(keyframe.fov);
-            self.set_distance(keyframe.distance * distance_factor);
+            self.set_distance(keyframe.distance * DISTANCE_FACTOR);
             self.set_perspective(keyframe.is_perspective_view);
             self.interpolation = CameraKeyframeInterpolation {
                 lookat_x: Self::build_interpolation(&keyframe.interpolation.lookat_x),
@@ -272,8 +264,8 @@ impl PerspectiveCamera {
                     ));
                     self.set_distance(self.lerp_value_interpolation(
                         &next_frame.interpolation.distance,
-                        prev_frame.distance * distance_factor,
-                        next_frame.distance * distance_factor,
+                        prev_frame.distance * DISTANCE_FACTOR,
+                        next_frame.distance * DISTANCE_FACTOR,
                         interval,
                         coef,
                     ));

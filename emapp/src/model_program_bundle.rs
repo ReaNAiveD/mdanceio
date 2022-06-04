@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, iter, mem, ops::Deref, rc::Rc};
 
-use crate::model::Material;
+use crate::{model::Material, technique::Technique};
 use bytemuck::Zeroable;
 use cgmath::{Matrix4, Vector4};
 use wgpu::util::DeviceExt;
@@ -650,7 +650,8 @@ impl CommonPass {
                 multiview: None,
             })
         });
-        let texture_bind_group = self.get_texture_bind_group(&device, &self.texture_bind_group_layout);
+        let texture_bind_group =
+            self.get_texture_bind_group(&device, &self.texture_bind_group_layout);
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("ModelProgramBundle/BindGroupBuffer/Uniform"),
             contents: bytemuck::bytes_of(&[self.uniform_buffer]),
@@ -743,6 +744,22 @@ pub struct BaseTechnique {
     pass: CommonPass,
 }
 
+impl Technique for BaseTechnique {
+    fn execute(&mut self, device: &wgpu::Device) -> Option<&mut CommonPass> {
+        None
+    }
+
+    fn reset_script_command_state(&self) {
+    }
+
+    fn reset_script_external_color(&self) {
+    }
+
+    fn has_next_script_command(&self) -> bool {
+        false
+    }
+}
+
 pub struct ObjectTechnique {
     base: BaseTechnique,
     is_point_draw_enabled: bool,
@@ -776,19 +793,91 @@ impl ObjectTechnique {
             },
         }
     }
-}
 
-impl ObjectTechnique {
     pub fn technique_type(&self) -> TechniqueType {
         self.base.technique_type
     }
+}
 
-    pub fn execute(&mut self, device: &wgpu::Device) -> Option<&mut CommonPass> {
+impl Technique for ObjectTechnique {
+    fn execute(&mut self, device: &wgpu::Device) -> Option<&mut CommonPass> {
         if !self.base.executed {
             self.base.executed = true;
             Some(&mut self.base.pass)
         } else {
             None
         }
+    }
+
+    fn reset_script_command_state(&self) {
+        self.base.reset_script_command_state()
+    }
+
+    fn reset_script_external_color(&self) {
+        self.base.reset_script_external_color()
+    }
+
+    fn has_next_script_command(&self) -> bool {
+        self.base.has_next_script_command()
+    }
+}
+
+pub struct ZplotTechnique {
+    base: BaseTechnique,
+}
+
+impl Deref for ZplotTechnique {
+    type Target = BaseTechnique;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl ZplotTechnique {
+    pub fn new(device: &wgpu::Device) -> Self {
+        log::trace!("Load model_zplot.wgsl");
+        let sd = &wgpu::ShaderModuleDescriptor {
+            label: Some("ModelProgramBundle/ObjectTechnique/ModelZplot"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("resources/shaders/model_zplot.wgsl").into(),
+            ),
+        };
+        let shader = device.create_shader_module(sd);
+        log::trace!("Finish Load model_zplot.wgsl");
+        Self {
+            base: BaseTechnique {
+                technique_type: TechniqueType::Zplot,
+                executed: false,
+                pass: CommonPass::new(device, shader),
+            },
+        }
+    }
+
+    pub fn technique_type(&self) -> TechniqueType {
+        self.base.technique_type
+    }
+}
+
+impl Technique for ZplotTechnique {
+    fn execute(&mut self, device: &wgpu::Device) -> Option<&mut CommonPass> {
+        if !self.base.executed {
+            self.base.executed = true;
+            Some(&mut self.base.pass)
+        } else {
+            None
+        }
+    }
+
+    fn reset_script_command_state(&self) {
+        self.base.reset_script_command_state()
+    }
+
+    fn reset_script_external_color(&self) {
+        self.base.reset_script_external_color()
+    }
+
+    fn has_next_script_command(&self) -> bool {
+        self.base.has_next_script_command()
     }
 }
