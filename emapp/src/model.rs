@@ -5,7 +5,11 @@ use std::{
 };
 
 use bytemuck::{Pod, Zeroable};
-use cgmath::{ElementWise, Matrix4, Quaternion, SquareMatrix, Vector3, Vector4, Zero};
+use cgmath::{
+    AbsDiffEq, Deg, ElementWise, InnerSpace, Matrix3, Matrix4, Quaternion, Rad, Rotation3,
+    SquareMatrix, Vector3, Vector4, VectorSpace, Zero,
+};
+use nanoem::motion::{MotionBoneKeyframe, MotionModelKeyframe, MotionTrackBundle};
 use par::shape::ShapesMesh;
 use wgpu::{AddressMode, Buffer};
 
@@ -21,11 +25,14 @@ use crate::{
     internal::LinearDrawer,
     model_object_selection::ModelObjectSelection,
     model_program_bundle::{ModelProgramBundle, ObjectTechnique, ZplotTechnique},
+    motion::Motion,
     pass,
+    physics_engine::SimulationTiming,
     project::Project,
     technique::Technique,
     undo::UndoStack,
     uri::Uri,
+    utils::{f128_to_vec3, f128_to_vec4, lerp_f32, CompareElementWise, Invert},
 };
 
 pub type NanoemModel = nanoem::model::Model;
@@ -190,6 +197,33 @@ struct OffscreenPassiveRenderTargetEffect {
     enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, Hash)]
+struct ModelStates {
+    visible: bool,
+    uploaded: bool,
+    vertex_shader_skinning: bool,
+    show_all_bones: bool,
+    show_all_vertex_points: bool,
+    show_all_vertex_faces: bool,
+    show_all_rigid_body_shapes: bool,
+    show_all_rigid_body_shapes_color_by_shape: bool,
+    compute_shader_skinning: bool,
+    morph_weight_focus: bool,
+    enable_shadow: bool,
+    enable_shadow_map: bool,
+    enable_add_blend: bool,
+    show_all_joint_shapes: bool,
+    dirty: bool,
+    dirty_staging_buffer: bool,
+    dirty_morph: bool,
+    physics_simulation: bool,
+    enable_ground_shadow: bool,
+    show_all_material_shapes: bool,
+    show_all_vertex_weights: bool,
+    blending_vertex_weights_enabled: bool,
+    show_all_vertex_normals: bool,
+}
+
 pub struct Model {
     handle: u16,
     // camera: Rc<RefCell<dyn Camera>>,
@@ -235,21 +269,21 @@ pub struct Model {
     bone_to_constraints: HashMap<BoneIndex, ConstraintIndex>,
     // redo_bone_names: Vec<String>,
     // redo_morph_names: Vec<String>,
-    // outside_parents: HashMap<Rc<RefCell<NanoemBone>>, (String, String)>,
+    outside_parents: HashMap<BoneIndex, (String, String)>,
     // image_uris: HashMap<String, Uri>,
     // attachment_uris: HashMap<String, Uri>,
-    // bone_bound_rigid_bodies: HashMap<Rc<RefCell<NanoemBone>>, Rc<RefCell<NanoemRigidBody>>>,
+    bone_bound_rigid_bodies: HashMap<BoneIndex, RigidBodyIndex>,
     constraint_joint_bones: HashMap<BoneIndex, ConstraintIndex>,
     inherent_bones: HashMap<BoneIndex, HashSet<BoneIndex>>,
     constraint_effector_bones: HashSet<BoneIndex>,
     parent_bone_tree: HashMap<BoneIndex, Vec<BoneIndex>>,
     // shared_fallback_bone: Rc<RefCell<Bone>>,
-    // bounding_box: BoundingBox,
+    bounding_box: BoundingBox,
     // // UserData m_userData;
     // annotations: HashMap<String, String>,
     vertex_buffers: [wgpu::Buffer; 2],
     index_buffer: wgpu::Buffer,
-    // edge_color: Vector4<f32>,
+    edge_color: Vector4<f32>,
     // transform_axis_type: AxisType,
     // edit_action_type: EditActionType,
     // transform_coordinate_type: TransformCoordinateType,
@@ -257,8 +291,8 @@ pub struct Model {
     name: String,
     comment: String,
     canonical_name: String,
-    // states: u32,
-    // edge_size_scale_factor: f32,
+    states: ModelStates,
+    edge_size_scale_factor: f32,
     opacity: f32,
     // // void *m_dispatchParallelTaskQueue
     count_vertex_skinning_needed: i32,
@@ -604,10 +638,12 @@ impl Model {
                     bones_by_name,
                     morphs_by_name,
                     bone_to_constraints,
+                    outside_parents: HashMap::new(),
                     constraint_joint_bones,
                     inherent_bones,
                     constraint_effector_bones,
                     parent_bone_tree,
+                    bone_bound_rigid_bodies: HashMap::new(),
                     // shared_fallback_bone,
                     vertex_buffers,
                     index_buffer,
@@ -617,6 +653,14 @@ impl Model {
                     opacity: 1.0f32,
                     count_vertex_skinning_needed,
                     stage_vertex_buffer_index: 0,
+                    edge_color: Vector4::new(0f32, 0f32, 0f32, 1f32),
+                    edge_size_scale_factor: 1.0f32,
+                    bounding_box: BoundingBox::new(),
+                    states: ModelStates {
+                        physics_simulation: true,
+                        enable_ground_shadow: true,
+                        ..Default::default()
+                    },
                 })
             }
             Err(status) => Err(Error::from_nanoem("Cannot load the model: ", status)),
@@ -704,6 +748,7 @@ impl Model {
         model.save_to_buffer(&mut buffer)?;
         Ok(buffer.get_data())
     }
+
     pub fn upload(&mut self) {
         // TODO
     }
@@ -733,6 +778,391 @@ impl Model {
     }
 
     fn create_image() {}
+
+    pub fn synchronize_motion(
+        &mut self,
+        motion: &Motion,
+        frame_index: u32,
+        amount: f32,
+        timing: SimulationTiming,
+    ) {
+        let mut visible = true;
+        if timing == SimulationTiming::Before {
+            if let Some(keyframe) = motion.find_model_keyframe(frame_index) {
+                self.edge_color = f128_to_vec4(keyframe.edge_color);
+                self.edge_size_scale_factor = keyframe.edge_scale_factor;
+                // TODO: do something if having active effect
+                visible = keyframe.visible;
+                self.set_physics_simulation_enabled(keyframe.is_physics_simulation_enabled);
+                self.set_visible(visible);
+                self.synchronize_all_constraint_states(
+                    keyframe,
+                    &motion.opaque.local_bone_motion_track_bundle,
+                );
+                self.synchronize_all_outside_parents(
+                    keyframe,
+                    &motion.opaque.global_motion_track_bundle,
+                );
+            } else {
+                if let (Some(prev_frame), Some(next_frame)) =
+                    motion.opaque.search_closest_model_keyframes(frame_index)
+                {
+                    let coef = Motion::coefficient(
+                        prev_frame.base.frame_index,
+                        next_frame.base.frame_index,
+                        frame_index,
+                    );
+                    self.edge_color = f128_to_vec4(prev_frame.edge_color)
+                        .lerp(f128_to_vec4(next_frame.edge_color), coef);
+                    self.edge_size_scale_factor = lerp_f32(
+                        prev_frame.edge_scale_factor,
+                        next_frame.edge_scale_factor,
+                        coef,
+                    );
+                    // TODO: do something if having active effect
+                }
+                visible = self.states.visible
+            }
+        }
+        if visible {
+            match timing {
+                SimulationTiming::Before => {
+                    self.bounding_box.reset();
+                    self.reset_all_materials();
+                    self.reset_all_bone_local_transform();
+                    self.synchronize_morph_motion(motion, frame_index, amount);
+                    self.synchronize_bone_motion(motion, frame_index, amount, timing);
+                    self.solve_all_constraints();
+                    self.synchronize_all_rigid_body_kinematics(motion, frame_index);
+                    self.synchronize_all_rigid_bodies_transform_feedback_to_simulation();
+                }
+                SimulationTiming::After => {
+                    self.synchronize_bone_motion(motion, frame_index, amount, timing);
+                }
+            }
+        }
+    }
+
+    fn synchronize_all_constraint_states(
+        &mut self,
+        keyframe: &MotionModelKeyframe,
+        local_bone_motion_track_bundle: &MotionTrackBundle<MotionBoneKeyframe>,
+    ) {
+        for state in &keyframe.constraint_states {
+            if let Some(constraint) = local_bone_motion_track_bundle
+                .resolve_id(state.bone_id)
+                .and_then(|name| self.bones_by_name.get(name))
+                .and_then(|bone_idx| self.bone_to_constraints.get(bone_idx))
+                .and_then(|constraint_idx| self.constraints.get_mut(*constraint_idx))
+            {
+                constraint.states.enabled = state.enabled;
+            }
+        }
+    }
+
+    fn synchronize_all_outside_parents(
+        &mut self,
+        keyframe: &MotionModelKeyframe,
+        global_motion_track_bundle: &MotionTrackBundle<()>,
+    ) {
+        self.outside_parents.clear();
+        for op in &keyframe.outside_parents {
+            if let Some(bound_bone) = global_motion_track_bundle
+                .resolve_id(op.local_bone_track_index)
+                .and_then(|subject_bone_name| self.bones_by_name.get(subject_bone_name))
+                .and_then(|idx| self.bones.get(*idx))
+            {
+                if let Some(target_object_name) =
+                    global_motion_track_bundle.resolve_id(op.global_model_track_index)
+                {
+                    if let Some(target_bone_name) =
+                        global_motion_track_bundle.resolve_id(op.global_bone_track_index)
+                    {
+                        // TODO: verify model and bone exists
+                        self.outside_parents.insert(
+                            bound_bone.origin.base.index,
+                            (target_object_name.clone(), target_bone_name.clone()),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    fn synchronize_all_rigid_body_kinematics(&mut self, motion: &Motion, frame_index: u32) {
+        for rigid_body in &mut self.rigid_bodies {
+            if let Some(bone) = self.bones.get(rigid_body.origin.bone_index as usize) {
+                let bone_name = bone.canonical_name.clone();
+                if let (Some(prev_frame), Some(next_frame)) = (
+                    motion.find_bone_keyframe(&bone_name, frame_index),
+                    motion.find_bone_keyframe(&bone_name, frame_index + 1),
+                ) {
+                    if prev_frame.is_physics_simulation_enabled
+                        && !next_frame.is_physics_simulation_enabled
+                    {
+                        rigid_body.enable_kinematic();
+                    }
+                } else {
+                    if let (Some(prev_frame), Some(next_frame)) = motion
+                        .opaque
+                        .search_closest_bone_keyframes(&bone_name, frame_index)
+                    {
+                        if prev_frame.is_physics_simulation_enabled
+                            && !next_frame.is_physics_simulation_enabled
+                        {
+                            rigid_body.enable_kinematic();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn synchronize_all_rigid_bodies_transform_feedback_to_simulation(&mut self) {
+        for rigid_body in &mut self.rigid_bodies {
+            rigid_body.apply_all_forces();
+            rigid_body.synchronize_transform_feedback_to_simulation();
+        }
+    }
+
+    fn synchronize_bone_motion(
+        &mut self,
+        motion: &Motion,
+        frame_index: u32,
+        amount: f32,
+        timing: SimulationTiming,
+    ) {
+        if let SimulationTiming::Before = timing {
+            for bone in &mut self.bones {
+                let rigid_body = self
+                    .bone_bound_rigid_bodies
+                    .get(&bone.origin.base.index)
+                    .and_then(|idx| self.rigid_bodies.get(*idx));
+                bone.synchronize_motion(motion, rigid_body, frame_index, amount);
+            }
+        }
+        for bone in &mut self.bones {
+            if (bone.origin.flags.is_affected_by_physics_simulation
+                && timing == SimulationTiming::After)
+                || (!bone.origin.flags.is_affected_by_physics_simulation
+                    && timing == SimulationTiming::Before)
+            {
+                bone.apply_all_local_transform();
+                bone.apply_outside_parent_transform();
+                self.bounding_box.set(bone.world_transform_origin());
+            }
+        }
+    }
+
+    fn synchronize_morph_motion(&mut self, motion: &Motion, frame_index: u32, amount: f32) {
+        if !self.states.dirty_morph {
+            self.reset_all_morphs();
+            for morph in &mut self.morphs {
+                morph.synchronize_motion(motion, frame_index, amount);
+            }
+            self.deform_all_morphs(true);
+            for morph in &mut self.morphs {
+                morph.dirty = false;
+            }
+            self.states.dirty_morph = true;
+        }
+    }
+
+    fn solve_all_constraints(&mut self) {
+        for constraint in &mut self
+            .constraints
+            .iter_mut()
+            .filter(|constraint| constraint.states.enabled)
+        {
+            let num_iterations = constraint.origin.num_iterations;
+            let angle_limit = constraint.origin.angle_limit;
+            let effector_bone_index = usize::try_from(constraint.origin.effector_bone_index).ok();
+            let target_bone_index = usize::try_from(constraint.origin.target_bone_index).ok();
+            let effector_bone_position = effector_bone_index
+                .and_then(|idx| self.bones.get(idx))
+                .map(|bone| bone.world_transform_origin().extend(1f32));
+            let target_bone_position = target_bone_index
+                .and_then(|idx| self.bones.get(idx))
+                .map(|bone| bone.world_transform_origin().extend(1f32));
+            if let (Some(effector_bone_position), Some(target_bone_position)) =
+                (effector_bone_position, target_bone_position)
+            {
+                for i in 0..num_iterations {
+                    for j in 0..constraint.origin.joints.len() {
+                        let joint = &constraint.origin.joints[j];
+                        if let Some(joint_bone) = usize::try_from(joint.bone_index)
+                            .ok()
+                            .and_then(|idx| self.bones.get(idx))
+                        {
+                            if let Some(joint_result) = constraint
+                                .joint_iteration_result
+                                .get_mut(joint.base.index)
+                                .and_then(|results| results.get_mut(i as usize))
+                            {
+                                if !joint_result.resolve_axis_angle(
+                                    &joint_bone.matrices.world_transform,
+                                    &effector_bone_position,
+                                    &target_bone_position,
+                                ) {
+                                    let new_angle_limit = angle_limit * (j as f32 + 1f32);
+                                    let has_unit_x_constraint = joint_bone.has_unit_x_constraint();
+                                    if i == 0 && has_unit_x_constraint {
+                                        joint_result.axis = Vector3::unit_x();
+                                    }
+                                    joint_result
+                                        .set_transform(&joint_bone.matrices.world_transform);
+
+                                    let orientation = Quaternion::from_axis_angle(
+                                        joint_result.axis,
+                                        Rad(joint_result.angle.min(new_angle_limit)),
+                                    );
+                                    let mut mixed_orientation = if i == 0 {
+                                        orientation * joint_bone.local_orientation
+                                    } else {
+                                        joint_bone.constraint_joint_orientation * orientation
+                                    };
+                                    if has_unit_x_constraint {
+                                        let lower_limit =
+                                            Vector3::new(0.5f32.to_radians(), 0f32, 0f32);
+                                        let upper_limit =
+                                            Vector3::new(180f32.to_radians(), 0f32, 0f32);
+                                        mixed_orientation = Bone::constraint_orientation(
+                                            mixed_orientation,
+                                            &upper_limit,
+                                            &lower_limit,
+                                        );
+                                    }
+                                    usize::try_from(joint.bone_index)
+                                        .ok()
+                                        .and_then(|idx| self.bones.get_mut(idx))
+                                        .map(|joint_bone| {
+                                            joint_bone.constraint_joint_orientation =
+                                                mixed_orientation
+                                        });
+
+                                    for k in j..=0usize {
+                                        let upper_joint = &constraint.origin.joints[k];
+                                        let upper_joint_bone_index =
+                                            usize::try_from(upper_joint.bone_index).ok();
+                                        let parent_origin_world_transform = upper_joint_bone_index
+                                            .and_then(|idx| self.bones.get(idx))
+                                            .and_then(|upper_joint_bone| {
+                                                usize::try_from(
+                                                    upper_joint_bone.origin.parent_bone_index,
+                                                )
+                                                .ok()
+                                            })
+                                            .and_then(|idx| self.bones.get(idx))
+                                            .map(|bone| {
+                                                (
+                                                    f128_to_vec3(bone.origin.origin),
+                                                    bone.matrices.world_transform,
+                                                )
+                                            });
+                                        if let Some(upper_joint_bone) = upper_joint_bone_index
+                                            .and_then(|idx| self.bones.get_mut(idx))
+                                        {
+                                            let translation = upper_joint_bone.local_translation;
+                                            let orientation =
+                                                upper_joint_bone.constraint_joint_orientation;
+                                            upper_joint_bone.update_local_transform_to(
+                                                parent_origin_world_transform,
+                                                &translation,
+                                                &orientation,
+                                            )
+                                        }
+                                    }
+
+                                    let parent_origin_world_transform = effector_bone_index
+                                        .and_then(|idx| self.bones.get(idx))
+                                        .and_then(|effector_bone| {
+                                            usize::try_from(effector_bone.origin.parent_bone_index)
+                                                .ok()
+                                        })
+                                        .and_then(|idx| self.bones.get(idx))
+                                        .map(|bone| {
+                                            (
+                                                f128_to_vec3(bone.origin.origin),
+                                                bone.matrices.world_transform,
+                                            )
+                                        });
+                                    effector_bone_index
+                                        .and_then(|idx| self.bones.get_mut(idx))
+                                        .map(|effector_bone| {
+                                            effector_bone.update_local_transform(
+                                                parent_origin_world_transform,
+                                            )
+                                        });
+                                    if let Some(effector_result) = constraint
+                                        .effector_iteration_result
+                                        .get_mut(joint.base.index)
+                                        .and_then(|results| results.get_mut(i as usize))
+                                    {
+                                        effector_bone_index
+                                            .and_then(|idx| self.bones.get(idx))
+                                            .map(|effector_bone| {
+                                                effector_result.set_transform(
+                                                    &effector_bone.matrices.world_transform,
+                                                )
+                                            });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        todo!()
+    }
+
+    fn reset_all_bone_transforms(&mut self) {
+        todo!()
+    }
+
+    fn reset_all_bone_local_transform(&mut self) {
+        todo!()
+    }
+
+    fn reset_all_bone_morph_transform(&mut self) {
+        todo!()
+    }
+
+    fn reset_all_materials(&mut self) {
+        todo!()
+    }
+
+    fn reset_all_morphs(&mut self) {
+        todo!()
+    }
+
+    fn reset_all_vertices(&mut self) {
+        todo!()
+    }
+
+    pub fn set_physics_simulation_enabled(&mut self, value: bool) {
+        if self.states.physics_simulation != value {
+            self.set_all_physics_objects_enabled(value && self.states.visible);
+            self.states.physics_simulation = value;
+        }
+    }
+
+    pub fn set_visible(&mut self, value: bool) {
+        if self.states.visible != value {
+            self.set_all_physics_objects_enabled(value & self.states.physics_simulation);
+            // TODO: enable effect
+            self.states.visible = value;
+            // TODO: publish set visible event
+        }
+    }
+
+    pub fn set_all_physics_objects_enabled(&mut self, value: bool) {
+        todo!()
+    }
+
+    pub fn deform_all_morphs(&mut self, check_dirty: bool) {
+        todo!()
+    }
 
     pub fn bones(&self) -> &[Bone] {
         &self.bones
@@ -800,8 +1230,7 @@ impl Drawable for Model {
     }
 
     fn is_visible(&self) -> bool {
-        // TODO: isVisible
-        true
+        self.states.visible
     }
 }
 
@@ -902,7 +1331,11 @@ impl Model {
                     let technique_type = technique.technique_type();
                     while let Some(pass) = technique.execute(device) {
                         pass.set_global_parameters(self, project);
-                        pass.set_camera_parameters(project.active_camera(), &Self::INITIAL_WORLD_MATRIX, self);
+                        pass.set_camera_parameters(
+                            project.active_camera(),
+                            &Self::INITIAL_WORLD_MATRIX,
+                            self,
+                        );
                         pass.set_light_parameters(project.global_light(), false);
                         pass.set_all_model_parameters(self, project);
                         pass.set_shadow_map_parameters(
@@ -1066,10 +1499,161 @@ impl Bone {
         }
     }
 
+    fn translate(v: &Vector3<f32>, m: &Matrix4<f32>) -> Matrix4<f32> {
+        let mut result = *m;
+        result[3] = Vector4::new(1f32, 1f32, 1f32, 1f32);
+        result[3] = result * v.extend(0f32);
+        result
+    }
+
+    fn shrink_3x3(m: &Matrix4<f32>) -> Matrix4<f32> {
+        let mut result = *m;
+        result[3] = Vector4::new(0f32, 0f32, 0f32, 1f32);
+        return result;
+    }
+
     // fn synchronize_transform(motion: &mut Motion, model_bone: &ModelBone, model_rigid_body: &ModelRigidBody, frame_index: u32, transform: &FrameTransform) {
     //     let name = model_bone.get_name(LanguageType::Japanese).unwrap();
     //     if let Some(Keyframe) = motion.find_bone_keyframe_object(name, index)
     // }
+
+    pub fn synchronize_motion(
+        &mut self,
+        motion: &Motion,
+        rigid_body: Option<&RigidBody>,
+        frame_index: u32,
+        amount: f32,
+    ) {
+        todo!()
+    }
+
+    pub fn solve_constraint(&mut self) {
+        // if joint_bone.origin.flags.has_fixed_axis {
+        //     let axis =
+        //         f128_to_vec3(joint_bone.origin.fixed_axis);
+        //     if axis.abs_diff_ne(
+        //         &Vector3::zero(),
+        //         Vector3::<f32>::default_epsilon(),
+        //     ) {
+        //         joint_result.axis = axis.normalize();
+        //     }
+        // } else if i == 0 && joint.has_angle_limit {
+        //     let has_upper_limit =
+        //         f128_to_vec3(joint.upper_limit).map(|limit| {
+        //             limit.abs() <= f32::default_epsilon()
+        //         });
+        //     let has_lower_limit =
+        //         f128_to_vec3(joint.lower_limit).map(|limit| {
+        //             limit.abs() <= f32::default_epsilon()
+        //         });
+        //     if has_lower_limit.y
+        //         && has_upper_limit.y
+        //         && has_lower_limit.z
+        //         && has_upper_limit.z
+        //     {
+        //         joint_result.axis = Vector3::unit_x();
+        //     } else if has_lower_limit.x
+        //         && has_upper_limit.x
+        //         && has_lower_limit.z
+        //         && has_upper_limit.z
+        //     {
+        //         joint_result.axis = Vector3::unit_y();
+        //     } else if has_lower_limit.x
+        //         && has_upper_limit.x
+        //         && has_lower_limit.y
+        //         && has_upper_limit.y
+        //     {
+        //         joint_result.axis = Vector3::unit_z();
+        //     }
+        // }
+        // let new_angle_limit = angle_limit * (j as f32 + 1f32);
+        // let orientation = Quaternion::from_axis_angle(
+        //     joint_result.axis,
+        //     joint_result.angle.min(new_angle_limit),
+        // );
+        // let mixed_orientation = if i == 0 {
+        //     orientation * joint_bone.local_user_orientation
+        // } else {
+        //     joint_bone.constraint_joint_orientation
+        //         * orientation
+        // };
+        todo!()
+    }
+
+    pub fn update_local_transform(
+        &mut self,
+        parent_origin_world_transform: Option<(Vector3<f32>, Matrix4<f32>)>,
+    ) {
+        if self
+            .local_translation
+            .abs_diff_eq(&Vector3::zero(), Vector3::<f32>::default_epsilon())
+            && self
+                .local_orientation
+                .abs_diff_eq(&Quaternion::zero(), Quaternion::<f32>::default_epsilon())
+        {
+            self.update_local_transform_to(
+                parent_origin_world_transform,
+                &Vector3::zero(),
+                &Quaternion::zero(),
+            );
+        } else {
+            let translation = self.local_translation;
+            let orientation = self.local_orientation;
+            self.update_local_transform_to(
+                parent_origin_world_transform,
+                &translation,
+                &orientation,
+            );
+        }
+    }
+
+    pub fn update_local_transform_to(
+        &mut self,
+        parent_origin_world_transform: Option<(Vector3<f32>, Matrix4<f32>)>,
+        translation: &Vector3<f32>,
+        orientation: &Quaternion<f32>,
+    ) {
+        let translation_matrix = Matrix4 {
+            x: Vector4::unit_x(),
+            y: Vector4::unit_y(),
+            z: Vector4::unit_z(),
+            w: translation.extend(1f32),
+        };
+        let local_transform = Matrix4::<f32>::from(*orientation) * translation_matrix;
+        let bone_origin = f128_to_vec3(self.origin.origin);
+        if let Some((parent_origin, parent_world_transform)) = parent_origin_world_transform {
+            let offset = bone_origin - parent_origin;
+            let offset_matrix = Matrix4 {
+                x: Vector4::unit_x(),
+                y: Vector4::unit_y(),
+                z: Vector4::unit_z(),
+                w: offset.extend(1f32),
+            };
+            let parent_world_transform = parent_world_transform;
+            let local_transform_with_offset = local_transform * offset_matrix;
+            self.matrices.world_transform = local_transform_with_offset * parent_world_transform;
+        } else {
+            let offset_matrix = Matrix4 {
+                x: Vector4::unit_x(),
+                y: Vector4::unit_y(),
+                z: Vector4::unit_z(),
+                w: bone_origin.extend(1f32),
+            };
+            self.matrices.world_transform = local_transform * offset_matrix;
+        }
+        self.matrices.local_transform = local_transform;
+        self.matrices.skinning_transform =
+            Self::translate(&-bone_origin, &self.matrices.world_transform);
+        self.matrices.normal_transform = Self::shrink_3x3(&self.matrices.world_transform);
+    }
+
+    pub fn apply_all_local_transform(&mut self) {
+        todo!()
+    }
+
+    pub fn apply_outside_parent_transform(&mut self) {
+        todo!()
+    }
 
     pub fn skinning_transform(&self) -> Matrix4<f32> {
         todo!()
@@ -1077,6 +1661,54 @@ impl Bone {
 
     pub fn world_transform_origin(&self) -> Vector3<f32> {
         todo!()
+    }
+
+    pub fn has_unit_x_constraint(&self) -> bool {
+        &self.canonical_name == Self::LEFT_KNEE_IN_JAPANESE
+            || &self.canonical_name == Self::RIGHT_KNEE_IN_JAPANESE
+    }
+
+    pub fn constraint_orientation(
+        orientation: Quaternion<f32>,
+        upper_limit: &Vector3<f32>,
+        lower_limit: &Vector3<f32>,
+    ) -> Quaternion<f32> {
+        let rad_90_deg = 90f32.to_radians();
+        let matrix: Matrix3<f32> = orientation.into();
+        if lower_limit.x > -rad_90_deg && upper_limit.x < rad_90_deg {
+            let radians = Vector3::new(
+                matrix[1][2].asin(),
+                (-matrix[0][2]).atan2(matrix[2][2]),
+                (-matrix[1][0]).atan2(matrix[1][1]),
+            );
+            let r = radians.clamp_element_wise(*lower_limit, *upper_limit);
+            let x = Quaternion::from_axis_angle(Vector3::unit_x(), Rad(r.x));
+            let y = Quaternion::from_axis_angle(Vector3::unit_y(), Rad(r.y));
+            let z = Quaternion::from_axis_angle(Vector3::unit_z(), Rad(r.z));
+            z * x * y
+        } else if lower_limit.y > -rad_90_deg && upper_limit.y < rad_90_deg {
+            let radians = Vector3::new(
+                (-matrix[2][1]).atan2(matrix[2][2]),
+                matrix[2][0].asin(),
+                (-matrix[1][0]).atan2(matrix[0][0]),
+            );
+            let r = radians.clamp_element_wise(*lower_limit, *upper_limit);
+            let x = Quaternion::from_axis_angle(Vector3::unit_x(), Rad(r.x));
+            let y = Quaternion::from_axis_angle(Vector3::unit_y(), Rad(r.y));
+            let z = Quaternion::from_axis_angle(Vector3::unit_z(), Rad(r.z));
+            x * y * z
+        } else {
+            let radians = Vector3::new(
+                (-matrix[2][1]).atan2(matrix[1][1]),
+                (-matrix[0][2]).atan2(matrix[0][0]),
+                matrix[0][1].asin(),
+            );
+            let r = radians.clamp_element_wise(*lower_limit, *upper_limit);
+            let x = Quaternion::from_axis_angle(Vector3::unit_x(), Rad(r.x));
+            let y = Quaternion::from_axis_angle(Vector3::unit_y(), Rad(r.y));
+            let z = Quaternion::from_axis_angle(Vector3::unit_z(), Rad(r.z));
+            y * z * x
+        }
     }
 }
 
@@ -1090,14 +1722,65 @@ pub struct ConstraintJoint {
     angle: f32,
 }
 
+impl ConstraintJoint {
+    pub fn set_transform(&mut self, v: &Matrix4<f32>) {
+        self.orientation = (Matrix3 {
+            x: v.x.truncate(),
+            y: v.y.truncate(),
+            z: v.z.truncate(),
+        })
+        .into();
+        self.translation = v[3].truncate();
+    }
+
+    pub fn resolve_axis_angle(
+        &mut self,
+        transform: &Matrix4<f32>,
+        effector_position: &Vector4<f32>,
+        target_position: &Vector4<f32>,
+    ) -> bool {
+        let inv_transform = transform.affine_invert().unwrap();
+        let inv_effector_position = (inv_transform * effector_position).truncate();
+        let inv_target_position = (inv_transform * target_position).truncate();
+        if inv_effector_position.abs_diff_eq(&Vector3::zero(), Vector3::<f32>::default_epsilon())
+            || inv_target_position.abs_diff_eq(&Vector3::zero(), Vector3::<f32>::default_epsilon())
+        {
+            return true;
+        }
+        let effector_direction = inv_effector_position.normalize();
+        let target_direction = inv_target_position.normalize();
+        let axis = effector_direction.cross(target_direction);
+        self.effector_direction = effector_direction;
+        self.target_direction = target_direction;
+        self.axis = axis;
+        if axis.abs_diff_eq(&Vector3::zero(), Vector3::<f32>::default_epsilon()) {
+            return true;
+        }
+        let z = effector_direction
+            .dot(target_direction)
+            .clamp(-1.0f32, 1.0f32);
+        self.axis = axis.normalize();
+        if z.abs() <= f32::default_epsilon() {
+            return true;
+        }
+        self.angle = z.acos();
+        return false;
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ConstraintStates {
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct Constraint {
     name: String,
     canonical_name: String,
     joint_iteration_result: Vec<Vec<ConstraintJoint>>,
     effector_iteration_result: Vec<Vec<ConstraintJoint>>,
-    states: u32,
-    origin: NanoemConstraint,
+    pub states: ConstraintStates,
+    pub origin: NanoemConstraint,
 }
 
 impl Constraint {
@@ -1135,7 +1818,7 @@ impl Constraint {
             canonical_name,
             joint_iteration_result,
             effector_iteration_result,
-            states: Self::PRIVATE_STATE_INITIAL_VALUE,
+            states: ConstraintStates { enabled: true },
             origin: constraint.clone(),
         }
     }
@@ -1532,6 +2215,10 @@ impl Morph {
             origin: morph.clone(),
         }
     }
+
+    pub fn synchronize_motion(&mut self, motion: &Motion, frame_index: u32, amount: f32) {
+        todo!()
+    }
 }
 
 pub struct Label {
@@ -1609,6 +2296,18 @@ impl RigidBody {
             states: Self::PRIVATE_STATE_INITIAL_VALUE,
             origin: rigid_body.clone(),
         }
+    }
+
+    pub fn enable_kinematic(&mut self) {
+        todo!()
+    }
+
+    pub fn apply_all_forces(&mut self) {
+        todo!()
+    }
+
+    pub fn synchronize_transform_feedback_to_simulation(&mut self) {
+        todo!()
     }
 }
 

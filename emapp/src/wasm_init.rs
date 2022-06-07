@@ -98,6 +98,9 @@ impl WasmClient {
                 &queue,
                 Injector {
                     pixel_format: surface_format,
+                    window_device_pixel_ratio: 1.0f32,
+                    viewport_device_pixel_ratio: 1.0f32,
+                    window_size: [1, 1],
                 },
             );
 
@@ -145,11 +148,13 @@ impl WasmClient {
     }
 
     pub fn load_texture(&mut self, key: &str, data: &[u8]) {
-        self.service.load_texture(key, data, &self.device, &self.queue);
+        self.service
+            .load_texture(key, data, &self.device, &self.queue);
     }
 
     pub fn load_decoded_texture(&mut self, key: &str, data: &[u8], width: u32, height: u32) {
-        self.service.load_decoded_texture(key, data, (width, height), &self.device, &self.queue);
+        self.service
+            .load_decoded_texture(key, data, (width, height), &self.device, &self.queue);
     }
 
     pub fn update_bind_texture(&mut self) {

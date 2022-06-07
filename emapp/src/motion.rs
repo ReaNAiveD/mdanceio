@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use nanoem::{
     common::Status,
-    motion::{MotionAccessoryKeyframe, MotionBoneKeyframe, MotionCameraKeyframe, MotionFormatType, MotionLightKeyframe},
+    motion::{MotionAccessoryKeyframe, MotionBoneKeyframe, MotionCameraKeyframe, MotionFormatType, MotionLightKeyframe, MotionModelKeyframe},
 };
 
 use crate::{
@@ -123,6 +123,14 @@ impl Motion {
         self.opaque
             .get_max_frame_index()
             .min(Project::MAXIMUM_BASE_DURATION)
+    }
+
+    pub fn find_bone_keyframe(&self, name: &String, frame_index: u32) -> Option<&MotionBoneKeyframe> {
+        self.opaque.find_bone_keyframe_object(name, frame_index)
+    }
+
+    pub fn find_model_keyframe(&self, frame_index: u32) -> Option<&MotionModelKeyframe> {
+        self.opaque.find_model_keyframe_object(frame_index)
     }
 
     pub fn find_camera_keyframe(&self, frame_index: u32) -> Option<&MotionCameraKeyframe> {

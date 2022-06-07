@@ -12,11 +12,10 @@ use crate::{
     audio_player::AudioPlayer,
     background_video_renderer::BackgroundVideoRenderer,
     camera::{Camera, PerspectiveCamera},
+    clear_pass::ClearPass,
     debug_capture::DebugCapture,
     drawable::{DrawType, Drawable},
-    effect::{
-        self, common::RenderPassScope, global_uniform::GlobalUniform, Effect, ScriptOrder,
-    },
+    effect::{self, common::RenderPassScope, global_uniform::GlobalUniform, Effect, ScriptOrder},
     error::Error,
     event_publisher::EventPublisher,
     file_manager::FileManager,
@@ -40,7 +39,7 @@ use crate::{
     track::Track,
     translator::{LanguageType, Translator},
     undo::UndoStack,
-    uri::Uri, clear_pass::ClearPass,
+    uri::Uri,
 };
 
 pub trait Confirmor {
@@ -190,6 +189,107 @@ struct FpsUnit {}
 
 struct OffscreenRenderTargetCondition {}
 
+struct ViewLayout {
+    window_device_pixel_ratio: (f32, f32),
+    viewport_device_pixel_ratio: (f32, f32),
+    window_size: Vector2<u16>,
+    viewport_image_size: Vector2<u16>,
+    viewport_padding: Vector2<u16>,
+    uniform_viewport_layout_rect: (Vector4<u16>, Vector4<u16>),
+    uniform_viewport_image_size: (Vector2<u16>, Vector2<u16>),
+}
+
+impl ViewLayout {
+    pub fn viewport_device_pixel_ratio(&self) -> f32 {
+        self.viewport_device_pixel_ratio.0
+    }
+
+    pub fn window_device_pixel_ratio(&self) -> f32 {
+        self.window_device_pixel_ratio.0
+    }
+
+    pub fn logical_scale_uniformed_viewport_layout_rect(&self) -> Vector4<u16> {
+        self.uniform_viewport_layout_rect.0
+    }
+
+    pub fn logical_scale_uniformed_viewport_image_size(&self) -> Vector2<u16> {
+        self.uniform_viewport_image_size.0
+    }
+
+    pub fn device_scale_uniformed_viewport_layout_rect(&self) -> Vector4<u16> {
+        // TODO: Origin Likes below. s * dpr has any meaning?
+        // const nanoem_f32_t dpr = viewportDevicePixelRatio(), s = windowDevicePixelRatio() / dpr;
+        // return Vector4(logicalScaleUniformedViewportLayoutRect()) * dpr * s;
+        let window_device_pixel_ratio = self.window_device_pixel_ratio();
+        self.logical_scale_uniformed_viewport_layout_rect()
+            .map(|v| ((v as f32) * window_device_pixel_ratio) as u16)
+    }
+
+    pub fn device_scale_uniformed_viewport_image_size(&self) -> Vector2<u16> {
+        let window_device_pixel_ratio = self.window_device_pixel_ratio();
+        self.logical_scale_uniformed_viewport_image_size()
+            .map(|v| ((v as f32) * window_device_pixel_ratio) as u16)
+    }
+
+    fn adjust_viewport_image_rect(
+        viewport_image_rect: &mut Vector4<f32>,
+        viewport_layout_rect: Vector4<f32>,
+        viewport_image_size: Vector2<f32>,
+    ) {
+        if viewport_layout_rect.z > viewport_image_size.x {
+            viewport_image_rect.x += (viewport_layout_rect.z - viewport_image_size.x) * 0.5f32;
+            viewport_image_rect.z = viewport_image_size.x;
+        }
+        if viewport_layout_rect.w > viewport_image_size.y {
+            viewport_image_rect.y += (viewport_layout_rect.w - viewport_image_size.y) * 0.5f32;
+            viewport_image_rect.w = viewport_image_size.y;
+        }
+    }
+
+    pub fn logical_scale_uniformed_viewport_image_rect(&self) -> Vector4<f32> {
+        let viewport_layout_rect = self
+            .logical_scale_uniformed_viewport_layout_rect()
+            .map(|v| v as f32);
+        let mut viewport_image_rect = viewport_layout_rect;
+        Self::adjust_viewport_image_rect(
+            &mut viewport_image_rect,
+            viewport_layout_rect,
+            self.logical_scale_uniformed_viewport_image_size()
+                .map(|v| v as f32),
+        );
+        viewport_image_rect.x -= self.viewport_padding.x as f32;
+        viewport_image_rect.y -= self.viewport_padding.y as f32;
+        viewport_image_rect
+    }
+
+    pub fn device_scale_uniformed_viewport_image_rect(&self) -> Vector4<f32> {
+        let viewport_layout_rect = self
+            .device_scale_uniformed_viewport_layout_rect()
+            .map(|v| v as f32);
+        let mut viewport_image_rect = viewport_layout_rect;
+        Self::adjust_viewport_image_rect(
+            &mut viewport_image_rect,
+            viewport_layout_rect,
+            self.device_scale_uniformed_viewport_image_size()
+                .map(|v| v as f32),
+        );
+        viewport_image_rect
+    }
+
+    pub fn resolve_logical_cursor_position_in_viewport(
+        &self,
+        value: &Vector2<i32>,
+    ) -> Vector2<i32> {
+        let size = self.uniform_viewport_image_size.0;
+        let offset =
+            self.uniform_viewport_layout_rect.0.truncate().truncate() + self.viewport_padding;
+        Vector2::new(
+            value.x - offset.x as i32,
+            size.y as i32 - (value.y - offset.y as i32),
+        )
+    }
+}
+
 pub struct Project {
     // background_video_renderer: Box<dyn BackgroundVideoRenderer<Error>>,
     // confirmor: Box<dyn Confirmor>,
@@ -250,16 +350,12 @@ pub struct Project {
     // selection_segment: TimeLineSegment,
     // base_duration: u32,
     language: LanguageType,
-    // uniform_viewport_layout_rect: (Vector4<u16>, Vector4<u16>),
-    // uniform_viewport_image_size: (Vector2<u16>, Vector2<u16>),
+    layout: ViewLayout,
     // background_video_rect: Vector4<i32>,
     // bone_selection_rect: Vector4<i32>,
     // logical_scale_cursor_positions: HashMap<CursorType, Vector4<i32>>,
     // logical_scale_moving_cursor_position: Vector2<i32>,
     // scroll_delta: Vector2<i32>,
-    // window_size: Vector2<u16>,
-    // viewport_image_size: Vector2<u16>,
-    // viewport_padding: Vector2<u16>,
     viewport_background_color: Vector4<f32>,
     // all_offscreen_render_targets: HashMap<Rc<RefCell<Effect>>, HashMap<String, Vec<OffscreenRenderTargetCondition>>>,
     fallback_texture: wgpu::Texture,
@@ -288,8 +384,6 @@ pub struct Project {
     depends_on_script_external: Vec<Box<dyn Drawable>>,
     // transform_performed_at: (u32, i32),
     // indices_of_material_to_attach_effect: (u16, HashSet<usize>),
-    // window_device_pixel_ratio: (f32, f32),
-    // viewport_device_pixel_ratio: (f32, f32),
     // uptime: (f64, f64),
     local_frame_index: (u32, u32),
     // time_step_factor: f32,
@@ -312,6 +406,9 @@ impl Project {
     pub const MINIMUM_BASE_DURATION: u32 = 300;
     pub const MAXIMUM_BASE_DURATION: u32 = i32::MAX as u32;
     pub const DEFAULT_CIRCLE_RADIUS_SIZE: f32 = 7.5f32;
+
+    pub const DEFAULT_VIEWPORT_IMAGE_SIZE: [u16; 2] = [640, 360];
+    pub const TIME_BASED_AUDIO_SOURCE_DEFAULT_SAMPLE_RATE: u32 = 1440;
 
     pub const REDO_LOG_FILE_EXTENSION: &'static str = "redo";
     pub const ARCHIVED_NATIVE_FORMAT_FILE_EXTENSION: &'static str = "nma";
@@ -356,6 +453,15 @@ impl Project {
         Self {
             editing_mode: EditingMode::None,
             language: LanguageType::English,
+            layout: ViewLayout {
+                window_device_pixel_ratio: (injector.window_device_pixel_ratio, injector.window_device_pixel_ratio),
+                viewport_device_pixel_ratio: (injector.viewport_device_pixel_ratio, injector.viewport_device_pixel_ratio),
+                window_size: injector.window_size.into(),
+                viewport_image_size: Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
+                viewport_padding: Vector2::new(0, 0),
+                uniform_viewport_layout_rect: (Vector4::new(0, 0, 0, 0), Vector4::new(0, 0, 0, 0)),
+                uniform_viewport_image_size: (Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(), Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into()),
+            },
             grid: Box::new(Grid::new(device)),
             draw_type: DrawType::Color,
             depends_on_script_external: vec![],
@@ -495,11 +601,11 @@ impl Project {
         &self,
         value: &Vector2<i32>,
     ) -> Vector2<i32> {
-        todo!()
+        self.layout.resolve_logical_cursor_position_in_viewport(value)
     }
 
     pub fn logical_scale_uniformed_viewport_image_size(&self) -> Vector2<u16> {
-        todo!()
+        self.layout.logical_scale_uniformed_viewport_image_size()
     }
 }
 
@@ -648,7 +754,11 @@ impl Project {
         let format = self.find_render_pass_pixel_format(self.sample_count());
         let depth_stencil_attachment_view = &self.viewport_primary_depth_view();
         {
-            let pipeline = self.clear_pass.get_pipeline(&format.color_texture_formats, format.depth_texture_format, device);
+            let pipeline = self.clear_pass.get_pipeline(
+                &format.color_texture_formats,
+                format.depth_texture_format,
+                device,
+            );
             let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("@mdanceio/ClearRenderPass"),
                 color_attachments: &[wgpu::RenderPassColorAttachment {
@@ -685,13 +795,22 @@ impl Project {
         queue.submit(Some(encoder.finish()));
     }
 
-    pub fn draw_grid(&mut self, 
+    pub fn draw_grid(
+        &mut self,
         view: &wgpu::TextureView,
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,
-        queue: &wgpu::Queue,) {
-            self.grid.draw(view, Some(&self.viewport_primary_depth_view()), self, device, queue, adapter.get_info());
-        }
+        queue: &wgpu::Queue,
+    ) {
+        self.grid.draw(
+            view,
+            Some(&self.viewport_primary_depth_view()),
+            self,
+            device,
+            queue,
+            adapter.get_info(),
+        );
+    }
 
     pub fn draw_shadow_map(
         &mut self,
@@ -708,7 +827,15 @@ impl Project {
                     // TODO: judge effect script class
                     let color_view = self.shadow_camera.color_texture_view();
                     let depth_view = self.shadow_camera.depth_texture_view();
-                    drawable.draw(&color_view, Some(&depth_view), DrawType::ShadowMap, self, device, queue, adapter.get_info())
+                    drawable.draw(
+                        &color_view,
+                        Some(&depth_view),
+                        DrawType::ShadowMap,
+                        self,
+                        device,
+                        queue,
+                        adapter.get_info(),
+                    )
                 }
             }
         }
@@ -757,7 +884,15 @@ impl Project {
         queue: &wgpu::Queue,
     ) {
         if let Some(drawable) = &self.tmp_model {
-            drawable.draw(view, Some(&self.viewport_primary_depth_view()), typ, self, device, queue, adapter.get_info());
+            drawable.draw(
+                view,
+                Some(&self.viewport_primary_depth_view()),
+                typ,
+                self,
+                device,
+                queue,
+                adapter.get_info(),
+            );
         }
     }
 }
