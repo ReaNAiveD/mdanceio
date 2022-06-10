@@ -461,17 +461,15 @@ impl Model {
                     .map(|morph| Morph::from_nanoem(&morph, language))
                     .collect::<Vec<_>>();
                 for morph in &opaque.morphs {
-                    if let nanoem::model::ModelMorphType::Vertex = morph.get_type() {
-                        if let nanoem::model::ModelMorphU::VERTICES(morph_vertices) = &morph.morphs
-                        {
-                            for morph_vertex in morph_vertices {
-                                if let Some(vertex) =
-                                    opaque.get_one_vertex_object(morph_vertex.vertex_index)
-                                {
-                                    for bone_index in vertex.get_bone_indices() {
-                                        if let Some(bone) = opaque.get_one_bone_object(bone_index) {
-                                            bone_set.insert(bone.base.index);
-                                        }
+                    if let nanoem::model::ModelMorphType::Vertex(morph_vertices) = morph.get_type()
+                    {
+                        for morph_vertex in morph_vertices {
+                            if let Some(vertex) =
+                                opaque.get_one_vertex_object(morph_vertex.vertex_index)
+                            {
+                                for bone_index in vertex.get_bone_indices() {
+                                    if let Some(bone) = opaque.get_one_bone_object(bone_index) {
+                                        bone_set.insert(bone.base.index);
                                     }
                                 }
                             }
@@ -1207,65 +1205,57 @@ impl Model {
     fn pre_deform_morph(&mut self, morph_idx: MorphIndex) {
         if let Some(morph) = self.morphs.get(morph_idx) {
             let weight = morph.weight;
-            match morph.origin.typ {
-                nanoem::model::ModelMorphType::Group => {
-                    if let nanoem::model::ModelMorphU::GROUPS(children) = &morph.origin.morphs {
-                        for (target_morph_idx, child_weight) in children
-                            .iter()
-                            .map(|child| (usize::try_from(child.morph_index).ok(), child.weight))
-                            .collect::<Vec<_>>()
+            match &morph.origin.typ {
+                nanoem::model::ModelMorphType::Group(children) => {
+                    for (target_morph_idx, child_weight) in children
+                        .iter()
+                        .map(|child| (usize::try_from(child.morph_index).ok(), child.weight))
+                        .collect::<Vec<_>>()
+                    {
+                        if let Some(target_morph) =
+                            target_morph_idx.and_then(|idx| self.morphs.get_mut(idx))
                         {
-                            if let Some(target_morph) =
-                                target_morph_idx.and_then(|idx| self.morphs.get_mut(idx))
-                            {
-                                if let nanoem::model::ModelMorphType::Flip = target_morph.origin.typ
-                                {
-                                    target_morph.set_forced_weight(weight * child_weight);
-                                    self.pre_deform_morph(target_morph_idx.unwrap());
-                                }
+                            if let nanoem::model::ModelMorphType::Flip(_) = target_morph.origin.typ {
+                                target_morph.set_forced_weight(weight * child_weight);
+                                self.pre_deform_morph(target_morph_idx.unwrap());
                             }
                         }
                     }
                 }
-                nanoem::model::ModelMorphType::Flip => {
-                    if let nanoem::model::ModelMorphU::FLIPS(children) = &morph.origin.morphs {
-                        if weight > 0f32 && children.len() > 0 {
-                            let target_idx = (((children.len() + 1) as f32 * weight) as usize - 1)
-                                .clamp(0, children.len() - 1);
-                            let child = &children[target_idx];
-                            let child_weight = child.weight;
-                            usize::try_from(child.morph_index)
-                                .ok()
-                                .and_then(|idx| self.morphs.get_mut(idx))
-                                .map(|morph| morph.set_weight(weight));
-                        }
+                nanoem::model::ModelMorphType::Flip(children) => {
+                    if weight > 0f32 && children.len() > 0 {
+                        let target_idx = (((children.len() + 1) as f32 * weight) as usize - 1)
+                            .clamp(0, children.len() - 1);
+                        let child = &children[target_idx];
+                        let child_weight = child.weight;
+                        usize::try_from(child.morph_index)
+                            .ok()
+                            .and_then(|idx| self.morphs.get_mut(idx))
+                            .map(|morph| morph.set_weight(weight));
                     }
                 }
-                nanoem::model::ModelMorphType::Material => {
-                    if let nanoem::model::ModelMorphU::MATERIALS(children) = &morph.origin.morphs {
-                        for child in children {
-                            if let Some(material) = usize::try_from(child.material_index)
-                                .ok()
-                                .and_then(|idx| self.materials.get_mut(idx))
-                            {
+                nanoem::model::ModelMorphType::Material(children) => {
+                    for child in children {
+                        if let Some(material) = usize::try_from(child.material_index)
+                            .ok()
+                            .and_then(|idx| self.materials.get_mut(idx))
+                        {
+                            material.reset_deform();
+                        } else {
+                            for material in &mut self.materials {
                                 material.reset_deform();
-                            } else {
-                                for material in &mut self.materials {
-                                    material.reset_deform();
-                                }
                             }
                         }
                     }
                 }
-                nanoem::model::ModelMorphType::Unknown
-                | nanoem::model::ModelMorphType::Vertex
-                | nanoem::model::ModelMorphType::Bone
-                | nanoem::model::ModelMorphType::Texture
-                | nanoem::model::ModelMorphType::Uva1
-                | nanoem::model::ModelMorphType::Uva2
-                | nanoem::model::ModelMorphType::Uva3
-                | nanoem::model::ModelMorphType::Uva4
-                | nanoem::model::ModelMorphType::Impulse => {}
+                nanoem::model::ModelMorphType::Vertex(_)
+                | nanoem::model::ModelMorphType::Bone(_)
+                | nanoem::model::ModelMorphType::Texture(_)
+                | nanoem::model::ModelMorphType::Uva1(_)
+                | nanoem::model::ModelMorphType::Uva2(_)
+                | nanoem::model::ModelMorphType::Uva3(_)
+                | nanoem::model::ModelMorphType::Uva4(_)
+                | nanoem::model::ModelMorphType::Impulse(_) => {}
             }
         }
     }
@@ -1274,119 +1264,104 @@ impl Model {
         if let Some(morph) = self.morphs.get_mut(morph_idx) {
             if (!check_dirty || (check_dirty && morph.dirty)) {
                 let weight = morph.weight;
-                match morph.origin.typ {
-                    nanoem::model::ModelMorphType::Group => {
-                        if let nanoem::model::ModelMorphU::GROUPS(children) = &morph.origin.morphs {
-                            for (child_weight, target_morph_idx) in children
-                                .iter()
-                                .map(|child| {
-                                    (child.weight, usize::try_from(child.morph_index).ok())
-                                })
-                                .collect::<Vec<_>>()
+                match &morph.origin.typ {
+                    nanoem::model::ModelMorphType::Group(children) => {
+                        for (child_weight, target_morph_idx) in children
+                            .iter()
+                            .map(|child| (child.weight, usize::try_from(child.morph_index).ok()))
+                            .collect::<Vec<_>>()
+                        {
+                            if let Some(target_morph) =
+                                target_morph_idx.and_then(|idx| self.morphs.get_mut(idx))
                             {
-                                if let Some(target_morph) =
-                                    target_morph_idx.and_then(|idx| self.morphs.get_mut(idx))
+                                if let nanoem::model::ModelMorphType::Flip(_) = target_morph.origin.typ
                                 {
-                                    if let nanoem::model::ModelMorphType::Flip =
-                                        target_morph.origin.typ
-                                    {
-                                        target_morph.set_forced_weight(weight * child_weight);
-                                        self.deform_morph(target_morph_idx.unwrap(), false);
-                                    }
+                                    target_morph.set_forced_weight(weight * child_weight);
+                                    self.deform_morph(target_morph_idx.unwrap(), false);
                                 }
                             }
                         }
                     }
-                    nanoem::model::ModelMorphType::Flip => {}
-                    nanoem::model::ModelMorphType::Impulse => {
-                        if let nanoem::model::ModelMorphU::IMPULSES(children) = &morph.origin.morphs
-                        {
-                            for child in children {
-                                if let Some(rigid_body) = usize::try_from(child.rigid_body_index)
-                                    .ok()
-                                    .and_then(|idx| self.rigid_bodies.get_mut(idx))
-                                {
-                                    let torque = f128_to_vec3(child.torque);
-                                    let velocity = f128_to_vec3(child.velocity);
-                                    if torque.abs_diff_eq(
-                                        &Vector3::zero(),
-                                        Vector3::<f32>::default_epsilon(),
-                                    ) && velocity.abs_diff_eq(
-                                        &Vector3::zero(),
-                                        Vector3::<f32>::default_epsilon(),
-                                    ) {
-                                        rigid_body.mark_all_forces_reset();
-                                    } else if child.is_local {
-                                        rigid_body.add_local_torque_force(torque, weight);
-                                        rigid_body.add_local_velocity_force(velocity, weight);
-                                    } else {
-                                        rigid_body.add_global_torque_force(torque, weight);
-                                        rigid_body.add_global_velocity_force(velocity, weight);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    nanoem::model::ModelMorphType::Material => {
-                        if let nanoem::model::ModelMorphU::MATERIALS(children) =
-                            &morph.origin.morphs
-                        {
-                            for child in children {
-                                if let Some(material) = usize::try_from(child.material_index)
-                                    .ok()
-                                    .and_then(|idx| self.materials.get_mut(idx))
-                                {
-                                    material.deform(child, weight);
+
+                    nanoem::model::ModelMorphType::Flip(children) => {}
+                    nanoem::model::ModelMorphType::Impulse(children) => {
+                        for child in children {
+                            if let Some(rigid_body) = usize::try_from(child.rigid_body_index)
+                                .ok()
+                                .and_then(|idx| self.rigid_bodies.get_mut(idx))
+                            {
+                                let torque = f128_to_vec3(child.torque);
+                                let velocity = f128_to_vec3(child.velocity);
+                                if torque.abs_diff_eq(
+                                    &Vector3::zero(),
+                                    Vector3::<f32>::default_epsilon(),
+                                ) && velocity.abs_diff_eq(
+                                    &Vector3::zero(),
+                                    Vector3::<f32>::default_epsilon(),
+                                ) {
+                                    rigid_body.mark_all_forces_reset();
+                                } else if child.is_local {
+                                    rigid_body.add_local_torque_force(torque, weight);
+                                    rigid_body.add_local_velocity_force(velocity, weight);
                                 } else {
-                                    for material in &mut self.materials {
-                                        material.deform(child, weight);
-                                    }
+                                    rigid_body.add_global_torque_force(torque, weight);
+                                    rigid_body.add_global_velocity_force(velocity, weight);
                                 }
                             }
                         }
                     }
-                    nanoem::model::ModelMorphType::Bone => {
-                        if let nanoem::model::ModelMorphU::BONES(children) = &morph.origin.morphs {
-                            for child in children {
-                                if let Some(bone) = usize::try_from(child.bone_index)
-                                    .ok()
-                                    .and_then(|idx| self.bones.get_mut(idx))
-                                {
-                                    bone.update_local_morph_transform(child, weight);
+                    nanoem::model::ModelMorphType::Material(children) => {
+                        for child in children {
+                            if let Some(material) = usize::try_from(child.material_index)
+                                .ok()
+                                .and_then(|idx| self.materials.get_mut(idx))
+                            {
+                                material.deform(child, weight);
+                            } else {
+                                for material in &mut self.materials {
+                                    material.deform(child, weight);
                                 }
                             }
                         }
                     }
-                    nanoem::model::ModelMorphType::Vertex => {
-                        if let nanoem::model::ModelMorphU::VERTICES(children) = &morph.origin.morphs
-                        {
-                            for child in children {
-                                if let Some(vertex) = usize::try_from(child.vertex_index)
-                                    .ok()
-                                    .and_then(|idx| self.vertices.get_mut(idx))
-                                {
-                                    vertex.deform(child, weight);
-                                }
+                    nanoem::model::ModelMorphType::Bone(children) => {
+                        for child in children {
+                            if let Some(bone) = usize::try_from(child.bone_index)
+                                .ok()
+                                .and_then(|idx| self.bones.get_mut(idx))
+                            {
+                                bone.update_local_morph_transform(child, weight);
                             }
                         }
                     }
-                    nanoem::model::ModelMorphType::Texture
-                    | nanoem::model::ModelMorphType::Uva1
-                    | nanoem::model::ModelMorphType::Uva2
-                    | nanoem::model::ModelMorphType::Uva3
-                    | nanoem::model::ModelMorphType::Uva4 => {
-                        if let nanoem::model::ModelMorphU::UVS(children) = &morph.origin.morphs {
-                            for child in children {
-                                if let Some(vertex) = usize::try_from(child.vertex_index)
-                                    .ok()
-                                    .and_then(|idx| self.vertices.get_mut(idx))
-                                {
-                                    vertex.deform_uv(child, morph.origin.typ.uv_index().unwrap(), weight);
-                                }
+                    nanoem::model::ModelMorphType::Vertex(children) => {
+                        for child in children {
+                            if let Some(vertex) = usize::try_from(child.vertex_index)
+                                .ok()
+                                .and_then(|idx| self.vertices.get_mut(idx))
+                            {
+                                vertex.deform(child, weight);
                             }
                         }
                     }
-                    nanoem::model::ModelMorphType::Unknown => todo!(),
+                    nanoem::model::ModelMorphType::Texture(children)
+                    | nanoem::model::ModelMorphType::Uva1(children)
+                    | nanoem::model::ModelMorphType::Uva2(children)
+                    | nanoem::model::ModelMorphType::Uva3(children)
+                    | nanoem::model::ModelMorphType::Uva4(children) => {
+                        for child in children {
+                            if let Some(vertex) = usize::try_from(child.vertex_index)
+                                .ok()
+                                .and_then(|idx| self.vertices.get_mut(idx))
+                            {
+                                vertex.deform_uv(
+                                    child,
+                                    morph.origin.typ.uv_index().unwrap(),
+                                    weight,
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -2236,12 +2211,7 @@ impl Vertex {
         self.simd.delta = self.simd.delta + f128_to_vec4(morph.position) * weight;
     }
 
-    pub fn deform_uv(
-        &mut self,
-        morph: &nanoem::model::ModelMorphUv,
-        uv_idx: usize,
-        weight: f32,
-    ) {
+    pub fn deform_uv(&mut self, morph: &nanoem::model::ModelMorphUv, uv_idx: usize, weight: f32) {
         self.simd.delta_uva[uv_idx].add_assign_element_wise(f128_to_vec4(morph.position) * weight);
     }
 

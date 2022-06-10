@@ -783,8 +783,8 @@ fn mutable_model_object_apply_change_object_index(target: &mut i32, object_index
 impl Model {
     fn apply_change_all_object_indices(&mut self, vertex_index: i32, delta: i32) {
         for morph in &mut self.morphs {
-            match &mut morph.morphs {
-                ModelMorphU::VERTICES(vertices) => {
+            match &mut morph.typ {
+                ModelMorphType::Vertex(vertices) => {
                     for morph_vertex in vertices {
                         mutable_model_object_apply_change_object_index(
                             &mut morph_vertex.vertex_index,
@@ -793,7 +793,11 @@ impl Model {
                         )
                     }
                 }
-                ModelMorphU::UVS(uvs) => {
+                ModelMorphType::Texture(uvs)
+                | ModelMorphType::Uva1(uvs)
+                | ModelMorphType::Uva2(uvs)
+                | ModelMorphType::Uva3(uvs)
+                | ModelMorphType::Uva4(uvs) => {
                     for morph_uv in uvs {
                         mutable_model_object_apply_change_object_index(
                             &mut morph_uv.vertex_index,
@@ -818,8 +822,8 @@ impl Model {
 
     fn material_apply_change_all_object_indices(&mut self, material_index: i32, delta: i32) {
         for morph in &mut self.morphs {
-            match &mut morph.morphs {
-                ModelMorphU::MATERIALS(materials) => {
+            match &mut morph.typ {
+                ModelMorphType::Material(materials) => {
                     for morph_material in materials {
                         mutable_model_object_apply_change_object_index(
                             &mut morph_material.material_index,
@@ -870,7 +874,7 @@ impl Model {
             }
         }
         for morph in &mut self.morphs {
-            if let ModelMorphU::BONES(bones) = &mut morph.morphs {
+            if let ModelMorphType::Bone(bones) = &mut morph.typ {
                 for bone in bones {
                     mutable_model_object_apply_change_object_index(
                         &mut bone.bone_index,
@@ -927,7 +931,7 @@ impl Model {
 
     fn morph_apply_change_all_object_indices(&mut self, morph_index: i32, delta: i32) {
         for morph in &mut self.morphs {
-            if let ModelMorphU::GROUPS(groups) = &mut morph.morphs {
+            if let ModelMorphType::Group(groups) = &mut morph.typ {
                 for group in groups {
                     mutable_model_object_apply_change_object_index(
                         &mut group.morph_index,
@@ -935,7 +939,7 @@ impl Model {
                         delta,
                     );
                 }
-            } else if let ModelMorphU::FLIPS(flips) = &mut morph.morphs {
+            } else if let ModelMorphType::Flip(flips) = &mut morph.typ {
                 for flip in flips {
                     mutable_model_object_apply_change_object_index(
                         &mut flip.morph_index,
@@ -949,7 +953,7 @@ impl Model {
 
     fn rigid_body_apply_change_all_object_indices(&mut self, rigid_body_index: i32, delta: i32) {
         for morph in &mut self.morphs {
-            if let ModelMorphU::IMPULSES(impulses) = &mut morph.morphs {
+            if let ModelMorphType::Impulse(impulses) = &mut morph.typ {
                 for impulse in impulses {
                     mutable_model_object_apply_change_object_index(
                         &mut impulse.rigid_body_index,
@@ -1560,11 +1564,12 @@ impl ModelMaterial {
         }
     }
 
-    pub fn get_diffuse_texture_object<'a, 'b: 'a, 'c: 'a>(&'c self, texture_lut: &'b Vec<ModelTexture>) -> Option<&'a ModelTexture> {
+    pub fn get_diffuse_texture_object<'a, 'b: 'a, 'c: 'a>(
+        &'c self,
+        texture_lut: &'b Vec<ModelTexture>,
+    ) -> Option<&'a ModelTexture> {
         match self.get_diffuse_texture_result() {
-            TextureResult::Texture(texture) => {
-                Some(texture)
-            },
+            TextureResult::Texture(texture) => Some(texture),
             TextureResult::Index(idx) => {
                 if idx < 0 {
                     None
@@ -1590,11 +1595,12 @@ impl ModelMaterial {
         }
     }
 
-    pub fn get_sphere_map_texture_object<'a, 'b: 'a, 'c: 'a>(&'c self, texture_lut: &'b Vec<ModelTexture>) -> Option<&'a ModelTexture> {
+    pub fn get_sphere_map_texture_object<'a, 'b: 'a, 'c: 'a>(
+        &'c self,
+        texture_lut: &'b Vec<ModelTexture>,
+    ) -> Option<&'a ModelTexture> {
         match self.get_sphere_map_texture_result() {
-            TextureResult::Texture(texture) => {
-                Some(texture)
-            },
+            TextureResult::Texture(texture) => Some(texture),
             TextureResult::Index(idx) => {
                 if idx < 0 {
                     None
@@ -1609,11 +1615,12 @@ impl ModelMaterial {
         TextureResult::Index(self.toon_texture_index)
     }
 
-    pub fn get_toon_texture_object<'a, 'b: 'a, 'c: 'a>(&'c self, texture_lut: &'b Vec<ModelTexture>) -> Option<&'a ModelTexture> {
+    pub fn get_toon_texture_object<'a, 'b: 'a, 'c: 'a>(
+        &'c self,
+        texture_lut: &'b Vec<ModelTexture>,
+    ) -> Option<&'a ModelTexture> {
         match self.get_toon_texture_result() {
-            TextureResult::Texture(texture) => {
-                Some(texture)
-            },
+            TextureResult::Texture(texture) => Some(texture),
             TextureResult::Index(idx) => {
                 if idx < 0 {
                     None
@@ -2489,69 +2496,111 @@ impl From<ModelMorphCategory> for u8 {
     }
 }
 
-// TODO: 整合type和u
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum ModelMorphType {
-    Unknown = -1,
-    Group,
-    Vertex,
-    Bone,
-    Texture,
-    Uva1,
-    Uva2,
-    Uva3,
-    Uva4,
-    Material,
-    Flip,
-    Impulse,
-}
-
-impl From<u8> for ModelMorphType {
-    fn from(value: u8) -> Self {
-        match value {
-            0 => ModelMorphType::Group,
-            1 => ModelMorphType::Vertex,
-            2 => ModelMorphType::Bone,
-            3 => ModelMorphType::Texture,
-            4 => ModelMorphType::Uva1,
-            5 => ModelMorphType::Uva2,
-            6 => ModelMorphType::Uva3,
-            7 => ModelMorphType::Uva4,
-            8 => ModelMorphType::Material,
-            9 => ModelMorphType::Flip,
-            10 => ModelMorphType::Impulse,
-            _ => ModelMorphType::Unknown,
-        }
-    }
-}
-
-impl From<ModelMorphType> for u8 {
-    fn from(v: ModelMorphType) -> Self {
-        match v {
-            ModelMorphType::Unknown => u8::MAX,
-            ModelMorphType::Group => 0,
-            ModelMorphType::Vertex => 1,
-            ModelMorphType::Bone => 2,
-            ModelMorphType::Texture => 3,
-            ModelMorphType::Uva1 => 4,
-            ModelMorphType::Uva2 => 5,
-            ModelMorphType::Uva3 => 6,
-            ModelMorphType::Uva4 => 7,
-            ModelMorphType::Material => 8,
-            ModelMorphType::Flip => 9,
-            ModelMorphType::Impulse => 10,
-        }
-    }
+    Group(Vec<ModelMorphGroup>),
+    Vertex(Vec<ModelMorphVertex>),
+    Bone(Vec<ModelMorphBone>),
+    Texture(Vec<ModelMorphUv>),
+    Uva1(Vec<ModelMorphUv>),
+    Uva2(Vec<ModelMorphUv>),
+    Uva3(Vec<ModelMorphUv>),
+    Uva4(Vec<ModelMorphUv>),
+    Material(Vec<ModelMorphMaterial>),
+    Flip(Vec<ModelMorphFlip>),
+    Impulse(Vec<ModelMorphImpulse>),
 }
 
 impl ModelMorphType {
-    pub fn uv_index(self) -> Option<usize> {
+    pub fn from_buffer(typ: u8, buffer: &mut Buffer, info: &ModelInfo) -> Result<Self, Status> {
+        Ok(match typ {
+            0 => ModelMorphType::Group(ModelMorphGroup::parse_pmx(
+                buffer,
+                info.morph_index_size as usize,
+            )?),
+            2 => ModelMorphType::Bone(ModelMorphBone::parse_pmx(
+                buffer,
+                info.bone_index_size as usize,
+            )?),
+            1 => ModelMorphType::Vertex(ModelMorphVertex::parse_pmx(
+                buffer,
+                info.vertex_index_size as usize,
+            )?),
+            3 => ModelMorphType::Texture(ModelMorphUv::parse_pmx(
+                buffer,
+                info.vertex_index_size as usize,
+            )?),
+            4 => ModelMorphType::Uva1(ModelMorphUv::parse_pmx(
+                buffer,
+                info.vertex_index_size as usize,
+            )?),
+            5 => ModelMorphType::Uva2(ModelMorphUv::parse_pmx(
+                buffer,
+                info.vertex_index_size as usize,
+            )?),
+            6 => ModelMorphType::Uva3(ModelMorphUv::parse_pmx(
+                buffer,
+                info.vertex_index_size as usize,
+            )?),
+            7 => ModelMorphType::Uva4(ModelMorphUv::parse_pmx(
+                buffer,
+                info.vertex_index_size as usize,
+            )?),
+            8 => ModelMorphType::Material(ModelMorphMaterial::parse_pmx(
+                buffer,
+                info.material_index_size as usize,
+            )?),
+            9 => ModelMorphType::Flip(ModelMorphFlip::parse_pmx(
+                buffer,
+                info.morph_index_size as usize,
+            )?),
+            10 => ModelMorphType::Impulse(ModelMorphImpulse::parse_pmx(
+                buffer,
+                info.rigid_body_index_size as usize,
+            )?),
+            _ => return Err(Status::ErrorModelMorphCorrupted),
+        })
+    }
+
+    pub fn into_byte(&self) -> u8 {
         match self {
-            ModelMorphType::Texture => Some(0),
-            ModelMorphType::Uva1 => Some(1),
-            ModelMorphType::Uva2 => Some(2),
-            ModelMorphType::Uva3 => Some(3),
-            ModelMorphType::Uva4 => Some(4),
+            ModelMorphType::Group(_) => 0,
+            ModelMorphType::Vertex(_) => 1,
+            ModelMorphType::Bone(_) => 2,
+            ModelMorphType::Texture(_) => 3,
+            ModelMorphType::Uva1(_) => 4,
+            ModelMorphType::Uva2(_) => 5,
+            ModelMorphType::Uva3(_) => 6,
+            ModelMorphType::Uva4(_) => 7,
+            ModelMorphType::Material(_) => 8,
+            ModelMorphType::Flip(_) => 9,
+            ModelMorphType::Impulse(_) => 10,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            ModelMorphType::Group(v) => v.len(),
+            ModelMorphType::Vertex(v) => v.len(),
+            ModelMorphType::Bone(v) => v.len(),
+            ModelMorphType::Texture(v) => v.len(),
+            ModelMorphType::Uva1(v) => v.len(),
+            ModelMorphType::Uva2(v) => v.len(),
+            ModelMorphType::Uva3(v) => v.len(),
+            ModelMorphType::Uva4(v) => v.len(),
+            ModelMorphType::Material(v) => v.len(),
+            ModelMorphType::Flip(v) => v.len(),
+            ModelMorphType::Impulse(v) => v.len(),
+        }
+    }
+
+    pub fn uv_index(&self) -> Option<usize> {
+        match self {
+            ModelMorphType::Texture(_) => Some(0),
+            ModelMorphType::Uva1(_) => Some(1),
+            ModelMorphType::Uva2(_) => Some(2),
+            ModelMorphType::Uva3(_) => Some(3),
+            ModelMorphType::Uva4(_) => Some(4),
             _ => None,
         }
     }
@@ -2564,7 +2613,6 @@ pub struct ModelMorph {
     pub name_en: String,
     pub typ: ModelMorphType,
     pub category: ModelMorphCategory,
-    pub morphs: ModelMorphU,
 }
 
 impl ModelMorph {
@@ -2579,58 +2627,8 @@ impl ModelMorph {
             name_ja: codec_type.get_string(buffer)?,
             name_en: codec_type.get_string(buffer)?,
             category: ModelMorphCategory::from(buffer.read_byte()?),
-            typ: ModelMorphType::from(buffer.read_byte()?),
-            morphs: ModelMorphU::BONES(vec![]),
+            typ: ModelMorphType::from_buffer(buffer.read_byte()?, buffer, info)?,
         };
-        match morph.typ {
-            ModelMorphType::Bone => {
-                morph.morphs = ModelMorphU::BONES(ModelMorphBone::parse_pmx(
-                    buffer,
-                    info.bone_index_size as usize,
-                )?)
-            }
-            ModelMorphType::Flip => {
-                morph.morphs = ModelMorphU::FLIPS(ModelMorphFlip::parse_pmx(
-                    buffer,
-                    info.morph_index_size as usize,
-                )?)
-            }
-            ModelMorphType::Group => {
-                morph.morphs = ModelMorphU::GROUPS(ModelMorphGroup::parse_pmx(
-                    buffer,
-                    info.morph_index_size as usize,
-                )?)
-            }
-            ModelMorphType::Impulse => {
-                morph.morphs = ModelMorphU::IMPULSES(ModelMorphImpulse::parse_pmx(
-                    buffer,
-                    info.rigid_body_index_size as usize,
-                )?)
-            }
-            ModelMorphType::Material => {
-                morph.morphs = ModelMorphU::MATERIALS(ModelMorphMaterial::parse_pmx(
-                    buffer,
-                    info.material_index_size as usize,
-                )?)
-            }
-            ModelMorphType::Texture
-            | ModelMorphType::Uva1
-            | ModelMorphType::Uva2
-            | ModelMorphType::Uva3
-            | ModelMorphType::Uva4 => {
-                morph.morphs = ModelMorphU::UVS(ModelMorphUv::parse_pmx(
-                    buffer,
-                    info.vertex_index_size as usize,
-                )?)
-            }
-            ModelMorphType::Vertex => {
-                morph.morphs = ModelMorphU::VERTICES(ModelMorphVertex::parse_pmx(
-                    buffer,
-                    info.vertex_index_size as usize,
-                )?)
-            }
-            ModelMorphType::Unknown => return Err(Status::ErrorModelMorphCorrupted),
-        }
         Ok(morph)
     }
 
@@ -2645,71 +2643,56 @@ impl ModelMorph {
             buffer.write_string(&self.name_ja, encoding)?;
             buffer.write_string(&self.name_en, encoding)?;
             buffer.write_byte(self.category.into())?;
-            buffer.write_byte(self.typ.into())?;
-            buffer.write_i32_little_endian(self.morphs.len() as i32)?;
-            match self.typ {
-                ModelMorphType::Unknown => return Err(Status::ErrorModelMorphCorrupted),
-                ModelMorphType::Group => {
-                    if let ModelMorphU::GROUPS(groups) = &self.morphs {
-                        for group in groups {
-                            group.save_to_buffer(buffer, info.morph_index_size as usize)?;
-                        }
+            buffer.write_byte(self.typ.into_byte())?;
+            buffer.write_i32_little_endian(self.typ.len() as i32)?;
+            match &self.typ {
+                ModelMorphType::Group(groups) => {
+                    for group in groups {
+                        group.save_to_buffer(buffer, info.morph_index_size as usize)?;
                     }
                 }
-                ModelMorphType::Vertex => {
-                    if let ModelMorphU::VERTICES(vertices) = &self.morphs {
-                        for vertex in vertices {
-                            vertex.save_to_buffer(buffer, info.vertex_index_size as usize)?;
-                        }
+                ModelMorphType::Vertex(vertices) => {
+                    for vertex in vertices {
+                        vertex.save_to_buffer(buffer, info.vertex_index_size as usize)?;
                     }
                 }
-                ModelMorphType::Bone => {
-                    if let ModelMorphU::BONES(bones) = &self.morphs {
-                        for bone in bones {
-                            bone.save_to_buffer(buffer, info.bone_index_size as usize)?;
-                        }
+                ModelMorphType::Bone(bones) => {
+                    for bone in bones {
+                        bone.save_to_buffer(buffer, info.bone_index_size as usize)?;
                     }
                 }
-                ModelMorphType::Texture
-                | ModelMorphType::Uva1
-                | ModelMorphType::Uva2
-                | ModelMorphType::Uva3
-                | ModelMorphType::Uva4 => {
-                    if let ModelMorphU::UVS(uvs) = &self.morphs {
-                        for uv in uvs {
-                            uv.save_to_buffer(buffer, info.vertex_index_size as usize)?;
-                        }
+                ModelMorphType::Texture(uvs)
+                | ModelMorphType::Uva1(uvs)
+                | ModelMorphType::Uva2(uvs)
+                | ModelMorphType::Uva3(uvs)
+                | ModelMorphType::Uva4(uvs) => {
+                    for uv in uvs {
+                        uv.save_to_buffer(buffer, info.vertex_index_size as usize)?;
                     }
                 }
-                ModelMorphType::Material => {
-                    if let ModelMorphU::MATERIALS(materials) = &self.morphs {
-                        for material in materials {
-                            material.save_to_buffer(buffer, info.material_index_size as usize)?;
-                        }
+                ModelMorphType::Material(materials) => {
+                    for material in materials {
+                        material.save_to_buffer(buffer, info.material_index_size as usize)?;
                     }
                 }
-                ModelMorphType::Flip => {
-                    if let ModelMorphU::FLIPS(flips) = &self.morphs {
-                        for flip in flips {
-                            flip.save_to_buffer(buffer, info.morph_index_size as usize)?;
-                        }
+                ModelMorphType::Flip(flips) => {
+                    for flip in flips {
+                        flip.save_to_buffer(buffer, info.morph_index_size as usize)?;
                     }
                 }
-                ModelMorphType::Impulse => {
-                    if let ModelMorphU::IMPULSES(impulses) = &self.morphs {
-                        for impulse in impulses {
-                            impulse.save_to_buffer(buffer, info.rigid_body_index_size as usize)?;
-                        }
+                ModelMorphType::Impulse(impulses) => {
+                    for impulse in impulses {
+                        impulse.save_to_buffer(buffer, info.rigid_body_index_size as usize)?;
                     }
                 }
             }
         } else {
             buffer.write_string(&self.name_ja, encoding_rs::SHIFT_JIS)?;
-            buffer.write_i32_little_endian(self.morphs.len() as i32)?;
+            buffer.write_i32_little_endian(self.typ.len() as i32)?;
             buffer.write_byte(self.category.into())?;
             match self.category {
                 ModelMorphCategory::Base => {
-                    if let ModelMorphU::VERTICES(vertices) = &self.morphs {
+                    if let ModelMorphType::Vertex(vertices) = &self.typ {
                         for vertex in vertices {
                             buffer.write_i32_little_endian(vertex.vertex_index)?;
                             buffer.write_f32_3_little_endian(vertex.position)?;
@@ -2717,7 +2700,7 @@ impl ModelMorph {
                     }
                 }
                 _ => {
-                    if let ModelMorphU::VERTICES(vertices) = &self.morphs {
+                    if let ModelMorphType::Vertex(vertices) = &self.typ {
                         for vertex in vertices {
                             buffer.write_i32_little_endian(vertex.relative_index)?;
                             buffer.write_f32_3_little_endian(vertex.position)?;
@@ -2741,16 +2724,12 @@ impl ModelMorph {
         self.base.index
     }
 
-    pub fn get_type(&self) -> ModelMorphType {
-        self.typ
+    pub fn get_type(&self) -> &ModelMorphType {
+        &self.typ
     }
 
     pub fn get_category(&self) -> &ModelMorphCategory {
         &self.category
-    }
-
-    pub fn get_u(&self) -> &ModelMorphU {
-        &self.morphs
     }
 }
 
