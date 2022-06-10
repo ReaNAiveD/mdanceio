@@ -32,7 +32,7 @@ use crate::{
     technique::Technique,
     undo::UndoStack,
     uri::Uri,
-    utils::{f128_to_vec3, f128_to_vec4, lerp_f32, CompareElementWise, Invert},
+    utils::{f128_to_quat, f128_to_vec3, f128_to_vec4, lerp_f32, CompareElementWise, Invert},
 };
 
 pub type NanoemModel = nanoem::model::Model;
@@ -258,7 +258,7 @@ pub struct Model {
     // hovered_bone_ptr: Rc<RefCell<NanoemBone>>,
     // vertex_buffer_data: Vec<u8>,
     // face_states: Vec<u32>,
-    // active_bone_pair_ptr: (Rc<RefCell<NanoemBone>>, Rc<RefCell<NanoemBone>>),
+    active_bone_pair: (Option<BoneIndex>, Option<BoneIndex>),
     // active_effect_pair_ptr: (Rc<RefCell<dyn IEffect>>, Rc<RefCell<dyn IEffect>>),
     // screen_image: Image,
     // loading_image_items: Vec<LoadingImageItem>,
@@ -638,6 +638,7 @@ impl Model {
                     bones_by_name,
                     morphs_by_name,
                     bone_to_constraints,
+                    active_bone_pair: (None, None),
                     outside_parents: HashMap::new(),
                     constraint_joint_bones,
                     inherent_bones,
@@ -1113,31 +1114,45 @@ impl Model {
                 }
             }
         }
-        todo!()
     }
 
     fn reset_all_bone_transforms(&mut self) {
-        todo!()
+        for bone in &mut self.bones {
+            bone.reset_local_transform();
+            bone.reset_morph_transform();
+            bone.reset_user_transform();
+        }
     }
 
     fn reset_all_bone_local_transform(&mut self) {
-        todo!()
+        for bone in &mut self.bones {
+            bone.reset_local_transform();
+        }
     }
 
     fn reset_all_bone_morph_transform(&mut self) {
-        todo!()
+        for bone in &mut self.bones {
+            bone.reset_local_transform();
+            bone.reset_morph_transform();
+        }
     }
 
     fn reset_all_materials(&mut self) {
-        todo!()
+        for material in &mut self.materials {
+            material.reset();
+        }
     }
 
     fn reset_all_morphs(&mut self) {
-        todo!()
+        for morph in &mut self.morphs {
+            morph.reset();
+        }
     }
 
     fn reset_all_vertices(&mut self) {
-        todo!()
+        for vertex in &mut self.vertices {
+            vertex.reset();
+        }
     }
 
     pub fn set_physics_simulation_enabled(&mut self, value: bool) {
@@ -1157,11 +1172,224 @@ impl Model {
     }
 
     pub fn set_all_physics_objects_enabled(&mut self, value: bool) {
-        todo!()
+        if value {
+            for soft_body in &mut self.soft_bodies {
+                soft_body.enable();
+            }
+            for rigid_body in &mut self.rigid_bodies {
+                rigid_body.enable();
+            }
+            for joint in &mut self.joints {
+                joint.enable();
+            }
+        } else {
+            for soft_body in &mut self.soft_bodies {
+                soft_body.disable();
+            }
+            for rigid_body in &mut self.rigid_bodies {
+                rigid_body.disable();
+            }
+            for joint in &mut self.joints {
+                joint.disable();
+            }
+        }
     }
 
     pub fn deform_all_morphs(&mut self, check_dirty: bool) {
-        todo!()
+        for morph_idx in 0..self.morphs.len() {
+            self.pre_deform_morph(morph_idx);
+        }
+        for morph_idx in 0..self.morphs.len() {
+            self.deform_morph(morph_idx, check_dirty);
+        }
+    }
+
+    fn pre_deform_morph(&mut self, morph_idx: MorphIndex) {
+        if let Some(morph) = self.morphs.get(morph_idx) {
+            let weight = morph.weight;
+            match morph.origin.typ {
+                nanoem::model::ModelMorphType::Group => {
+                    if let nanoem::model::ModelMorphU::GROUPS(children) = &morph.origin.morphs {
+                        for (target_morph_idx, child_weight) in children
+                            .iter()
+                            .map(|child| (usize::try_from(child.morph_index).ok(), child.weight))
+                            .collect::<Vec<_>>()
+                        {
+                            if let Some(target_morph) =
+                                target_morph_idx.and_then(|idx| self.morphs.get_mut(idx))
+                            {
+                                if let nanoem::model::ModelMorphType::Flip = target_morph.origin.typ
+                                {
+                                    target_morph.set_forced_weight(weight * child_weight);
+                                    self.pre_deform_morph(target_morph_idx.unwrap());
+                                }
+                            }
+                        }
+                    }
+                }
+                nanoem::model::ModelMorphType::Flip => {
+                    if let nanoem::model::ModelMorphU::FLIPS(children) = &morph.origin.morphs {
+                        if weight > 0f32 && children.len() > 0 {
+                            let target_idx = (((children.len() + 1) as f32 * weight) as usize - 1)
+                                .clamp(0, children.len() - 1);
+                            let child = &children[target_idx];
+                            let child_weight = child.weight;
+                            usize::try_from(child.morph_index)
+                                .ok()
+                                .and_then(|idx| self.morphs.get_mut(idx))
+                                .map(|morph| morph.set_weight(weight));
+                        }
+                    }
+                }
+                nanoem::model::ModelMorphType::Material => {
+                    if let nanoem::model::ModelMorphU::MATERIALS(children) = &morph.origin.morphs {
+                        for child in children {
+                            if let Some(material) = usize::try_from(child.material_index)
+                                .ok()
+                                .and_then(|idx| self.materials.get_mut(idx))
+                            {
+                                material.reset_deform();
+                            } else {
+                                for material in &mut self.materials {
+                                    material.reset_deform();
+                                }
+                            }
+                        }
+                    }
+                }
+                nanoem::model::ModelMorphType::Unknown
+                | nanoem::model::ModelMorphType::Vertex
+                | nanoem::model::ModelMorphType::Bone
+                | nanoem::model::ModelMorphType::Texture
+                | nanoem::model::ModelMorphType::Uva1
+                | nanoem::model::ModelMorphType::Uva2
+                | nanoem::model::ModelMorphType::Uva3
+                | nanoem::model::ModelMorphType::Uva4
+                | nanoem::model::ModelMorphType::Impulse => {}
+            }
+        }
+    }
+
+    fn deform_morph(&mut self, morph_idx: MorphIndex, check_dirty: bool) {
+        if let Some(morph) = self.morphs.get_mut(morph_idx) {
+            if (!check_dirty || (check_dirty && morph.dirty)) {
+                let weight = morph.weight;
+                match morph.origin.typ {
+                    nanoem::model::ModelMorphType::Group => {
+                        if let nanoem::model::ModelMorphU::GROUPS(children) = &morph.origin.morphs {
+                            for (child_weight, target_morph_idx) in children
+                                .iter()
+                                .map(|child| {
+                                    (child.weight, usize::try_from(child.morph_index).ok())
+                                })
+                                .collect::<Vec<_>>()
+                            {
+                                if let Some(target_morph) =
+                                    target_morph_idx.and_then(|idx| self.morphs.get_mut(idx))
+                                {
+                                    if let nanoem::model::ModelMorphType::Flip =
+                                        target_morph.origin.typ
+                                    {
+                                        target_morph.set_forced_weight(weight * child_weight);
+                                        self.deform_morph(target_morph_idx.unwrap(), false);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    nanoem::model::ModelMorphType::Flip => {}
+                    nanoem::model::ModelMorphType::Impulse => {
+                        if let nanoem::model::ModelMorphU::IMPULSES(children) = &morph.origin.morphs
+                        {
+                            for child in children {
+                                if let Some(rigid_body) = usize::try_from(child.rigid_body_index)
+                                    .ok()
+                                    .and_then(|idx| self.rigid_bodies.get_mut(idx))
+                                {
+                                    let torque = f128_to_vec3(child.torque);
+                                    let velocity = f128_to_vec3(child.velocity);
+                                    if torque.abs_diff_eq(
+                                        &Vector3::zero(),
+                                        Vector3::<f32>::default_epsilon(),
+                                    ) && velocity.abs_diff_eq(
+                                        &Vector3::zero(),
+                                        Vector3::<f32>::default_epsilon(),
+                                    ) {
+                                        rigid_body.mark_all_forces_reset();
+                                    } else if child.is_local {
+                                        rigid_body.add_local_torque_force(torque, weight);
+                                        rigid_body.add_local_velocity_force(velocity, weight);
+                                    } else {
+                                        rigid_body.add_global_torque_force(torque, weight);
+                                        rigid_body.add_global_velocity_force(velocity, weight);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    nanoem::model::ModelMorphType::Material => {
+                        if let nanoem::model::ModelMorphU::MATERIALS(children) =
+                            &morph.origin.morphs
+                        {
+                            for child in children {
+                                if let Some(material) = usize::try_from(child.material_index)
+                                    .ok()
+                                    .and_then(|idx| self.materials.get_mut(idx))
+                                {
+                                    material.deform(child, weight);
+                                } else {
+                                    for material in &mut self.materials {
+                                        material.deform(child, weight);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    nanoem::model::ModelMorphType::Bone => {
+                        if let nanoem::model::ModelMorphU::BONES(children) = &morph.origin.morphs {
+                            for child in children {
+                                if let Some(bone) = usize::try_from(child.bone_index)
+                                    .ok()
+                                    .and_then(|idx| self.bones.get_mut(idx))
+                                {
+                                    bone.update_local_morph_transform(child, weight);
+                                }
+                            }
+                        }
+                    }
+                    nanoem::model::ModelMorphType::Vertex => {
+                        if let nanoem::model::ModelMorphU::VERTICES(children) = &morph.origin.morphs
+                        {
+                            for child in children {
+                                if let Some(vertex) = usize::try_from(child.vertex_index)
+                                    .ok()
+                                    .and_then(|idx| self.vertices.get_mut(idx))
+                                {
+                                    vertex.deform(child, weight);
+                                }
+                            }
+                        }
+                    }
+                    nanoem::model::ModelMorphType::Texture
+                    | nanoem::model::ModelMorphType::Uva1
+                    | nanoem::model::ModelMorphType::Uva2
+                    | nanoem::model::ModelMorphType::Uva3
+                    | nanoem::model::ModelMorphType::Uva4 => {
+                        if let nanoem::model::ModelMorphU::UVS(children) = &morph.origin.morphs {
+                            for child in children {
+                                if let Some(vertex) = usize::try_from(child.vertex_index)
+                                    .ok()
+                                    .and_then(|idx| self.vertices.get_mut(idx))
+                                {
+                                    vertex.deform_uv(child, morph.origin.typ.uv_index().unwrap(), weight);
+                                }
+                            }
+                        }
+                    }
+                    nanoem::model::ModelMorphType::Unknown => todo!(),
+                }
+            }
+        }
     }
 
     pub fn bones(&self) -> &[Bone] {
@@ -1169,7 +1397,24 @@ impl Model {
     }
 
     pub fn active_bone(&self) -> Option<&Bone> {
-        todo!()
+        self.active_bone_pair.0.and_then(|idx| self.bones.get(idx))
+    }
+
+    pub fn set_active_bone(&mut self, bone_idx: Option<BoneIndex>) {
+        if self.active_bone_pair.0 != bone_idx {
+            // TODO: publish set event
+            self.active_bone_pair.0 = bone_idx;
+        }
+    }
+
+    pub fn active_outside_parent_subject_bone(&self) -> Option<&Bone> {
+        self.active_bone_pair.1.and_then(|idx| self.bones.get(idx))
+    }
+
+    pub fn set_active_outside_parent_subject_bone(&mut self, bone_idx: Option<BoneIndex>) {
+        if self.active_bone_pair.1 != bone_idx {
+            self.active_bone_pair.1 = bone_idx;
+        }
     }
 
     pub fn find_bone(&self, name: &str) -> Option<&Bone> {
@@ -1180,7 +1425,9 @@ impl Model {
     }
 
     pub fn parent_bone(&self, bone: &Bone) -> Option<&Bone> {
-        todo!()
+        usize::try_from(bone.origin.parent_bone_index)
+            .ok()
+            .and_then(|idx| self.bones.get(idx))
     }
 
     pub fn get_name(&self) -> &String {
@@ -1192,8 +1439,7 @@ impl Model {
     }
 
     pub fn is_add_blend_enabled(&self) -> bool {
-        // TODO: isAddBlendEnabled
-        true
+        self.states.enable_add_blend
     }
 
     pub fn opacity(&self) -> f32 {
@@ -1395,6 +1641,16 @@ struct FrameTransform {
     enable_linear_interpolation: LinearInterpolationEnable,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct BoneStates {
+    pub linear_interpolation_translation_x: bool,
+    pub linear_interpolation_translation_y: bool,
+    pub linear_interpolation_translation_z: bool,
+    pub linear_interpolation_orientation: bool,
+    dirty: bool,
+    editing_masked: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct Bone {
     name: String,
@@ -1410,12 +1666,12 @@ pub struct Bone {
     local_morph_translation: Vector3<f32>,
     local_user_translation: Vector3<f32>,
     bezier_control_points: BezierControlPoints,
-    states: u32,
+    states: BoneStates,
     pub origin: NanoemBone,
 }
 
 impl Bone {
-    const DEFAULT_BAZIER_CONTROL_POINT: [u8; 4] = [20, 20, 107, 107];
+    const DEFAULT_BEZIER_CONTROL_POINT: [u8; 4] = [20, 20, 107, 107];
     const DEFAULT_AUTOMATIC_BAZIER_CONTROL_POINT: [u8; 4] = [64, 0, 64, 127];
     const NAME_ROOT_PARENT_IN_JAPANESE_UTF8: &'static [u8] = &[
         0xe5, 0x85, 0xa8, 0xe3, 0x81, 0xa6, 0xe3, 0x81, 0xae, 0xe8, 0xa6, 0xaa, 0x0,
@@ -1445,19 +1701,6 @@ impl Bone {
     const RIGHT_KNEE_IN_JAPANESE_UTF8: &'static [u8] =
         &[0xe5, 0x8f, 0xb3, 0xe3, 0x81, 0xb2, 0xe3, 0x81, 0x96, 0x0];
     pub const RIGHT_KNEE_IN_JAPANESE: &'static str = "右ひざ";
-
-    const PRIVATE_STATE_LINEAR_INTERPOLATION_TRANSLATION_X: u32 = 1u32 << 1;
-    const PRIVATE_STATE_LINEAR_INTERPOLATION_TRANSLATION_Y: u32 = 1u32 << 2;
-    const PRIVATE_STATE_LINEAR_INTERPOLATION_TRANSLATION_Z: u32 = 1u32 << 3;
-    const PRIVATE_STATE_LINEAR_INTERPOLATION_ORIENTATION: u32 = 1u32 << 4;
-    const PRIVATE_STATE_DIRTY: u32 = 1u32 << 5;
-    const PRIVATE_STATE_EDITING_MASKED: u32 = 1u32 << 6;
-    const PRIVATE_STATE_RESERVED: u32 = 1u32 << 31;
-
-    const PRIVATE_STATE_INITIAL_VALUE: u32 = Self::PRIVATE_STATE_LINEAR_INTERPOLATION_TRANSLATION_X
-        | Self::PRIVATE_STATE_LINEAR_INTERPOLATION_TRANSLATION_Y
-        | Self::PRIVATE_STATE_LINEAR_INTERPOLATION_TRANSLATION_Z
-        | Self::PRIVATE_STATE_LINEAR_INTERPOLATION_ORIENTATION;
 
     pub fn from_nanoem(bone: &NanoemBone, language_type: nanoem::common::LanguageType) -> Self {
         let mut name = bone.get_name(language_type).to_owned();
@@ -1494,7 +1737,13 @@ impl Bone {
                 translation_z: Vector4::new(0, 0, 0, 0),
                 orientation: Vector4::new(0, 0, 0, 0),
             },
-            states: Self::PRIVATE_STATE_INITIAL_VALUE,
+            states: BoneStates {
+                linear_interpolation_translation_x: true,
+                linear_interpolation_translation_y: true,
+                linear_interpolation_translation_z: true,
+                linear_interpolation_orientation: true,
+                ..Default::default()
+            },
             origin: bone.clone(),
         }
     }
@@ -1647,12 +1896,51 @@ impl Bone {
         self.matrices.normal_transform = Self::shrink_3x3(&self.matrices.world_transform);
     }
 
+    pub fn update_local_morph_transform(
+        &mut self,
+        morph: &nanoem::model::ModelMorphBone,
+        weight: f32,
+    ) {
+        self.local_morph_translation =
+            Vector3::zero().lerp(f128_to_vec3(morph.translation), weight);
+        self.local_morph_orientation =
+            Quaternion::zero().slerp(f128_to_quat(morph.orientation), weight);
+    }
+
     pub fn apply_all_local_transform(&mut self) {
         todo!()
     }
 
     pub fn apply_outside_parent_transform(&mut self) {
         todo!()
+    }
+
+    pub fn reset_local_transform(&mut self) {
+        self.local_orientation = Quaternion::zero();
+        self.local_inherent_orientation = Quaternion::zero();
+        self.local_translation = Vector3::zero();
+        self.local_inherent_translation = Vector3::zero();
+        self.bezier_control_points = BezierControlPoints {
+            translation_x: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
+            translation_y: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
+            translation_z: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
+            orientation: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
+        };
+        self.states.linear_interpolation_translation_x = true;
+        self.states.linear_interpolation_translation_y = true;
+        self.states.linear_interpolation_translation_z = true;
+        self.states.linear_interpolation_orientation = true;
+    }
+
+    pub fn reset_morph_transform(&mut self) {
+        self.local_morph_orientation = Quaternion::zero();
+        self.local_morph_translation = Vector3::zero();
+    }
+
+    pub fn reset_user_transform(&mut self) {
+        self.local_user_orientation = Quaternion::zero();
+        self.local_user_translation = Vector3::zero();
+        self.states.dirty = false;
     }
 
     pub fn skinning_transform(&self) -> Matrix4<f32> {
@@ -1939,6 +2227,24 @@ impl Vertex {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.simd.delta = Vector4::zero();
+        self.simd.delta_uva = [Vector4::zero(); 5];
+    }
+
+    pub fn deform(&mut self, morph: &nanoem::model::ModelMorphVertex, weight: f32) {
+        self.simd.delta = self.simd.delta + f128_to_vec4(morph.position) * weight;
+    }
+
+    pub fn deform_uv(
+        &mut self,
+        morph: &nanoem::model::ModelMorphUv,
+        uv_idx: usize,
+        weight: f32,
+    ) {
+        self.simd.delta_uva[uv_idx].add_assign_element_wise(f128_to_vec4(morph.position) * weight);
+    }
+
     pub fn set_material(&mut self, material_idx: MaterialIndex) {
         self.material = Some(material_idx)
     }
@@ -2006,6 +2312,13 @@ struct MaterialBlendEdge {
     mul: MaterialEdge,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MaterialStates {
+    pub visible: bool,
+    pub display_diffuse_texture_uv_mesh_enabled: bool,
+    pub display_sphere_map_texture_uv_mesh_enabled: bool,
+}
+
 pub struct Material {
     // TODO
     color: MaterialBlendColor,
@@ -2019,7 +2332,7 @@ pub struct Material {
     fallback_image: wgpu::TextureView,
     index_hash: HashMap<u32, u32>,
     toon_color: Vector4<f32>,
-    states: u32,
+    states: MaterialStates,
     origin: NanoemMaterial,
 }
 
@@ -2080,14 +2393,148 @@ impl Material {
             fallback_image: fallback.create_view(&wgpu::TextureViewDescriptor::default()),
             index_hash: HashMap::new(),
             toon_color: Vector4::new(1f32, 1f32, 1f32, 1f32),
-            states: Self::PRIVATE_STATE_INITIAL_VALUE,
+            states: MaterialStates {
+                visible: true,
+                display_diffuse_texture_uv_mesh_enabled: true,
+                ..Default::default()
+            },
             origin: material.clone(),
         }
     }
 
+    pub fn reset(&mut self) {
+        let material = &self.origin;
+        self.color.base.ambient = Vector4::from(material.get_ambient_color()).truncate();
+        self.color.base.diffuse = Vector4::from(material.get_diffuse_color()).truncate();
+        self.color.base.specular = Vector4::from(material.get_specular_color()).truncate();
+        self.color.base.diffuse_opacity = material.get_diffuse_opacity();
+        self.color.base.specular_power = material
+            .get_specular_power()
+            .max(Self::MINIUM_SPECULAR_POWER);
+        self.color.base.diffuse_texture_blend_factor = Vector4::new(1f32, 1f32, 1f32, 1f32);
+        self.color.base.sphere_texture_blend_factor = Vector4::new(1f32, 1f32, 1f32, 1f32);
+        self.color.base.toon_texture_blend_factor = Vector4::new(1f32, 1f32, 1f32, 1f32);
+        self.edge.base.color = Vector4::from(material.get_edge_color()).truncate();
+        self.edge.base.opacity = material.get_edge_opacity();
+        self.edge.base.size = material.get_edge_size();
+    }
+
+    pub fn reset_deform(&mut self) {
+        self.color.mul = MaterialColor::new_reset(1f32);
+        self.color.add = MaterialColor::new_reset(0f32);
+        self.edge.mul = MaterialEdge::new_reset(1f32);
+        self.edge.add = MaterialEdge::new_reset(0f32);
+    }
+
+    pub fn deform(&mut self, morph: &nanoem::model::ModelMorphMaterial, weight: f32) {
+        const ONE_V4: Vector4<f32> = Vector4 {
+            x: 1f32,
+            y: 1f32,
+            z: 1f32,
+            w: 1f32,
+        };
+        const ONE_V3: Vector3<f32> = Vector3 {
+            x: 1f32,
+            y: 1f32,
+            z: 1f32,
+        };
+        let diffuse_texture_blend_factor = f128_to_vec4(morph.diffuse_texture_blend);
+        let sphere_texture_blend_factor = f128_to_vec4(morph.sphere_map_texture_blend);
+        // TODO: nanoem use sphere_map_texture_blend, it may be a mistake
+        let toon_texture_blend_factor = f128_to_vec4(morph.toon_texture_blend);
+        match morph.operation {
+            nanoem::model::ModelMorphMaterialOperationType::Multiply => {
+                self.color.mul.ambient.mul_assign_element_wise(
+                    ONE_V3.lerp(f128_to_vec3(morph.ambient_color), weight),
+                );
+                self.color.mul.diffuse.mul_assign_element_wise(
+                    ONE_V3.lerp(f128_to_vec3(morph.diffuse_color), weight),
+                );
+                self.color.mul.specular.mul_assign_element_wise(
+                    ONE_V3.lerp(f128_to_vec3(morph.specular_color), weight),
+                );
+                self.color.mul.diffuse_opacity = lerp_f32(
+                    self.color.mul.diffuse_opacity,
+                    morph.diffuse_opacity,
+                    weight,
+                );
+                self.color.mul.specular_power =
+                    lerp_f32(self.color.mul.specular_power, morph.specular_power, weight)
+                        .max(Self::MINIUM_SPECULAR_POWER);
+                self.color
+                    .mul
+                    .diffuse_texture_blend_factor
+                    .mul_assign_element_wise(
+                        ONE_V4.lerp(f128_to_vec4(morph.diffuse_texture_blend), weight),
+                    );
+                self.color
+                    .mul
+                    .sphere_texture_blend_factor
+                    .mul_assign_element_wise(
+                        ONE_V4.lerp(f128_to_vec4(morph.sphere_map_texture_blend), weight),
+                    );
+                self.color
+                    .mul
+                    .toon_texture_blend_factor
+                    .mul_assign_element_wise(
+                        ONE_V4.lerp(f128_to_vec4(morph.toon_texture_blend), weight),
+                    );
+                self.edge
+                    .mul
+                    .color
+                    .mul_assign_element_wise(ONE_V3.lerp(f128_to_vec3(morph.edge_color), weight));
+                self.edge.mul.opacity = lerp_f32(self.edge.mul.opacity, morph.edge_opacity, weight);
+                self.edge.mul.size = lerp_f32(self.edge.mul.size, morph.edge_size, weight);
+            }
+            nanoem::model::ModelMorphMaterialOperationType::Add => {
+                self.color.add.ambient.add_assign_element_wise(
+                    ONE_V3.lerp(f128_to_vec3(morph.ambient_color), weight),
+                );
+                self.color.add.diffuse.add_assign_element_wise(
+                    ONE_V3.lerp(f128_to_vec3(morph.diffuse_color), weight),
+                );
+                self.color.add.specular.add_assign_element_wise(
+                    ONE_V3.lerp(f128_to_vec3(morph.specular_color), weight),
+                );
+                self.color.add.diffuse_opacity = lerp_f32(
+                    self.color.add.diffuse_opacity,
+                    morph.diffuse_opacity,
+                    weight,
+                );
+                self.color.add.specular_power =
+                    lerp_f32(self.color.add.specular_power, morph.specular_power, weight)
+                        .max(Self::MINIUM_SPECULAR_POWER);
+                self.color
+                    .add
+                    .diffuse_texture_blend_factor
+                    .add_assign_element_wise(
+                        ONE_V4.lerp(f128_to_vec4(morph.diffuse_texture_blend), weight),
+                    );
+                self.color
+                    .add
+                    .sphere_texture_blend_factor
+                    .add_assign_element_wise(
+                        ONE_V4.lerp(f128_to_vec4(morph.sphere_map_texture_blend), weight),
+                    );
+                self.color
+                    .add
+                    .toon_texture_blend_factor
+                    .add_assign_element_wise(
+                        ONE_V4.lerp(f128_to_vec4(morph.toon_texture_blend), weight),
+                    );
+                self.edge
+                    .add
+                    .color
+                    .add_assign_element_wise(ONE_V3.lerp(f128_to_vec3(morph.edge_color), weight));
+                self.edge.add.opacity = lerp_f32(self.edge.add.opacity, morph.edge_opacity, weight);
+                self.edge.add.size = lerp_f32(self.edge.add.size, morph.edge_size, weight);
+            }
+            nanoem::model::ModelMorphMaterialOperationType::Unknown => {}
+        }
+    }
+
     pub fn is_visible(&self) -> bool {
-        // TODO: isVisible
-        true
+        self.states.visible
     }
 
     pub fn color(&self) -> MaterialColor {
@@ -2216,6 +2663,21 @@ impl Morph {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.weight = 0f32;
+        self.dirty = false;
+    }
+
+    pub fn set_weight(&mut self, value: f32) {
+        self.dirty = self.weight.abs() > f32::EPSILON || value.abs() > f32::EPSILON;
+        self.weight = value;
+    }
+
+    pub fn set_forced_weight(&mut self, value: f32) {
+        self.dirty = false;
+        self.weight = value;
+    }
+
     pub fn synchronize_motion(&mut self, motion: &Motion, frame_index: u32, amount: f32) {
         todo!()
     }
@@ -2251,6 +2713,13 @@ impl Label {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RigidBodyStates {
+    pub enabled: bool,
+    pub all_forces_should_reset: bool,
+    pub editing_masked: bool,
+}
+
 pub struct RigidBody {
     // TODO: physics engine and shape mesh and engine rigid_body
     global_torque_force: (Vector3<f32>, bool),
@@ -2259,7 +2728,7 @@ pub struct RigidBody {
     local_velocity_force: (Vector3<f32>, bool),
     name: String,
     canonical_name: String,
-    states: u32,
+    states: RigidBodyStates,
     origin: NanoemRigidBody,
 }
 
@@ -2293,9 +2762,47 @@ impl RigidBody {
             local_velocity_force: (Vector3::zero(), false),
             name,
             canonical_name,
-            states: Self::PRIVATE_STATE_INITIAL_VALUE,
+            states: RigidBodyStates::default(),
             origin: rigid_body.clone(),
         }
+    }
+
+    pub fn enable(&mut self) {
+        if !self.states.enabled {
+            // TODO: add to physics engine
+            self.states.enabled = true;
+        }
+    }
+
+    pub fn disable(&mut self) {
+        if self.states.enabled {
+            // TODO: remove from physics engine
+            self.states.enabled = false;
+        }
+    }
+
+    pub fn mark_all_forces_reset(&mut self) {
+        self.states.all_forces_should_reset = true;
+    }
+
+    pub fn add_global_torque_force(&mut self, value: Vector3<f32>, weight: f32) {
+        self.global_torque_force.0 += value * weight;
+        self.global_torque_force.1 = true;
+    }
+
+    pub fn add_global_velocity_force(&mut self, value: Vector3<f32>, weight: f32) {
+        self.global_velocity_force.0 += value * weight;
+        self.global_velocity_force.1 = true;
+    }
+
+    pub fn add_local_torque_force(&mut self, value: Vector3<f32>, weight: f32) {
+        self.local_torque_force.0 += value * weight;
+        self.local_torque_force.1 = true;
+    }
+
+    pub fn add_local_velocity_force(&mut self, value: Vector3<f32>, weight: f32) {
+        self.local_velocity_force.0 += value * weight;
+        self.local_velocity_force.1 = true;
     }
 
     pub fn enable_kinematic(&mut self) {
@@ -2311,11 +2818,17 @@ impl RigidBody {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct JointStates {
+    pub enabled: bool,
+    pub editing_masked: bool,
+}
+
 pub struct Joint {
     // TODO: physics engine and shape mesh and engine rigid_body
     name: String,
     canonical_name: String,
-    states: u32,
+    states: JointStates,
     origin: NanoemJoint,
 }
 
@@ -2341,27 +2854,41 @@ impl Joint {
         Self {
             name,
             canonical_name,
-            states: Self::PRIVATE_STATE_INITIAL_VALUE,
+            states: JointStates::default(),
             origin: joint.clone(),
         }
     }
+
+    pub fn enable(&mut self) {
+        if !self.states.enabled {
+            // TODO: add to physics engine
+            self.states.enabled = true;
+        }
+    }
+
+    pub fn disable(&mut self) {
+        if self.states.enabled {
+            // TODO: remove from physics engine
+            self.states.enabled = false;
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SoftBodyStates {
+    pub enabled: bool,
+    pub editing_masked: bool,
 }
 
 pub struct SoftBody {
     // TODO: physics engine and shape mesh and engine soft_body
     name: String,
     canonical_name: String,
-    states: u32,
+    pub states: SoftBodyStates,
     origin: NanoemSoftBody,
 }
 
 impl SoftBody {
-    pub const PRIVATE_STATE_ENABLED: u32 = 1u32 << 1;
-    pub const PRIVATE_STATE_EDITING_MASKED: u32 = 1u32 << 2;
-    pub const PRIVATE_STATE_RESERVED: u32 = 1u32 << 31;
-
-    pub const PRIVATE_STATE_INITIAL_VALUE: u32 = 0u32;
-
     pub fn from_nanoem(soft_body: &NanoemSoftBody, language: nanoem::common::LanguageType) -> Self {
         // TODO: should resolve physic engine
         let mut name = soft_body.get_name(language).to_owned();
@@ -2377,8 +2904,22 @@ impl SoftBody {
         Self {
             name,
             canonical_name,
-            states: Self::PRIVATE_STATE_INITIAL_VALUE,
+            states: SoftBodyStates::default(),
             origin: soft_body.clone(),
+        }
+    }
+
+    pub fn enable(&mut self) {
+        if !self.states.enabled {
+            // TODO: add to physics engine
+            self.states.enabled = true;
+        }
+    }
+
+    pub fn disable(&mut self) {
+        if self.states.enabled {
+            // TODO: remove from physics engine
+            self.states.enabled = false;
         }
     }
 }

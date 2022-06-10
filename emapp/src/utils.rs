@@ -1,5 +1,5 @@
 use cgmath::{
-    BaseFloat, BaseNum, ElementWise, InnerSpace, Matrix3, Matrix4, SquareMatrix, Vector3, Vector4,
+    BaseFloat, BaseNum, ElementWise, InnerSpace, Matrix3, Matrix4, SquareMatrix, Vector3, Vector4, Quaternion,
 };
 use nanoem::common::F128;
 
@@ -12,6 +12,10 @@ pub fn f128_to_vec3(v: F128) -> Vector3<f32> {
 }
 
 pub fn f128_to_vec4(v: F128) -> Vector4<f32> {
+    v.0.into()
+}
+
+pub fn f128_to_quat(v: F128) -> Quaternion<f32> {
     v.0.into()
 }
 

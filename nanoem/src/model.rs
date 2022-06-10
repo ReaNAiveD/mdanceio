@@ -2544,6 +2544,19 @@ impl From<ModelMorphType> for u8 {
     }
 }
 
+impl ModelMorphType {
+    pub fn uv_index(self) -> Option<usize> {
+        match self {
+            ModelMorphType::Texture => Some(0),
+            ModelMorphType::Uva1 => Some(1),
+            ModelMorphType::Uva2 => Some(2),
+            ModelMorphType::Uva3 => Some(3),
+            ModelMorphType::Uva4 => Some(4),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ModelMorph {
     pub base: ModelObject,
