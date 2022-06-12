@@ -1267,7 +1267,7 @@ impl Model {
 
     fn deform_morph(&mut self, morph_idx: MorphIndex, check_dirty: bool) {
         if let Some(morph) = self.morphs.get_mut(morph_idx) {
-            if (!check_dirty || (check_dirty && morph.dirty)) {
+            if !check_dirty || (check_dirty && morph.dirty) {
                 let weight = morph.weight;
                 match &morph.origin.typ {
                     nanoem::model::ModelMorphType::Group(children) => {
@@ -1600,6 +1600,20 @@ struct Matrices {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub struct BoneKeyframeInterpolationPoint {
+    pub bezier_control_point: Vector4<u8>,
+    pub is_linear_interpolation: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BoneKeyframeInterpolation {
+    translation_x: BoneKeyframeInterpolationPoint,
+    translation_y: BoneKeyframeInterpolationPoint,
+    translation_z: BoneKeyframeInterpolationPoint,
+    orientation: BoneKeyframeInterpolationPoint,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct BezierControlPoints {
     translation_x: Vector4<u8>,
     translation_y: Vector4<u8>,
@@ -1607,19 +1621,37 @@ struct BezierControlPoints {
     orientation: Vector4<u8>,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct LinearInterpolationEnable {
-    translation_x: bool,
-    translation_y: bool,
-    translation_z: bool,
-    orientation: bool,
+struct BoneFrameTransform {
+    pub translation: Vector3<f32>,
+    pub orientation: Quaternion<f32>,
+    pub interpolation: BoneKeyframeInterpolation,
 }
 
-struct FrameTransform {
-    translation: Vector3<f32>,
-    orientation: Quaternion<f32>,
-    bezier_control_points: BezierControlPoints,
-    enable_linear_interpolation: LinearInterpolationEnable,
+impl BoneFrameTransform {
+    pub fn initial_frame_transform() -> Self {
+        Self {
+            translation: Vector3::zero(),
+            orientation: Quaternion::zero(),
+            interpolation: BoneKeyframeInterpolation {
+                translation_x: BoneKeyframeInterpolationPoint {
+                    bezier_control_point: Bone::DEFAULT_BEZIER_CONTROL_POINT.into(),
+                    is_linear_interpolation: true,
+                },
+                translation_y: BoneKeyframeInterpolationPoint {
+                    bezier_control_point: Bone::DEFAULT_BEZIER_CONTROL_POINT.into(),
+                    is_linear_interpolation: true,
+                },
+                translation_z: BoneKeyframeInterpolationPoint {
+                    bezier_control_point: Bone::DEFAULT_BEZIER_CONTROL_POINT.into(),
+                    is_linear_interpolation: true,
+                },
+                orientation: BoneKeyframeInterpolationPoint {
+                    bezier_control_point: Bone::DEFAULT_BEZIER_CONTROL_POINT.into(),
+                    is_linear_interpolation: true,
+                },
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -1757,155 +1789,6 @@ impl Bone {
         todo!()
     }
 
-    pub fn solve_constraint(
-        &self,
-        constraint: &mut Constraint,
-        num_iterations: usize,
-        bones: &mut [Bone],
-    ) {
-        let target_bone_idx = usize::try_from(constraint.origin.target_bone_index).ok();
-        let effector_bone_idx = usize::try_from(constraint.origin.effector_bone_index).ok();
-        let angle_limit = constraint.origin.angle_limit;
-        if let (Some(target_bone), Some(effector_bone)) = (
-            target_bone_idx.and_then(|idx| bones.get(idx)),
-            effector_bone_idx.and_then(|idx| bones.get(idx)),
-        ) {
-            let target_bone_position = target_bone.world_transform_origin().extend(1f32);
-            let effector_bone_position = effector_bone.world_transform_origin().extend(1f32);
-            let target_bone_idx = target_bone_idx.unwrap();
-            let effector_bone_idx = effector_bone_idx.unwrap();
-            for i in 0..num_iterations {
-                for j in 0..constraint.origin.joints.len() {
-                    let joint = &constraint.origin.joints[j];
-                    if let Some(joint_bone) = usize::try_from(joint.bone_index)
-                        .ok()
-                        .and_then(|idx| bones.get(idx))
-                    {
-                        let joint_result = &mut constraint.joint_iteration_result[j][i];
-                        if !joint_result.solve_axis_angle(
-                            &joint_bone.matrices.world_transform,
-                            &effector_bone_position,
-                            &target_bone_position,
-                        ) {
-                            if joint_bone.origin.flags.has_fixed_axis {
-                                let axis = f128_to_vec3(joint_bone.origin.fixed_axis);
-                                if axis.abs_diff_ne(
-                                    &Vector3::zero(),
-                                    Vector3::<f32>::default_epsilon(),
-                                ) {
-                                    joint_result.axis = axis.normalize();
-                                }
-                            } else if i == 0 && joint.has_angle_limit {
-                                let has_upper_limit = f128_to_vec3(joint.upper_limit)
-                                    .map(|limit| limit.abs() <= f32::default_epsilon());
-                                let has_lower_limit = f128_to_vec3(joint.lower_limit)
-                                    .map(|limit| limit.abs() <= f32::default_epsilon());
-                                if has_lower_limit.y
-                                    && has_upper_limit.y
-                                    && has_lower_limit.z
-                                    && has_upper_limit.z
-                                {
-                                    joint_result.axis = Vector3::unit_x();
-                                } else if has_lower_limit.x
-                                    && has_upper_limit.x
-                                    && has_lower_limit.z
-                                    && has_upper_limit.z
-                                {
-                                    joint_result.axis = Vector3::unit_y();
-                                } else if has_lower_limit.x
-                                    && has_upper_limit.x
-                                    && has_lower_limit.y
-                                    && has_upper_limit.y
-                                {
-                                    joint_result.axis = Vector3::unit_z();
-                                }
-                            }
-                            joint_result.set_transform(&joint_bone.matrices.world_transform);
-                            let new_angle_limit = angle_limit * (j as f32 + 1f32);
-                            let orientation = Quaternion::from_axis_angle(
-                                joint_result.axis,
-                                Rad(joint_result.angle.min(new_angle_limit)),
-                            );
-                            let mut mixed_orientation = if i == 0 {
-                                orientation * joint_bone.local_user_orientation
-                            } else {
-                                joint_bone.constraint_joint_orientation * orientation
-                            };
-                            if joint.has_angle_limit {
-                                let lower_limit = f128_to_vec3(joint.lower_limit);
-                                let upper_limit = f128_to_vec3(joint.upper_limit);
-                                mixed_orientation = Bone::constraint_orientation(
-                                    mixed_orientation,
-                                    &upper_limit,
-                                    &lower_limit,
-                                );
-                            }
-                            usize::try_from(joint.bone_index)
-                                .ok()
-                                .and_then(|idx| bones.get_mut(idx))
-                                .unwrap()
-                                .constraint_joint_orientation = mixed_orientation.normalize();
-                            for k in (0..=j).rev() {
-                                let upper_joint = &constraint.origin.joints[k];
-                                let upper_joint_bone_index =
-                                    usize::try_from(upper_joint.bone_index).ok();
-                                let parent_origin_world_transform = upper_joint_bone_index
-                                    .and_then(|idx| bones.get(idx))
-                                    .and_then(|upper_joint_bone| {
-                                        usize::try_from(upper_joint_bone.origin.parent_bone_index)
-                                            .ok()
-                                    })
-                                    .and_then(|idx| bones.get(idx))
-                                    .map(|bone| {
-                                        (
-                                            f128_to_vec3(bone.origin.origin),
-                                            bone.matrices.world_transform,
-                                        )
-                                    });
-                                if let Some(upper_joint_bone) =
-                                    upper_joint_bone_index.and_then(|idx| bones.get_mut(idx))
-                                {
-                                    let translation = upper_joint_bone.local_translation;
-                                    let orientation = upper_joint_bone.constraint_joint_orientation;
-                                    upper_joint_bone.update_local_transform_to(
-                                        parent_origin_world_transform,
-                                        &translation,
-                                        &orientation,
-                                    )
-                                }
-                            }
-                            let parent_origin_world_transform = bones
-                                .get(effector_bone_idx)
-                                .and_then(|effector_bone| {
-                                    usize::try_from(effector_bone.origin.parent_bone_index).ok()
-                                })
-                                .and_then(|idx| bones.get(idx))
-                                .map(|bone| {
-                                    (
-                                        f128_to_vec3(bone.origin.origin),
-                                        bone.matrices.world_transform,
-                                    )
-                                });
-                            bones.get_mut(effector_bone_idx).map(|effector_bone| {
-                                effector_bone.update_local_transform(parent_origin_world_transform)
-                            });
-                            if let Some(effector_result) = constraint
-                                .effector_iteration_result
-                                .get_mut(joint.base.index)
-                                .and_then(|results| results.get_mut(i as usize))
-                            {
-                                bones.get(effector_bone_idx).map(|effector_bone| {
-                                    effector_result
-                                        .set_transform(&effector_bone.matrices.world_transform)
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     pub fn update_local_transform(
         &mut self,
         parent_origin_world_transform: Option<(Vector3<f32>, Matrix4<f32>)>,
@@ -1987,6 +1870,7 @@ impl Bone {
     pub fn update_local_orientation(
         &mut self,
         parent_bone_and_is_constraint_joint_bone_active: Option<(&Self, bool)>,
+        effector_bone_local_user_orientation: Option<Quaternion<f32>>,
         is_constraint_joint_bone_active: bool,
     ) {
         // let is_constraint_joint_bone_active = Some(true)
@@ -2025,12 +1909,10 @@ impl Bone {
             }
             let coefficient = self.origin.inherent_coefficient;
             if (coefficient - 1f32).abs() > 0.0f32 {
-                if let Some(effector_bone) = usize::try_from(self.origin.effector_bone_index)
-                    .ok()
-                    .and_then(|idx| model.bones.get(idx))
+                if let Some(effector_bone_local_user_orientation) = effector_bone_local_user_orientation
                 {
                     orientation =
-                        orientation.slerp(effector_bone.local_user_orientation, coefficient);
+                        orientation.slerp(effector_bone_local_user_orientation, coefficient);
                 } else {
                     orientation = Quaternion::zero().slerp(orientation, coefficient);
                 }
@@ -2063,7 +1945,7 @@ impl Bone {
                     translation += parent_bone.local_inherent_translation;
                 } else {
                     translation +=
-                        parent_bone.local_translation * parent_bone.local_morph_translation;
+                        parent_bone.local_translation.mul_element_wise(parent_bone.local_morph_translation);
                 }
             }
             let coefficient = self.origin.inherent_coefficient;
@@ -2079,10 +1961,12 @@ impl Bone {
     pub fn apply_all_local_transform(
         &mut self,
         parent_bone_and_is_constraint_joint_bone_active: Option<(&Self, bool)>,
+        effector_bone_local_user_orientation: Option<Quaternion<f32>>,
         is_constraint_joint_bone_active: bool,
     ) {
         self.update_local_orientation(
             parent_bone_and_is_constraint_joint_bone_active,
+            effector_bone_local_user_orientation,
             is_constraint_joint_bone_active,
         );
         self.update_local_translation(parent_bone_and_is_constraint_joint_bone_active.map(|v| v.0));
@@ -2094,7 +1978,6 @@ impl Bone {
         }));
         // We deprecate constraint embedded in bone. All constraints saved in model.constraints
         // self.solve_constraint(constraint, num_iterations, bones)
-        todo!()
     }
 
     pub fn apply_outside_parent_transform(&mut self) {
