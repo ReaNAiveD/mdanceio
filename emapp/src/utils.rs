@@ -19,6 +19,14 @@ pub fn f128_to_quat(v: F128) -> Quaternion<f32> {
     v.0.into()
 }
 
+pub fn mat4_truncate<S>(v: Matrix4<S>) -> Matrix3<S> where S: BaseNum {
+    Matrix3 {
+        x: v.x.truncate(),
+        y: v.y.truncate(),
+        z: v.z.truncate(),
+    }
+}
+
 pub fn lerp_f32(a: f32, b: f32, amount: f32) -> f32 {
     a + (b - a) * amount
 }
