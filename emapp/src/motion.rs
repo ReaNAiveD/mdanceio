@@ -1,8 +1,12 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+use cgmath::{Vector1, Vector2, Vector4, Quaternion, BaseNum, VectorSpace};
 use nanoem::{
     common::Status,
-    motion::{MotionAccessoryKeyframe, MotionBoneKeyframe, MotionCameraKeyframe, MotionFormatType, MotionLightKeyframe, MotionModelKeyframe},
+    motion::{
+        MotionAccessoryKeyframe, MotionBoneKeyframe, MotionCameraKeyframe, MotionFormatType,
+        MotionLightKeyframe, MotionModelKeyframe,
+    },
 };
 
 use crate::{
@@ -12,10 +16,16 @@ use crate::{
 
 pub type NanoemMotion = nanoem::motion::Motion;
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+struct CurveCacheKey {
+    next: [u8; 4],
+    interval: u32,
+}
+
 pub struct Motion {
     selection: Box<dyn MotionKeyframeSelection>,
     pub opaque: NanoemMotion,
-    bezier_curves_data: RefCell<HashMap<u64, BezierCurve>>,
+    bezier_curves_data: RefCell<HashMap<CurveCacheKey, Box<BezierCurve>>>,
     keyframe_bezier_curves: RefCell<HashMap<Rc<RefCell<MotionBoneKeyframe>>, BezierCurve>>,
     annotations: HashMap<String, String>,
     file_uri: Uri,
@@ -125,7 +135,11 @@ impl Motion {
             .min(Project::MAXIMUM_BASE_DURATION)
     }
 
-    pub fn find_bone_keyframe(&self, name: &String, frame_index: u32) -> Option<&MotionBoneKeyframe> {
+    pub fn find_bone_keyframe(
+        &self,
+        name: &String,
+        frame_index: u32,
+    ) -> Option<&MotionBoneKeyframe> {
         self.opaque.find_bone_keyframe_object(name, frame_index)
     }
 
@@ -147,6 +161,117 @@ impl Motion {
             1f32
         } else {
             (frame_index - prev_frame_index) as f32 / (interval as f32)
+        }
+    }
+
+    pub fn lerp_interpolation<T>(
+        &self,
+        next_interpolation: &[u8; 4],
+        prev_value: &T,
+        next_value: &T,
+        interval: u32,
+        coef: f32,
+    ) -> T
+    where
+        T: VectorSpace<Scalar = f32>,
+    {
+        if KeyframeInterpolationPoint::is_linear_interpolation(next_interpolation) {
+            prev_value.lerp(*next_value, coef)
+        } else {
+            let t2 = self.bezier_curve(next_interpolation, interval, coef);
+            prev_value.lerp(*next_value, t2)
+        }
+    }
+
+    pub fn slerp_interpolation(
+        &self,
+        next_interpolation: &[u8; 4],
+        prev_value: &Quaternion<f32>,
+        next_value: &Quaternion<f32>,
+        interval: u32,
+        coef: f32,) -> Quaternion<f32> {
+            if KeyframeInterpolationPoint::is_linear_interpolation(next_interpolation) {
+                prev_value.slerp(*next_value, coef)
+            } else {
+                let t2 = self.bezier_curve(next_interpolation, interval, coef);
+                prev_value.slerp(*next_value, t2)
+            }
+        }
+
+    pub fn lerp_value_interpolation(
+        &self,
+        next_interpolation: &[u8; 4],
+        prev_value: f32,
+        next_value: f32,
+        interval: u32,
+        coef: f32,
+    ) -> f32 {
+        self.lerp_interpolation(
+            next_interpolation,
+            &Vector1::new(prev_value),
+            &Vector1::new(next_value),
+            interval,
+            coef,
+        )
+        .x
+    }
+
+    pub fn bezier_curve(&self, next: &[u8; 4], interval: u32, value: f32) -> f32 {
+        let key = CurveCacheKey {
+            next: next.clone(),
+            interval,
+        };
+        let mut cache = self.bezier_curves_data.borrow_mut();
+        if let Some(curve) = cache.get(&key) {
+            curve.value(value)
+        } else {
+            let curve = Box::new(BezierCurve::create(
+                &Vector2::new(next[0], next[1]),
+                &Vector2::new(next[2], next[3]),
+                interval,
+            ));
+            let r = curve.value(value);
+            cache.insert(key, curve);
+            r
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct KeyframeInterpolationPoint {
+    pub bezier_control_point: Vector4<u8>,
+    pub is_linear_interpolation: bool,
+}
+
+impl Default for KeyframeInterpolationPoint {
+    fn default() -> Self {
+        Self {
+            bezier_control_point: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
+            is_linear_interpolation: true,
+        }
+    }
+}
+
+impl KeyframeInterpolationPoint {
+    const DEFAULT_BEZIER_CONTROL_POINT: [u8; 4] = [20, 20, 107, 107];
+
+    pub fn is_linear_interpolation(interpolation: &[u8; 4]) -> bool {
+        interpolation[0] == interpolation[1]
+            && interpolation[2] == interpolation[3]
+            && interpolation[0] + interpolation[2] == interpolation[1] + interpolation[3]
+    }
+
+    pub fn build(interpolation: [u8; 4]) -> Self {
+        if Self::is_linear_interpolation(&interpolation) {
+            Self {
+                bezier_control_point: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
+                is_linear_interpolation: true,
+            }
+        } else {
+            Self {
+                bezier_control_point: Vector4::from(interpolation),
+                is_linear_interpolation: false,
+            }
         }
     }
 }

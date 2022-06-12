@@ -25,7 +25,7 @@ use crate::{
     internal::LinearDrawer,
     model_object_selection::ModelObjectSelection,
     model_program_bundle::{ModelProgramBundle, ObjectTechnique, ZplotTechnique},
-    motion::Motion,
+    motion::{KeyframeInterpolationPoint, Motion},
     pass,
     physics_engine::SimulationTiming,
     project::Project,
@@ -939,7 +939,7 @@ impl Model {
                 let rigid_body = self
                     .bone_bound_rigid_bodies
                     .get(&bone.origin.base.index)
-                    .and_then(|idx| self.rigid_bodies.get(*idx));
+                    .and_then(|idx| self.rigid_bodies.get_mut(*idx));
                 bone.synchronize_motion(motion, rigid_body, frame_index, amount);
             }
         }
@@ -951,7 +951,7 @@ impl Model {
             {
                 // TODO: process mut bone and model
                 // bone.apply_all_local_transform();
-                bone.apply_outside_parent_transform();
+                // bone.apply_outside_parent_transform();
                 self.bounding_box.set(bone.world_transform_origin());
             }
         }
@@ -1592,25 +1592,30 @@ impl Model {
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Matrices {
-    world_transform: Matrix4<f32>,
-    local_transform: Matrix4<f32>,
-    normal_transform: Matrix4<f32>,
-    skinning_transform: Matrix4<f32>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct BoneKeyframeInterpolationPoint {
-    pub bezier_control_point: Vector4<u8>,
-    pub is_linear_interpolation: bool,
+pub struct Matrices {
+    pub world_transform: Matrix4<f32>,
+    pub local_transform: Matrix4<f32>,
+    pub normal_transform: Matrix4<f32>,
+    pub skinning_transform: Matrix4<f32>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct BoneKeyframeInterpolation {
-    translation_x: BoneKeyframeInterpolationPoint,
-    translation_y: BoneKeyframeInterpolationPoint,
-    translation_z: BoneKeyframeInterpolationPoint,
-    orientation: BoneKeyframeInterpolationPoint,
+    translation_x: KeyframeInterpolationPoint,
+    translation_y: KeyframeInterpolationPoint,
+    translation_z: KeyframeInterpolationPoint,
+    orientation: KeyframeInterpolationPoint,
+}
+
+impl BoneKeyframeInterpolation {
+    pub fn build(interpolation: nanoem::motion::MotionBoneKeyframeInterpolation) -> Self {
+        Self {
+            translation_x: KeyframeInterpolationPoint::build(interpolation.translation_x),
+            translation_y: KeyframeInterpolationPoint::build(interpolation.translation_y),
+            translation_z: KeyframeInterpolationPoint::build(interpolation.translation_z),
+            orientation: KeyframeInterpolationPoint::build(interpolation.orientation),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1627,25 +1632,25 @@ struct BoneFrameTransform {
     pub interpolation: BoneKeyframeInterpolation,
 }
 
-impl BoneFrameTransform {
-    pub fn initial_frame_transform() -> Self {
+impl Default for BoneFrameTransform {
+    fn default() -> Self {
         Self {
             translation: Vector3::zero(),
             orientation: Quaternion::zero(),
             interpolation: BoneKeyframeInterpolation {
-                translation_x: BoneKeyframeInterpolationPoint {
+                translation_x: KeyframeInterpolationPoint {
                     bezier_control_point: Bone::DEFAULT_BEZIER_CONTROL_POINT.into(),
                     is_linear_interpolation: true,
                 },
-                translation_y: BoneKeyframeInterpolationPoint {
+                translation_y: KeyframeInterpolationPoint {
                     bezier_control_point: Bone::DEFAULT_BEZIER_CONTROL_POINT.into(),
                     is_linear_interpolation: true,
                 },
-                translation_z: BoneKeyframeInterpolationPoint {
+                translation_z: KeyframeInterpolationPoint {
                     bezier_control_point: Bone::DEFAULT_BEZIER_CONTROL_POINT.into(),
                     is_linear_interpolation: true,
                 },
-                orientation: BoneKeyframeInterpolationPoint {
+                orientation: KeyframeInterpolationPoint {
                     bezier_control_point: Bone::DEFAULT_BEZIER_CONTROL_POINT.into(),
                     is_linear_interpolation: true,
                 },
@@ -1656,30 +1661,26 @@ impl BoneFrameTransform {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BoneStates {
-    pub linear_interpolation_translation_x: bool,
-    pub linear_interpolation_translation_y: bool,
-    pub linear_interpolation_translation_z: bool,
-    pub linear_interpolation_orientation: bool,
     dirty: bool,
     editing_masked: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct Bone {
-    name: String,
-    canonical_name: String,
-    matrices: Matrices,
-    local_orientation: Quaternion<f32>,
-    local_inherent_orientation: Quaternion<f32>,
-    local_morph_orientation: Quaternion<f32>,
-    local_user_orientation: Quaternion<f32>,
-    constraint_joint_orientation: Quaternion<f32>,
-    local_translation: Vector3<f32>,
-    local_inherent_translation: Vector3<f32>,
-    local_morph_translation: Vector3<f32>,
-    local_user_translation: Vector3<f32>,
-    bezier_control_points: BezierControlPoints,
-    states: BoneStates,
+    pub name: String,
+    pub canonical_name: String,
+    pub matrices: Matrices,
+    pub local_orientation: Quaternion<f32>,
+    pub local_inherent_orientation: Quaternion<f32>,
+    pub local_morph_orientation: Quaternion<f32>,
+    pub local_user_orientation: Quaternion<f32>,
+    pub constraint_joint_orientation: Quaternion<f32>,
+    pub local_translation: Vector3<f32>,
+    pub local_inherent_translation: Vector3<f32>,
+    pub local_morph_translation: Vector3<f32>,
+    pub local_user_translation: Vector3<f32>,
+    pub interpolation: BoneKeyframeInterpolation,
+    pub states: BoneStates,
     pub origin: NanoemBone,
 }
 
@@ -1744,19 +1745,25 @@ impl Bone {
             local_inherent_translation: Vector3::zero(),
             local_morph_translation: Vector3::zero(),
             local_user_translation: Vector3::zero(),
-            bezier_control_points: BezierControlPoints {
-                translation_x: Vector4::new(0, 0, 0, 0),
-                translation_y: Vector4::new(0, 0, 0, 0),
-                translation_z: Vector4::new(0, 0, 0, 0),
-                orientation: Vector4::new(0, 0, 0, 0),
+            interpolation: BoneKeyframeInterpolation {
+                translation_x: KeyframeInterpolationPoint {
+                    bezier_control_point: Vector4::new(0u8, 0u8, 0u8, 0u8),
+                    is_linear_interpolation: true,
+                },
+                translation_y: KeyframeInterpolationPoint {
+                    bezier_control_point: Vector4::new(0u8, 0u8, 0u8, 0u8),
+                    is_linear_interpolation: true,
+                },
+                translation_z: KeyframeInterpolationPoint {
+                    bezier_control_point: Vector4::new(0u8, 0u8, 0u8, 0u8),
+                    is_linear_interpolation: true,
+                },
+                orientation: KeyframeInterpolationPoint {
+                    bezier_control_point: Vector4::new(0u8, 0u8, 0u8, 0u8),
+                    is_linear_interpolation: true,
+                },
             },
-            states: BoneStates {
-                linear_interpolation_translation_x: true,
-                linear_interpolation_translation_y: true,
-                linear_interpolation_translation_z: true,
-                linear_interpolation_orientation: true,
-                ..Default::default()
-            },
+            states: BoneStates::default(),
             origin: bone.clone(),
         }
     }
@@ -1774,19 +1781,164 @@ impl Bone {
         return result;
     }
 
-    // fn synchronize_transform(motion: &mut Motion, model_bone: &ModelBone, model_rigid_body: &ModelRigidBody, frame_index: u32, transform: &FrameTransform) {
-    //     let name = model_bone.get_name(LanguageType::Japanese).unwrap();
-    //     if let Some(Keyframe) = motion.find_bone_keyframe_object(name, index)
-    // }
-
     pub fn synchronize_motion(
         &mut self,
         motion: &Motion,
-        rigid_body: Option<&RigidBody>,
+        rigid_body: Option<&mut RigidBody>,
         frame_index: u32,
         amount: f32,
     ) {
-        todo!()
+        let t0 = self.synchronize_transform(motion, rigid_body, frame_index);
+        if amount > 0f32 {
+            let t1 = self.synchronize_transform(motion, None, frame_index + 1);
+            self.local_user_translation = t0.translation.lerp(t1.translation, amount);
+            self.local_user_orientation = t0.orientation.slerp(t1.orientation, amount);
+            self.interpolation = BoneKeyframeInterpolation {
+                translation_x: KeyframeInterpolationPoint {
+                    bezier_control_point: t0
+                        .interpolation
+                        .translation_x
+                        .bezier_control_point
+                        .map(|v| v as f32)
+                        .lerp(t1.interpolation.translation_x.bezier_control_point.map(|v| v as f32), amount)
+                        .map(|v| v.clamp(0f32, u8::MAX as f32) as u8),
+                    is_linear_interpolation: t0.interpolation.translation_x.is_linear_interpolation,
+                },
+                translation_y: KeyframeInterpolationPoint {
+                    bezier_control_point: t0
+                        .interpolation
+                        .translation_y
+                        .bezier_control_point
+                        .map(|v| v as f32)
+                        .lerp(t1.interpolation.translation_y.bezier_control_point.map(|v| v as f32), amount)
+                        .map(|v| v.clamp(0f32, u8::MAX as f32) as u8),
+                    is_linear_interpolation: t0.interpolation.translation_y.is_linear_interpolation,
+                },
+                translation_z: KeyframeInterpolationPoint {
+                    bezier_control_point: t0
+                        .interpolation
+                        .translation_z
+                        .bezier_control_point
+                        .map(|v| v as f32)
+                        .lerp(t1.interpolation.translation_z.bezier_control_point.map(|v| v as f32), amount)
+                        .map(|v| v.clamp(0f32, u8::MAX as f32) as u8),
+                    is_linear_interpolation: t0.interpolation.translation_z.is_linear_interpolation,
+                },
+                orientation: KeyframeInterpolationPoint {
+                    bezier_control_point: t0
+                        .interpolation
+                        .orientation
+                        .bezier_control_point
+                        .map(|v| v as f32)
+                        .lerp(t1.interpolation.orientation.bezier_control_point.map(|v| v as f32), amount)
+                        .map(|v| v.clamp(0f32, u8::MAX as f32) as u8),
+                    is_linear_interpolation: t0.interpolation.orientation.is_linear_interpolation,
+                },
+            };
+        } else {
+            self.local_user_translation = t0.translation;
+            self.local_user_orientation = t0.orientation;
+            self.interpolation = BoneKeyframeInterpolation {
+                translation_x: KeyframeInterpolationPoint {
+                    bezier_control_point: t0.interpolation.translation_x.bezier_control_point,
+                    is_linear_interpolation: t0.interpolation.translation_x.is_linear_interpolation,
+                },
+                translation_y: KeyframeInterpolationPoint {
+                    bezier_control_point: t0.interpolation.translation_y.bezier_control_point,
+                    is_linear_interpolation: t0.interpolation.translation_y.is_linear_interpolation,
+                },
+                translation_z: KeyframeInterpolationPoint {
+                    bezier_control_point: t0.interpolation.translation_z.bezier_control_point,
+                    is_linear_interpolation: t0.interpolation.translation_z.is_linear_interpolation,
+                },
+                orientation: KeyframeInterpolationPoint {
+                    bezier_control_point: t0.interpolation.orientation.bezier_control_point,
+                    is_linear_interpolation: t0.interpolation.orientation.is_linear_interpolation,
+                },
+            };
+        }
+    }
+
+    fn synchronize_transform(
+        &self,
+        motion: &Motion,
+        rigid_body: Option<&mut RigidBody>,
+        frame_index: u32,
+    ) -> BoneFrameTransform {
+        if let Some(keyframe) = motion.find_bone_keyframe(&self.canonical_name, frame_index) {
+            return BoneFrameTransform {
+                translation: f128_to_vec3(keyframe.translation),
+                orientation: f128_to_quat(keyframe.orientation),
+                interpolation: BoneKeyframeInterpolation::build(keyframe.interpolation),
+            };
+        } else {
+            if let (Some(prev_frame), Some(next_frame)) = motion
+                .opaque
+                .search_closest_bone_keyframes(&self.canonical_name, frame_index)
+            {
+                let interval = next_frame.base.frame_index - prev_frame.base.frame_index;
+                let coef = Motion::coefficient(
+                    prev_frame.base.frame_index,
+                    next_frame.base.frame_index,
+                    frame_index,
+                );
+                let prev_translation = f128_to_vec3(prev_frame.translation);
+                let next_translation = f128_to_vec3(next_frame.translation);
+                let prev_orientation = f128_to_quat(prev_frame.orientation);
+                let next_orientation = f128_to_quat(next_frame.orientation);
+                let prev_enabled = prev_frame.is_physics_simulation_enabled;
+                let next_enabled = next_frame.is_physics_simulation_enabled;
+                let frame_transform = if prev_enabled && !next_enabled && rigid_body.is_some() {
+                    BoneFrameTransform {
+                        translation: self.local_user_translation.lerp(next_translation, coef),
+                        orientation: self.local_user_orientation.slerp(next_orientation, coef),
+                        interpolation: BoneKeyframeInterpolation::build(next_frame.interpolation),
+                    }
+                } else {
+                    BoneFrameTransform {
+                        translation: Vector3::new(
+                            motion.lerp_value_interpolation(
+                                &next_frame.interpolation.translation_x,
+                                prev_translation.x,
+                                next_translation.x,
+                                interval,
+                                coef,
+                            ),
+                            motion.lerp_value_interpolation(
+                                &next_frame.interpolation.translation_y,
+                                prev_translation.y,
+                                next_translation.y,
+                                interval,
+                                coef,
+                            ),
+                            motion.lerp_value_interpolation(
+                                &next_frame.interpolation.translation_z,
+                                prev_translation.z,
+                                next_translation.z,
+                                interval,
+                                coef,
+                            ),
+                        ),
+                        orientation: motion.slerp_interpolation(
+                            &next_frame.interpolation.orientation,
+                            &prev_orientation,
+                            &next_orientation,
+                            interval,
+                            coef,
+                        ),
+                        interpolation: BoneKeyframeInterpolation::build(next_frame.interpolation),
+                    }
+                };
+                if prev_enabled && next_enabled {
+                    if let Some(rigid_body) = rigid_body {
+                        rigid_body.disable_kinematic();
+                    }
+                }
+                return frame_transform;
+            } else {
+                return BoneFrameTransform::default();
+            }
+        }
     }
 
     pub fn update_local_transform(
@@ -1909,7 +2061,8 @@ impl Bone {
             }
             let coefficient = self.origin.inherent_coefficient;
             if (coefficient - 1f32).abs() > 0.0f32 {
-                if let Some(effector_bone_local_user_orientation) = effector_bone_local_user_orientation
+                if let Some(effector_bone_local_user_orientation) =
+                    effector_bone_local_user_orientation
                 {
                     orientation =
                         orientation.slerp(effector_bone_local_user_orientation, coefficient);
@@ -1944,8 +2097,9 @@ impl Bone {
                 } else if parent_bone.origin.flags.has_inherent_translation {
                     translation += parent_bone.local_inherent_translation;
                 } else {
-                    translation +=
-                        parent_bone.local_translation.mul_element_wise(parent_bone.local_morph_translation);
+                    translation += parent_bone
+                        .local_translation
+                        .mul_element_wise(parent_bone.local_morph_translation);
                 }
             }
             let coefficient = self.origin.inherent_coefficient;
@@ -1980,8 +2134,14 @@ impl Bone {
         // self.solve_constraint(constraint, num_iterations, bones)
     }
 
-    pub fn apply_outside_parent_transform(&mut self) {
-        todo!()
+    pub fn apply_outside_parent_transform(&mut self, outside_parent_bone: &Bone) {
+        let inv_origin = -f128_to_vec3(self.origin.origin);
+        let out = Self::translate(&inv_origin, &self.matrices.world_transform);
+        self.matrices.world_transform = outside_parent_bone.matrices.world_transform * out;
+        let out = Self::translate(&inv_origin, &self.matrices.world_transform);
+        self.matrices.local_transform = out;
+        self.matrices.skinning_transform = out;
+        self.matrices.normal_transform = Self::shrink_3x3(&self.matrices.world_transform);
     }
 
     pub fn reset_local_transform(&mut self) {
@@ -1989,16 +2149,24 @@ impl Bone {
         self.local_inherent_orientation = Quaternion::zero();
         self.local_translation = Vector3::zero();
         self.local_inherent_translation = Vector3::zero();
-        self.bezier_control_points = BezierControlPoints {
-            translation_x: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
-            translation_y: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
-            translation_z: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
-            orientation: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
+        self.interpolation = BoneKeyframeInterpolation {
+            translation_x: KeyframeInterpolationPoint {
+                bezier_control_point: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
+                is_linear_interpolation: true,
+            },
+            translation_y: KeyframeInterpolationPoint {
+                bezier_control_point: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
+                is_linear_interpolation: true,
+            },
+            translation_z: KeyframeInterpolationPoint {
+                bezier_control_point: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
+                is_linear_interpolation: true,
+            },
+            orientation: KeyframeInterpolationPoint {
+                bezier_control_point: Self::DEFAULT_BEZIER_CONTROL_POINT.into(),
+                is_linear_interpolation: true,
+            },
         };
-        self.states.linear_interpolation_translation_x = true;
-        self.states.linear_interpolation_translation_y = true;
-        self.states.linear_interpolation_translation_z = true;
-        self.states.linear_interpolation_orientation = true;
     }
 
     pub fn reset_morph_transform(&mut self) {
@@ -2012,12 +2180,8 @@ impl Bone {
         self.states.dirty = false;
     }
 
-    pub fn skinning_transform(&self) -> Matrix4<f32> {
-        todo!()
-    }
-
     pub fn world_transform_origin(&self) -> Vector3<f32> {
-        todo!()
+        self.matrices.world_transform[3].truncate()
     }
 
     pub fn has_unit_x_constraint(&self) -> bool {
@@ -2870,6 +3034,10 @@ impl RigidBody {
     }
 
     pub fn enable_kinematic(&mut self) {
+        todo!()
+    }
+
+    pub fn disable_kinematic(&mut self) {
         todo!()
     }
 

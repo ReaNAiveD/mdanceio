@@ -1130,6 +1130,7 @@ impl MotionAccessoryKeyframe {
 const MOTION_BONE_KEYFRAME_INTERPOLATION_TYPE_MAX_ENUM: usize = 4;
 const DEFAULT_INTERPOLATION: [u8; 4] = [20u8, 20u8, 107u8, 107u8];
 
+#[derive(Debug, Clone, Copy, Hash)]
 pub struct MotionBoneKeyframeInterpolation {
     pub translation_x: [u8; 4],
     pub translation_y: [u8; 4],

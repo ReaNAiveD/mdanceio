@@ -9,7 +9,7 @@ use cgmath::{
 use crate::{
     bezier_curve::BezierCurve,
     model::{Bone, NanoemBone},
-    motion::Motion,
+    motion::{Motion, KeyframeInterpolationPoint},
     project::Project,
     ray::Ray,
     utils::{f128_to_vec3, intersect_ray_plane, project, un_project, Invert},
@@ -32,7 +32,7 @@ enum FollowingType {
 }
 
 fn bone_pos(bone: &Bone) -> Vector3<f32> {
-    (bone.skinning_transform() * f128_to_vec3(bone.origin.origin).extend(1f32)).truncate()
+    (bone.matrices.skinning_transform * f128_to_vec3(bone.origin.origin).extend(1f32)).truncate()
 }
 
 pub trait Camera {
@@ -45,21 +45,6 @@ pub trait Camera {
     fn is_locked(&self) -> bool;
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct CameraKeyframeInterpolationPoint {
-    pub bezier_control_point: Vector4<u8>,
-    pub is_linear_interpolation: bool,
-}
-
-impl Default for CameraKeyframeInterpolationPoint {
-    fn default() -> Self {
-        Self {
-            bezier_control_point: PerspectiveCamera::DEFAULT_BEZIER_CONTROL_POINT,
-            is_linear_interpolation: true,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 struct CurveCacheKey {
     next: [u8; 4],
@@ -68,12 +53,12 @@ struct CurveCacheKey {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CameraKeyframeInterpolation {
-    lookat_x: CameraKeyframeInterpolationPoint,
-    lookat_y: CameraKeyframeInterpolationPoint,
-    lookat_z: CameraKeyframeInterpolationPoint,
-    angle: CameraKeyframeInterpolationPoint,
-    fov: CameraKeyframeInterpolationPoint,
-    distance: CameraKeyframeInterpolationPoint,
+    lookat_x: KeyframeInterpolationPoint,
+    lookat_y: KeyframeInterpolationPoint,
+    lookat_z: KeyframeInterpolationPoint,
+    angle: KeyframeInterpolationPoint,
+    fov: KeyframeInterpolationPoint,
+    distance: KeyframeInterpolationPoint,
 }
 
 pub struct PerspectiveCamera {
@@ -203,12 +188,12 @@ impl PerspectiveCamera {
             self.set_distance(keyframe.distance * DISTANCE_FACTOR);
             self.set_perspective(keyframe.is_perspective_view);
             self.interpolation = CameraKeyframeInterpolation {
-                lookat_x: Self::build_interpolation(&keyframe.interpolation.lookat_x),
-                lookat_y: Self::build_interpolation(&keyframe.interpolation.lookat_y),
-                lookat_z: Self::build_interpolation(&keyframe.interpolation.lookat_z),
-                angle: Self::build_interpolation(&keyframe.interpolation.angle),
-                fov: Self::build_interpolation(&keyframe.interpolation.fov),
-                distance: Self::build_interpolation(&keyframe.interpolation.distance),
+                lookat_x: KeyframeInterpolationPoint::build(keyframe.interpolation.lookat_x),
+                lookat_y: KeyframeInterpolationPoint::build(keyframe.interpolation.lookat_y),
+                lookat_z: KeyframeInterpolationPoint::build(keyframe.interpolation.lookat_z),
+                angle: KeyframeInterpolationPoint::build(keyframe.interpolation.angle),
+                fov: KeyframeInterpolationPoint::build(keyframe.interpolation.fov),
+                distance: KeyframeInterpolationPoint::build(keyframe.interpolation.distance),
             };
             self.synchronize_outside_parent(keyframe, project, global_track_bundle);
         } else {
@@ -271,35 +256,15 @@ impl PerspectiveCamera {
                     ));
                     self.set_perspective(prev_frame.is_perspective_view);
                     self.interpolation = CameraKeyframeInterpolation {
-                        lookat_x: Self::build_interpolation(&next_frame.interpolation.lookat_x),
-                        lookat_y: Self::build_interpolation(&next_frame.interpolation.lookat_y),
-                        lookat_z: Self::build_interpolation(&next_frame.interpolation.lookat_z),
-                        angle: Self::build_interpolation(&next_frame.interpolation.angle),
-                        fov: Self::build_interpolation(&next_frame.interpolation.fov),
-                        distance: Self::build_interpolation(&next_frame.interpolation.distance),
+                        lookat_x: KeyframeInterpolationPoint::build(next_frame.interpolation.lookat_x),
+                        lookat_y: KeyframeInterpolationPoint::build(next_frame.interpolation.lookat_y),
+                        lookat_z: KeyframeInterpolationPoint::build(next_frame.interpolation.lookat_z),
+                        angle: KeyframeInterpolationPoint::build(next_frame.interpolation.angle),
+                        fov: KeyframeInterpolationPoint::build(next_frame.interpolation.fov),
+                        distance: KeyframeInterpolationPoint::build(next_frame.interpolation.distance),
                     };
                     self.synchronize_outside_parent(&prev_frame, project, global_track_bundle);
                 }
-            }
-        }
-    }
-
-    fn is_linear_interpolation(interpolation: &[u8; 4]) -> bool {
-        interpolation[0] == interpolation[1]
-            && interpolation[2] == interpolation[3]
-            && interpolation[0] + interpolation[2] == interpolation[1] + interpolation[3]
-    }
-
-    fn build_interpolation(interpolation: &[u8; 4]) -> CameraKeyframeInterpolationPoint {
-        if Self::is_linear_interpolation(interpolation) {
-            CameraKeyframeInterpolationPoint {
-                bezier_control_point: Self::DEFAULT_BEZIER_CONTROL_POINT,
-                is_linear_interpolation: true,
-            }
-        } else {
-            CameraKeyframeInterpolationPoint {
-                bezier_control_point: Vector4::from(*interpolation),
-                is_linear_interpolation: false,
             }
         }
     }
@@ -315,7 +280,7 @@ impl PerspectiveCamera {
     where
         T: VectorSpace<Scalar = f32>,
     {
-        if Self::is_linear_interpolation(next_interpolation) {
+        if KeyframeInterpolationPoint::is_linear_interpolation(next_interpolation) {
             prev_value.lerp(*next_value, coef)
         } else {
             let t2 = self.bezier_curve(next_interpolation, interval, coef);
