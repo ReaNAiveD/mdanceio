@@ -787,6 +787,7 @@ impl Model {
         frame_index: u32,
         amount: f32,
         timing: SimulationTiming,
+        outside_parent_bone_map: &HashMap<(String, String), Bone>,
     ) {
         let mut visible = true;
         if timing == SimulationTiming::Before {
@@ -833,13 +834,25 @@ impl Model {
                     self.reset_all_materials();
                     self.reset_all_bone_local_transform();
                     self.synchronize_morph_motion(motion, frame_index, amount);
-                    self.synchronize_bone_motion(motion, frame_index, amount, timing);
+                    self.synchronize_bone_motion(
+                        motion,
+                        frame_index,
+                        amount,
+                        timing,
+                        outside_parent_bone_map,
+                    );
                     self.solve_all_constraints();
                     self.synchronize_all_rigid_body_kinematics(motion, frame_index);
                     self.synchronize_all_rigid_bodies_transform_feedback_to_simulation();
                 }
                 SimulationTiming::After => {
-                    self.synchronize_bone_motion(motion, frame_index, amount, timing);
+                    self.synchronize_bone_motion(
+                        motion,
+                        frame_index,
+                        amount,
+                        timing,
+                        outside_parent_bone_map,
+                    );
                 }
             }
         }
@@ -933,6 +946,7 @@ impl Model {
         frame_index: u32,
         amount: f32,
         timing: SimulationTiming,
+        outside_parent_bone_map: &HashMap<(String, String), Bone>,
     ) {
         if let SimulationTiming::Before = timing {
             for bone in &mut self.bones {
@@ -943,16 +957,55 @@ impl Model {
                 bone.synchronize_motion(motion, rigid_body, frame_index, amount);
             }
         }
-        for bone in &mut self.bones {
+        for idx in 0..self.bones.len() {
+            let bone = &self.bones[idx];
             if (bone.origin.flags.is_affected_by_physics_simulation
                 && timing == SimulationTiming::After)
                 || (!bone.origin.flags.is_affected_by_physics_simulation
                     && timing == SimulationTiming::Before)
             {
+                let is_constraint_joint_bone_active = Some(true)
+                    == self
+                        .constraint_joint_bones
+                        .get(&bone.origin.base.index)
+                        .and_then(|idx| self.constraints.get(*idx))
+                        .map(|constraint| constraint.states.enabled);
+                let parent_bone = usize::try_from(bone.origin.parent_bone_index)
+                    .ok()
+                    .and_then(|idx| self.bones.get(idx))
+                    .map(|b| (b.clone()));
+                let parent_bone_and_is_constraint_joint_bone_active =
+                    parent_bone.as_ref().map(|bone| {
+                        (
+                            bone,
+                            Some(true)
+                                == self
+                                    .constraint_joint_bones
+                                    .get(&bone.origin.base.index)
+                                    .and_then(|idx| self.constraints.get(*idx))
+                                    .map(|constraint| constraint.states.enabled),
+                        )
+                    });
+                let effector_bone_local_user_orientation =
+                    usize::try_from(bone.origin.effector_bone_index)
+                        .ok()
+                        .and_then(|idx| self.bones.get(idx))
+                        .map(|bone| bone.local_user_orientation);
+                let outside_parent_bone = self
+                    .outside_parents
+                    .get(&idx)
+                    .and_then(|op_path| outside_parent_bone_map.get(op_path));
                 // TODO: process mut bone and model
-                // bone.apply_all_local_transform();
-                // bone.apply_outside_parent_transform();
-                self.bounding_box.set(bone.world_transform_origin());
+                self.bones[idx].apply_all_local_transform(
+                    parent_bone_and_is_constraint_joint_bone_active,
+                    effector_bone_local_user_orientation,
+                    is_constraint_joint_bone_active,
+                );
+                if let Some(outside_parent_bone) = outside_parent_bone {
+                    self.bones[idx].apply_outside_parent_transform(outside_parent_bone);
+                }
+                self.bounding_box
+                    .set(self.bones[idx].world_transform_origin());
             }
         }
     }
@@ -1800,7 +1853,13 @@ impl Bone {
                         .translation_x
                         .bezier_control_point
                         .map(|v| v as f32)
-                        .lerp(t1.interpolation.translation_x.bezier_control_point.map(|v| v as f32), amount)
+                        .lerp(
+                            t1.interpolation
+                                .translation_x
+                                .bezier_control_point
+                                .map(|v| v as f32),
+                            amount,
+                        )
                         .map(|v| v.clamp(0f32, u8::MAX as f32) as u8),
                     is_linear_interpolation: t0.interpolation.translation_x.is_linear_interpolation,
                 },
@@ -1810,7 +1869,13 @@ impl Bone {
                         .translation_y
                         .bezier_control_point
                         .map(|v| v as f32)
-                        .lerp(t1.interpolation.translation_y.bezier_control_point.map(|v| v as f32), amount)
+                        .lerp(
+                            t1.interpolation
+                                .translation_y
+                                .bezier_control_point
+                                .map(|v| v as f32),
+                            amount,
+                        )
                         .map(|v| v.clamp(0f32, u8::MAX as f32) as u8),
                     is_linear_interpolation: t0.interpolation.translation_y.is_linear_interpolation,
                 },
@@ -1820,7 +1885,13 @@ impl Bone {
                         .translation_z
                         .bezier_control_point
                         .map(|v| v as f32)
-                        .lerp(t1.interpolation.translation_z.bezier_control_point.map(|v| v as f32), amount)
+                        .lerp(
+                            t1.interpolation
+                                .translation_z
+                                .bezier_control_point
+                                .map(|v| v as f32),
+                            amount,
+                        )
                         .map(|v| v.clamp(0f32, u8::MAX as f32) as u8),
                     is_linear_interpolation: t0.interpolation.translation_z.is_linear_interpolation,
                 },
@@ -1830,7 +1901,13 @@ impl Bone {
                         .orientation
                         .bezier_control_point
                         .map(|v| v as f32)
-                        .lerp(t1.interpolation.orientation.bezier_control_point.map(|v| v as f32), amount)
+                        .lerp(
+                            t1.interpolation
+                                .orientation
+                                .bezier_control_point
+                                .map(|v| v as f32),
+                            amount,
+                        )
                         .map(|v| v.clamp(0f32, u8::MAX as f32) as u8),
                     is_linear_interpolation: t0.interpolation.orientation.is_linear_interpolation,
                 },
