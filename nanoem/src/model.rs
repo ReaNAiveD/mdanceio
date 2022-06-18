@@ -717,7 +717,7 @@ impl Model {
         }
     }
 
-    pub fn set_name(&mut self, value: &String, language_type: LanguageType) {
+    pub fn set_name(&mut self, value: &str, language_type: LanguageType) {
         match language_type {
             LanguageType::Unknown => (),
             LanguageType::Japanese => self.name_ja = value.to_string(),
@@ -725,7 +725,7 @@ impl Model {
         }
     }
 
-    pub fn set_comment(&mut self, value: &String, language_type: LanguageType) {
+    pub fn set_comment(&mut self, value: &str, language_type: LanguageType) {
         match language_type {
             LanguageType::Unknown => (),
             LanguageType::Japanese => self.comment_ja = value.to_string(),
@@ -2622,7 +2622,7 @@ impl ModelMorph {
         index: usize,
     ) -> Result<ModelMorph, Status> {
         let codec_type = info.codec_type;
-        let mut morph = ModelMorph {
+        let morph = ModelMorph {
             base: ModelObject { index },
             name_ja: codec_type.get_string(buffer)?,
             name_en: codec_type.get_string(buffer)?,

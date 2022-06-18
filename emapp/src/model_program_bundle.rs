@@ -334,8 +334,8 @@ impl CommonPass {
 
     pub fn set_ground_shadow_parameters(
         &mut self,
-        light: &impl Light,
-        camera: &impl Camera,
+        light: &dyn Light,
+        camera: &dyn Camera,
         world: &Matrix4<f32>,
         fallback: &wgpu::Texture,
     ) {
@@ -800,6 +800,126 @@ impl ObjectTechnique {
 }
 
 impl Technique for ObjectTechnique {
+    fn execute(&mut self, device: &wgpu::Device) -> Option<&mut CommonPass> {
+        if !self.base.executed {
+            self.base.executed = true;
+            Some(&mut self.base.pass)
+        } else {
+            None
+        }
+    }
+
+    fn reset_script_command_state(&self) {
+        self.base.reset_script_command_state()
+    }
+
+    fn reset_script_external_color(&self) {
+        self.base.reset_script_external_color()
+    }
+
+    fn has_next_script_command(&self) -> bool {
+        self.base.has_next_script_command()
+    }
+}
+
+pub struct EdgeTechnique {
+    base: BaseTechnique,
+}
+
+impl Deref for EdgeTechnique {
+    type Target = BaseTechnique;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl EdgeTechnique {
+    pub fn new(device: &wgpu::Device) -> Self {
+        log::trace!("Load model_edge.wgsl");
+        let sd = &wgpu::ShaderModuleDescriptor {
+            label: Some("ModelProgramBundle/ObjectTechnique/ModelEdge"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("resources/shaders/model_edge.wgsl").into(),
+            ),
+        };
+        let shader = device.create_shader_module(sd);
+        log::trace!("Finish Load model_edge.wgsl");
+        Self {
+            base: BaseTechnique {
+                technique_type: TechniqueType::Edge,
+                executed: false,
+                pass: CommonPass::new(device, shader),
+            },
+        }
+    }
+
+    pub fn technique_type(&self) -> TechniqueType{
+        self.base.technique_type
+    }
+}
+
+impl Technique for EdgeTechnique {
+    fn execute(&mut self, device: &wgpu::Device) -> Option<&mut CommonPass> {
+        if !self.base.executed {
+            self.base.executed = true;
+            Some(&mut self.base.pass)
+        } else {
+            None
+        }
+    }
+
+    fn reset_script_command_state(&self) {
+        self.base.reset_script_command_state()
+    }
+
+    fn reset_script_external_color(&self) {
+        self.base.reset_script_external_color()
+    }
+
+    fn has_next_script_command(&self) -> bool {
+        self.base.has_next_script_command()
+    }
+}
+
+pub struct GroundShadowTechnique {
+    base: BaseTechnique,
+}
+
+impl Deref for GroundShadowTechnique {
+    type Target = BaseTechnique;
+
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl GroundShadowTechnique {
+    pub fn new(device: &wgpu::Device) -> Self {
+        log::trace!("Load model_zplot.wgsl");
+        let sd = &wgpu::ShaderModuleDescriptor {
+            label: Some("ModelProgramBundle/ObjectTechnique/ModelGroundShadow"),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("resources/shaders/model_ground_shadow.wgsl").into(),
+            ),
+        };
+        let shader = device.create_shader_module(sd);
+        log::trace!("Finish Load model_ground_shader.wgsl");
+        Self {
+            base: BaseTechnique {
+                technique_type: TechniqueType::GroundShadow,
+                executed: false,
+                pass: CommonPass::new(device, shader),
+            },
+        }
+    }
+
+    pub fn technique_type(&self) -> TechniqueType {
+        self.base.technique_type
+    }
+}
+
+impl Technique for GroundShadowTechnique {
     fn execute(&mut self, device: &wgpu::Device) -> Option<&mut CommonPass> {
         if !self.base.executed {
             self.base.executed = true;

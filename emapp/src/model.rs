@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
+    f32::consts::PI,
     rc::{Rc, Weak},
 };
 
@@ -24,7 +25,9 @@ use crate::{
     image_view::ImageView,
     internal::LinearDrawer,
     model_object_selection::ModelObjectSelection,
-    model_program_bundle::{ModelProgramBundle, ObjectTechnique, ZplotTechnique},
+    model_program_bundle::{
+        EdgeTechnique, GroundShadowTechnique, ModelProgramBundle, ObjectTechnique, ZplotTechnique,
+    },
     motion::{KeyframeInterpolationPoint, Motion},
     pass,
     physics_engine::SimulationTiming,
@@ -33,8 +36,8 @@ use crate::{
     undo::UndoStack,
     uri::Uri,
     utils::{
-        f128_to_quat, f128_to_vec3, f128_to_vec4, lerp_f32, mat4_truncate, CompareElementWise,
-        Invert,
+        f128_to_quat, f128_to_vec3, f128_to_vec4, lerp_f32, mat4_truncate, to_na_mat4,
+        CompareElementWise, Invert, to_isometry,
     },
 };
 
@@ -318,7 +321,10 @@ impl Model {
 
     pub fn new_from_bytes(
         bytes: &[u8],
-        project: &Project,
+        language_type: nanoem::common::LanguageType,
+        fallback_texture: &wgpu::Texture,
+        rigid_body_set: &mut rapier3d::dynamics::RigidBodySet,
+        collider_set: &mut rapier3d::geometry::ColliderSet,
         handle: u16,
         device: &wgpu::Device,
     ) -> Result<Self, Error> {
@@ -326,9 +332,8 @@ impl Model {
         match NanoemModel::load_from_buffer(&mut buffer) {
             Ok(nanoem_model) => {
                 let opaque = Box::new(nanoem_model);
-                let language = project.parse_language();
-                let mut name = opaque.get_name(language).to_owned();
-                let comment = opaque.get_comment(language).to_owned();
+                let mut name = opaque.get_name(language_type).to_owned();
+                let comment = opaque.get_comment(language_type).to_owned();
                 let canonical_name = opaque
                     .get_name(nanoem::common::LanguageType::default())
                     .to_owned();
@@ -352,7 +357,7 @@ impl Model {
                     .materials
                     .iter()
                     .map(|material| {
-                        Material::from_nanoem(material, project.shared_fallback_image(), language)
+                        Material::from_nanoem(material, fallback_texture, language_type)
                     })
                     .collect::<Vec<_>>();
                 let mut index_offset = 0;
@@ -373,7 +378,7 @@ impl Model {
                 let bones = opaque
                     .bones
                     .iter()
-                    .map(|bone| Bone::from_nanoem(bone, language))
+                    .map(|bone| Bone::from_nanoem(bone, language_type))
                     .collect::<Vec<_>>();
                 for bone in &opaque.bones {
                     if bone.has_inherent_orientation() || bone.has_inherent_translation() {
@@ -411,7 +416,7 @@ impl Model {
                     constraints.push(Constraint::from_nanoem(
                         &nanoem_constraint,
                         target_bone,
-                        language,
+                        language_type,
                     ));
                     for joint in &nanoem_constraint.joints {
                         if let Some(bone) = opaque.get_one_bone_object(joint.bone_index) {
@@ -437,7 +442,7 @@ impl Model {
                         constraints.push(Constraint::from_nanoem(
                             &nanoem_constraint,
                             opaque.get_one_bone_object(target_bone_index),
-                            language,
+                            language_type,
                         ));
                         for joint in &nanoem_constraint.joints {
                             if let Some(bone) = opaque.get_one_bone_object(joint.get_bone_index()) {
@@ -461,7 +466,7 @@ impl Model {
                 let morphs = opaque
                     .morphs
                     .iter()
-                    .map(|morph| Morph::from_nanoem(&morph, language))
+                    .map(|morph| Morph::from_nanoem(&morph, language_type))
                     .collect::<Vec<_>>();
                 for morph in &opaque.morphs {
                     if let nanoem::model::ModelMorphType::Vertex(morph_vertices) = morph.get_type()
@@ -488,40 +493,39 @@ impl Model {
                 let labels = opaque
                     .labels
                     .iter()
-                    .map(|label| Label::from_nanoem(label, language))
+                    .map(|label| Label::from_nanoem(label, language_type))
                     .collect();
                 let rigid_bodies = opaque
                     .rigid_bodies
                     .iter()
-                    .map(|rigid_body| RigidBody::from_nanoem(rigid_body, language))
-                    .collect();
-                for rigid_body in &opaque.rigid_bodies {
-                    let is_dynamic =
-                        if let nanoem::model::ModelRigidBodyTransformType::FromBoneToSimulation =
-                            rigid_body.get_transform_type()
+                    .map(|rigid_body| {
+                        let is_dynamic =
+                            if let nanoem::model::ModelRigidBodyTransformType::FromBoneToSimulation =
+                                rigid_body.get_transform_type()
+                            {
+                                false
+                            } else {
+                                true
+                            };
+                        let is_morph = if let Some(bone) =
+                            opaque.get_one_bone_object(rigid_body.get_bone_index())
                         {
-                            false
+                            is_dynamic && bone_set.contains(&bone.base.index)
                         } else {
-                            true
+                            false
                         };
-                    let is_morph = if let Some(bone) =
-                        opaque.get_one_bone_object(rigid_body.get_bone_index())
-                    {
-                        is_dynamic && bone_set.contains(&bone.base.index)
-                    } else {
-                        false
-                    };
-                    // TODO: initializeTransformFeedback
-                }
+                        // TODO: initializeTransformFeedback
+                        RigidBody::from_nanoem(rigid_body, language_type, is_morph, &bones, rigid_body_set, collider_set)})
+                    .collect();
                 let joints = opaque
                     .joints
                     .iter()
-                    .map(|joint| Joint::from_nanoem(joint, language))
+                    .map(|joint| Joint::from_nanoem(joint, language_type))
                     .collect();
                 let soft_bodies = opaque
                     .soft_bodies
                     .iter()
-                    .map(|soft_body| SoftBody::from_nanoem(soft_body, language))
+                    .map(|soft_body| SoftBody::from_nanoem(soft_body, language_type))
                     .collect();
                 // split_bones_per_material();
 
@@ -1014,7 +1018,8 @@ impl Model {
         if !self.states.dirty_morph {
             self.reset_all_morphs();
             for morph in &mut self.morphs {
-                morph.synchronize_motion(motion, frame_index, amount);
+                let name = morph.canonical_name.to_string();
+                morph.synchronize_motion(motion, &name, frame_index, amount);
             }
             self.deform_all_morphs(true);
             for morph in &mut self.morphs {
@@ -1464,6 +1469,20 @@ impl Model {
             .and_then(|idx| self.bones.get(idx))
     }
 
+    pub fn edge_size(&self, project: &Project) -> f32 {
+        if self.bones.len() > 1 {
+            let camera = project.active_camera();
+            let bone = &self.bones[1];
+            let bone_position = bone.world_transform_origin();
+            (bone_position - camera.position()).magnitude()
+                * (camera.fov() as f32 / 30f32).clamp(0f32, 1f32)
+                * 0.001f32
+                * self.edge_size_scale_factor
+        } else {
+            0f32
+        }
+    }
+
     pub fn get_name(&self) -> &String {
         &self.name
     }
@@ -1498,13 +1517,47 @@ impl Drawable for Model {
     ) {
         if self.is_visible() {
             match typ {
-                DrawType::Color => {
+                DrawType::Color | DrawType::ScriptExternalColor => {
                     self.draw_color(color_view, depth_view, project, device, queue, adapter_info)
                 }
-                DrawType::Edge => todo!(),
-                DrawType::GroundShadow => todo!(),
-                DrawType::ShadowMap => todo!(),
-                DrawType::ScriptExternalColor => todo!(),
+                DrawType::Edge => {
+                    let edge_size_scale_factor = self.edge_size(project);
+                    if edge_size_scale_factor > 0f32 {
+                        self.draw_edge(
+                            edge_size_scale_factor,
+                            color_view,
+                            depth_view,
+                            project,
+                            device,
+                            queue,
+                            adapter_info,
+                        );
+                    }
+                }
+                DrawType::GroundShadow => {
+                    if self.states.enable_ground_shadow {
+                        self.draw_ground_shadow(
+                            color_view,
+                            depth_view,
+                            project,
+                            device,
+                            queue,
+                            adapter_info,
+                        )
+                    }
+                }
+                DrawType::ShadowMap => {
+                    if self.states.enable_shadow_map {
+                        self.draw_shadow_map(
+                            color_view,
+                            depth_view,
+                            project,
+                            device,
+                            queue,
+                            adapter_info,
+                        )
+                    }
+                }
             }
         }
     }
@@ -1586,6 +1639,134 @@ impl Model {
         }
     }
 
+    fn draw_edge(
+        &self,
+        edge_size_scale_factor: f32,
+        color_view: &wgpu::TextureView,
+        depth_view: Option<&wgpu::TextureView>,
+        project: &Project,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        adapter_info: wgpu::AdapterInfo,
+    ) {
+        let mut index_offset = 0usize;
+        for material in &self.materials {
+            let num_indices = material.origin.num_vertex_indices;
+            if material.origin.flags.is_edge_enabled
+                && !material.origin.flags.is_line_draw_enabled
+                && !material.origin.flags.is_point_draw_enabled
+            {
+                let buffer = pass::Buffer::new(
+                    num_indices,
+                    index_offset,
+                    &self.vertex_buffers[1 - self.stage_vertex_buffer_index as usize],
+                    &self.index_buffer,
+                    true,
+                );
+                if material.is_visible() {
+                    let mut technique = EdgeTechnique::new(device);
+                    let technique_type = technique.technique_type();
+                    while let Some(pass) = technique.execute(device) {
+                        pass.set_global_parameters(self, project);
+                        pass.set_camera_parameters(
+                            project.active_camera(),
+                            &Self::INITIAL_WORLD_MATRIX,
+                            self,
+                        );
+                        pass.set_light_parameters(project.global_light(), false);
+                        pass.set_all_model_parameters(self, project);
+                        pass.set_material_parameters(
+                            material,
+                            technique_type,
+                            project.shared_fallback_image(),
+                        );
+                        pass.set_edge_parameters(
+                            material,
+                            edge_size_scale_factor,
+                            project.shared_fallback_image(),
+                        );
+                        pass.execute(
+                            &buffer,
+                            color_view,
+                            depth_view,
+                            technique_type,
+                            device,
+                            queue,
+                            self,
+                            project,
+                        );
+                    }
+                    // if (!technique->hasNextScriptCommand()) {
+                    // technique->resetScriptCommandState();
+                    // }
+                }
+            }
+            index_offset += num_indices;
+        }
+    }
+
+    fn draw_ground_shadow(
+        &self,
+        color_view: &wgpu::TextureView,
+        depth_view: Option<&wgpu::TextureView>,
+        project: &Project,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        adapter_info: wgpu::AdapterInfo,
+    ) {
+        let mut index_offset = 0usize;
+        let world = project.global_light().get_shadow_transform();
+        for material in &self.materials {
+            let num_indices = material.origin.num_vertex_indices;
+            if material.origin.flags.is_casting_shadow_enabled
+                && !material.origin.flags.is_point_draw_enabled
+            {
+                let buffer = pass::Buffer::new(
+                    num_indices,
+                    index_offset,
+                    &self.vertex_buffers[1 - self.stage_vertex_buffer_index as usize],
+                    &self.index_buffer,
+                    true,
+                );
+                if material.is_visible() {
+                    let mut technique = GroundShadowTechnique::new(device);
+                    let technique_type = technique.technique_type();
+                    while let Some(pass) = technique.execute(device) {
+                        pass.set_global_parameters(self, project);
+                        pass.set_camera_parameters(project.active_camera(), &world, self);
+                        pass.set_light_parameters(project.global_light(), false);
+                        pass.set_all_model_parameters(self, project);
+                        pass.set_material_parameters(
+                            material,
+                            technique_type,
+                            project.shared_fallback_image(),
+                        );
+                        pass.set_ground_shadow_parameters(
+                            project.global_light(),
+                            project.active_camera(),
+                            &world,
+                            project.shared_fallback_image(),
+                        );
+                        pass.execute(
+                            &buffer,
+                            color_view,
+                            depth_view,
+                            technique_type,
+                            device,
+                            queue,
+                            self,
+                            project,
+                        );
+                    }
+                    // if (!technique->hasNextScriptCommand()) {
+                    // technique->resetScriptCommandState();
+                    // }
+                }
+            }
+            index_offset += num_indices;
+        }
+    }
+
     fn draw_shadow_map(
         &self,
         color_view: &wgpu::TextureView,
@@ -1640,6 +1821,7 @@ impl Model {
                     }
                 }
             }
+            index_offset += num_indices;
         }
     }
 }
@@ -2983,8 +3165,40 @@ impl Morph {
         self.weight = value;
     }
 
-    pub fn synchronize_motion(&mut self, motion: &Motion, frame_index: u32, amount: f32) {
-        todo!()
+    pub fn synchronize_motion(
+        &mut self,
+        motion: &Motion,
+        name: &str,
+        frame_index: u32,
+        amount: f32,
+    ) {
+        let w0 = self.synchronize_weight(motion, name, frame_index);
+        if amount > 0f32 {
+            let w1 = self.synchronize_weight(motion, name, frame_index + 1);
+            self.set_weight(lerp_f32(w0, w1, amount));
+        } else {
+            self.set_weight(w0);
+        }
+    }
+
+    fn synchronize_weight(&mut self, motion: &Motion, name: &str, frame_index: u32) -> f32 {
+        if let Some(keyframe) = motion.find_morph_keyframe(name, frame_index) {
+            keyframe.weight
+        } else {
+            if let (Some(prev_frame), Some(next_frame)) = motion
+                .opaque
+                .search_closest_morph_keyframes(name, frame_index)
+            {
+                let coef = Motion::coefficient(
+                    prev_frame.base.frame_index,
+                    next_frame.base.frame_index,
+                    frame_index,
+                );
+                lerp_f32(prev_frame.weight, next_frame.weight, coef)
+            } else {
+                0f32
+            }
+        }
     }
 }
 
@@ -3027,6 +3241,7 @@ pub struct RigidBodyStates {
 
 pub struct RigidBody {
     // TODO: physics engine and shape mesh and engine rigid_body
+    physics_rigid_body: rapier3d::dynamics::RigidBodyHandle,
     global_torque_force: (Vector3<f32>, bool),
     global_velocity_force: (Vector3<f32>, bool),
     local_torque_force: (Vector3<f32>, bool),
@@ -3048,6 +3263,10 @@ impl RigidBody {
     pub fn from_nanoem(
         rigid_body: &NanoemRigidBody,
         language: nanoem::common::LanguageType,
+        is_morph: bool,
+        bones: &[Bone],
+        rigid_body_set: &mut rapier3d::dynamics::RigidBodySet,
+        collider_set: &mut rapier3d::geometry::ColliderSet,
     ) -> Self {
         // TODO: set physics engine and bind to engine rigid_body
         let mut name = rigid_body.get_name(language).to_owned();
@@ -3060,6 +3279,79 @@ impl RigidBody {
         if name.is_empty() {
             name = canonical_name.clone();
         }
+        let orientation = rigid_body.orientation.0;
+        let origin = rigid_body.origin.0;
+        let mut world_transform = nalgebra::Isometry3::new(
+            nalgebra::vector![origin[0], origin[1], origin[2]],
+            nalgebra::vector![orientation[0], orientation[1], orientation[2]],
+        );
+        if rigid_body.is_bone_relative {
+            if let Some(bone) = usize::try_from(rigid_body.bone_index)
+                .ok()
+                .and_then(|idx| bones.get(idx))
+            {
+                let bone_origin = bone.origin.origin.0;
+                let offset = nalgebra::Isometry3::translation(
+                    bone_origin[0],
+                    bone_origin[1],
+                    bone_origin[2],
+                );
+                world_transform = offset * world_transform;
+                let skinning_transform = to_isometry(bone.matrices.skinning_transform);
+                world_transform = world_transform * skinning_transform;
+            }
+        }
+        let rigid_body_builder = rapier3d::dynamics::RigidBodyBuilder::new(
+            rapier3d::dynamics::RigidBodyType::KinematicPositionBased,
+        )
+        .position(world_transform)
+        .angular_damping(rigid_body.angular_damping)
+        .linear_damping(rigid_body.linear_damping);
+        let size = rigid_body.size.0;
+        let mut collider_builder = match rigid_body.shape_type {
+            nanoem::model::ModelRigidBodyShapeType::Unknown => (None, f32::INFINITY),
+            nanoem::model::ModelRigidBodyShapeType::Sphere => (
+                Some(rapier3d::geometry::ColliderBuilder::ball(size[0])),
+                4f32 * PI * size[0].powi(3) / 3f32,
+            ),
+            nanoem::model::ModelRigidBodyShapeType::Box => (
+                Some(rapier3d::geometry::ColliderBuilder::cuboid(
+                    size[0], size[1], size[2],
+                )),
+                size[0] * size[1] * size[2],
+            ),
+            nanoem::model::ModelRigidBodyShapeType::Capsule => (
+                Some(rapier3d::geometry::ColliderBuilder::capsule_y(
+                    size[1] / 2f32,
+                    size[0],
+                )),
+                PI * size[0] * size[0] * (4f32 / 3f32 * size[0] + size[1]),
+            ),
+        };
+        let mut mass = rigid_body.mass;
+        if let nanoem::model::ModelRigidBodyTransformType::FromBoneToSimulation =
+            rigid_body.transform_type
+        {
+            mass = 0f32;
+        }
+        collider_builder.0 = collider_builder.0.map(|builder| {
+            builder
+                .density(mass / collider_builder.1)
+                .friction(rigid_body.friction)
+                .restitution(rigid_body.restitution)
+                .collision_groups(rapier3d::geometry::InteractionGroups::new(
+                    0x1 << rigid_body.collision_group_id.clamp(0, 15),
+                    (rigid_body.collision_mask & 0xffff) as u32,
+                ))
+        });
+        let rigid_body_handle = rigid_body_set.insert(rigid_body_builder.build());
+        if let Some(collider_builder) = &collider_builder.0 {
+            let collider_handle = collider_set.insert_with_parent(
+                collider_builder.build(),
+                rigid_body_handle,
+                rigid_body_set,
+            );
+        }
         Self {
             global_torque_force: (Vector3::zero(), false),
             global_velocity_force: (Vector3::zero(), false),
@@ -3069,6 +3361,7 @@ impl RigidBody {
             canonical_name,
             states: RigidBodyStates::default(),
             origin: rigid_body.clone(),
+            physics_rigid_body: rigid_body_handle,
         }
     }
 

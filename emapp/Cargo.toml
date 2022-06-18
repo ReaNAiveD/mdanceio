@@ -10,8 +10,10 @@ crate-type = ["cdylib"]
 [dependencies]
 wgpu = { version = "0.12" }
 log = "0.4"
-bytemuck = { version = "1.7.3", features = ["derive"] }
+bytemuck = { version = "1.9.1", features = ["derive"] }
 cgmath = "0.18.0"
+rapier3d = { version = "0.13.0", features = ["simd-stable"]}
+nalgebra = { version = "0.31.0"}
 
 [dependencies.image]
 version = "0.24"

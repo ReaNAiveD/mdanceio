@@ -5,7 +5,7 @@ use nanoem::{
     common::Status,
     motion::{
         MotionAccessoryKeyframe, MotionBoneKeyframe, MotionCameraKeyframe, MotionFormatType,
-        MotionLightKeyframe, MotionModelKeyframe,
+        MotionLightKeyframe, MotionModelKeyframe, MotionMorphKeyframe,
     },
 };
 
@@ -137,7 +137,7 @@ impl Motion {
 
     pub fn find_bone_keyframe(
         &self,
-        name: &String,
+        name: &str,
         frame_index: u32,
     ) -> Option<&MotionBoneKeyframe> {
         self.opaque.find_bone_keyframe_object(name, frame_index)
@@ -145,6 +145,10 @@ impl Motion {
 
     pub fn find_model_keyframe(&self, frame_index: u32) -> Option<&MotionModelKeyframe> {
         self.opaque.find_model_keyframe_object(frame_index)
+    }
+
+    pub fn find_morph_keyframe(&self, name: &str, frame_index: u32) -> Option<&MotionMorphKeyframe> {
+        self.opaque.find_morph_keyframe_object(name, frame_index)
     }
 
     pub fn find_camera_keyframe(&self, frame_index: u32) -> Option<&MotionCameraKeyframe> {

@@ -398,6 +398,8 @@ pub struct Project {
     // actual_fps: u32,
     // actual_sequence: u32,
     // active: bool,
+    rigid_body_set: rapier3d::dynamics::RigidBodySet,
+    collider_set: rapier3d::geometry::ColliderSet,
     tmp_model: Option<Box<Model>>,
     tmp_texture_map: HashMap<String, Rc<wgpu::Texture>>,
 }
@@ -454,13 +456,22 @@ impl Project {
             editing_mode: EditingMode::None,
             language: LanguageType::English,
             layout: ViewLayout {
-                window_device_pixel_ratio: (injector.window_device_pixel_ratio, injector.window_device_pixel_ratio),
-                viewport_device_pixel_ratio: (injector.viewport_device_pixel_ratio, injector.viewport_device_pixel_ratio),
+                window_device_pixel_ratio: (
+                    injector.window_device_pixel_ratio,
+                    injector.window_device_pixel_ratio,
+                ),
+                viewport_device_pixel_ratio: (
+                    injector.viewport_device_pixel_ratio,
+                    injector.viewport_device_pixel_ratio,
+                ),
                 window_size: injector.window_size.into(),
                 viewport_image_size: Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
                 viewport_padding: Vector2::new(0, 0),
                 uniform_viewport_layout_rect: (Vector4::new(0, 0, 0, 0), Vector4::new(0, 0, 0, 0)),
-                uniform_viewport_image_size: (Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(), Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into()),
+                uniform_viewport_image_size: (
+                    Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
+                    Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
+                ),
             },
             grid: Box::new(Grid::new(device)),
             draw_type: DrawType::Color,
@@ -476,6 +487,8 @@ impl Project {
             fallback_texture,
             viewport_primary_pass,
             viewport_secondary_pass,
+            rigid_body_set: rapier3d::dynamics::RigidBodySet::new(),
+            collider_set: rapier3d::geometry::ColliderSet::new(),
             tmp_model: None,
             tmp_texture_map: HashMap::new(),
         }
@@ -601,7 +614,8 @@ impl Project {
         &self,
         value: &Vector2<i32>,
     ) -> Vector2<i32> {
-        self.layout.resolve_logical_cursor_position_in_viewport(value)
+        self.layout
+            .resolve_logical_cursor_position_in_viewport(value)
     }
 
     pub fn logical_scale_uniformed_viewport_image_size(&self) -> Vector2<u16> {
@@ -611,7 +625,15 @@ impl Project {
 
 impl Project {
     pub fn load_tmp_model(&mut self, model_data: &[u8], device: &wgpu::Device) {
-        if let Ok(model) = Model::new_from_bytes(model_data, self, 0, device) {
+        if let Ok(model) = Model::new_from_bytes(
+            model_data,
+            self.parse_language(),
+            &self.fallback_texture,
+            &mut self.rigid_body_set,
+            &mut self.collider_set,
+            0,
+            device,
+        ) {
             self.tmp_model = Some(Box::new(model));
         }
     }

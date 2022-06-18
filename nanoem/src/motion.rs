@@ -81,29 +81,29 @@ impl<K> MotionTrackBundle<K> {
             .sum()
     }
 
-    fn get_by_name(&self, name: &String) -> Option<&MotionTrack<K>> {
+    fn get_by_name(&self, name: &str) -> Option<&MotionTrack<K>> {
         self.tracks.get(name)
     }
 
-    fn ensure(&mut self, name: &String) {
+    fn ensure(&mut self, name: &str) {
         self.tracks.entry(name.to_owned()).or_insert(MotionTrack {
             id: self.allocator.next(),
-            name: name.clone(),
+            name: name.to_string(),
             keyframes: HashMap::new(),
             ordered_frame_index: vec![],
         });
     }
 
-    fn get_by_name_or_new(&mut self, name: &String) -> &MotionTrack<K> {
+    fn get_by_name_or_new(&mut self, name: &str) -> &MotionTrack<K> {
         self.tracks.entry(name.to_owned()).or_insert(MotionTrack {
             id: self.allocator.next(),
-            name: name.clone(),
+            name: name.to_string(),
             keyframes: HashMap::new(),
             ordered_frame_index: vec![],
         })
     }
 
-    fn get_mut_by_name(&mut self, name: &String) -> Option<&mut MotionTrack<K>> {
+    fn get_mut_by_name(&mut self, name: &str) -> Option<&mut MotionTrack<K>> {
         self.tracks.get_mut(name)
     }
 
@@ -120,23 +120,23 @@ impl<K> MotionTrackBundle<K> {
         None
     }
 
-    pub fn resolve_name(&self, name: &String) -> Option<i32> {
+    pub fn resolve_name(&self, name: &str) -> Option<i32> {
         self.get_by_name(name).map(|track| track.id)
     }
 
-    fn resolve_name_or_new(&mut self, name: &String) -> i32 {
+    fn resolve_name_or_new(&mut self, name: &str) -> i32 {
         self.tracks
             .entry(name.to_owned())
             .or_insert(MotionTrack {
                 id: self.allocator.next(),
-                name: name.clone(),
+                name: name.to_string(),
                 keyframes: HashMap::new(),
                 ordered_frame_index: vec![],
             })
             .id
     }
 
-    fn add_keyframe(&mut self, keyframe: K, frame_index: u32, track_name: &String) {
+    fn add_keyframe(&mut self, keyframe: K, frame_index: u32, track_name: &str) {
         if let Some(track) = self.get_mut_by_name(track_name) {
             if let None = track.keyframes.insert(frame_index, keyframe) {
                 let pos = track
@@ -148,7 +148,7 @@ impl<K> MotionTrackBundle<K> {
         }
     }
 
-    fn remove_keyframe(&mut self, frame_index: u32, name: &String) {
+    fn remove_keyframe(&mut self, frame_index: u32, name: &str) {
         if let Some(track) = self.get_mut_by_name(name) {
             if let Some(_) = track.keyframes.remove(&frame_index) {
                 track
@@ -165,7 +165,7 @@ impl<K> MotionTrackBundle<K> {
         self.tracks = HashMap::new();
     }
 
-    pub fn find_keyframes_map(&self, track_name: &String) -> Option<&HashMap<u32, K>> {
+    pub fn find_keyframes_map(&self, track_name: &str) -> Option<&HashMap<u32, K>> {
         if let Some(track) = self.tracks.get(track_name) {
             Some(&track.keyframes)
         } else {
@@ -297,17 +297,17 @@ impl Motion {
     const VMD_TARGET_MODEL_NAME_LENGTH_V2: usize = 20;
     const VMD_TARGET_MODEL_NAME_LENGTH_V1: usize = 10;
 
-    fn resolve_local_bone_track_name(&mut self, name: &String) -> i32 {
+    fn resolve_local_bone_track_name(&mut self, name: &str) -> i32 {
         self.local_bone_motion_track_bundle
             .resolve_name_or_new(name)
     }
 
-    fn resolve_local_morph_track_name(&mut self, name: &String) -> i32 {
+    fn resolve_local_morph_track_name(&mut self, name: &str) -> i32 {
         self.local_morph_motion_track_bundle
             .resolve_name_or_new(name)
     }
 
-    fn resolve_global_track_name(&mut self, name: &String) -> i32 {
+    fn resolve_global_track_name(&mut self, name: &str) -> i32 {
         self.global_motion_track_bundle.resolve_name_or_new(name)
     }
 
@@ -613,7 +613,7 @@ impl Motion {
         Ok(())
     }
 
-    fn assign_global_trace_id(&mut self, value: &String) -> Result<i32, Status> {
+    fn assign_global_trace_id(&mut self, value: &str) -> Result<i32, Status> {
         let id = self.resolve_global_track_name(&value);
         return Ok(id);
     }
@@ -670,7 +670,7 @@ impl Motion {
         self.max_frame_index
     }
 
-    pub fn get_annotation(&self, key: &String) -> Option<&String> {
+    pub fn get_annotation(&self, key: &str) -> Option<&String> {
         self.annotations.get(key)
     }
 
@@ -704,7 +704,7 @@ impl Motion {
 
     pub fn extract_bone_track_keyframes(
         &self,
-        name: &String,
+        name: &str,
     ) -> Option<impl Iterator<Item = &MotionBoneKeyframe>> {
         if let Some(keyframe_map) = self.local_bone_motion_track_bundle.find_keyframes_map(name) {
             Some(keyframe_map.values())
@@ -715,7 +715,7 @@ impl Motion {
 
     pub fn extract_morph_track_keyframes(
         &self,
-        name: &String,
+        name: &str,
     ) -> Option<impl Iterator<Item = &MotionMorphKeyframe>> {
         if let Some(keyframe_map) = self
             .local_morph_motion_track_bundle
@@ -736,7 +736,7 @@ impl Motion {
 
     pub fn find_bone_keyframe_object(
         &self,
-        name: &String,
+        name: &str,
         index: u32,
     ) -> Option<&MotionBoneKeyframe> {
         if let Some(keyframes_map) = self.local_bone_motion_track_bundle.find_keyframes_map(name) {
@@ -769,7 +769,7 @@ impl Motion {
 
     pub fn find_morph_keyframe_object(
         &self,
-        name: &String,
+        name: &str,
         index: u32,
     ) -> Option<&MotionMorphKeyframe> {
         if let Some(keyframes_map) = self
@@ -820,7 +820,7 @@ impl Motion {
 
     pub fn search_closest_bone_keyframes(
         &self,
-        track_name: &String,
+        track_name: &str,
         frame_index: u32,
     ) -> (Option<&MotionBoneKeyframe>, Option<&MotionBoneKeyframe>) {
         if let Some(track) = self.local_bone_motion_track_bundle.get_by_name(track_name) {
@@ -832,7 +832,7 @@ impl Motion {
 
     pub fn search_closest_morph_keyframes(
         &self,
-        track_name: &String,
+        track_name: &str,
         frame_index: u32,
     ) -> (Option<&MotionMorphKeyframe>, Option<&MotionMorphKeyframe>) {
         if let Some(track) = self.local_morph_motion_track_bundle.get_by_name(track_name) {
@@ -955,7 +955,7 @@ impl MotionOutsideParent {
     fn set_target_object_name(
         &mut self,
         parent_motion: &mut Motion,
-        value: &String,
+        value: &str,
     ) -> Result<(), Status> {
         self.global_model_track_index = parent_motion.assign_global_trace_id(value)?;
         Ok(())
@@ -970,7 +970,7 @@ impl MotionOutsideParent {
     fn set_target_bone_name(
         &mut self,
         parent_motion: &mut Motion,
-        value: &String,
+        value: &str,
     ) -> Result<(), Status> {
         self.global_bone_track_index = parent_motion.assign_global_trace_id(value)?;
         Ok(())

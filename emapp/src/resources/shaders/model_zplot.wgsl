@@ -113,7 +113,6 @@ fn is_sphere_texture_as_sub_texture() -> bool {
     return model_parameters.sphere_texture_type.y != 0.0;
 }
 
-
 fn coverage_alpha(frag_input: FragmentInput, rgba: vec4<f32>) -> vec4<f32> {
     var result = rgba;
     if (has_diffuse_texture()) {

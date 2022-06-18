@@ -41,6 +41,7 @@ pub trait Camera {
 
     fn position(&self) -> Vector3<f32>;
     fn direction(&self) -> Vector3<f32>;
+    fn fov(&self) -> i32;
 
     fn is_locked(&self) -> bool;
 }
@@ -572,6 +573,10 @@ impl Camera for PerspectiveCamera {
 
     fn direction(&self) -> Vector3<f32> {
         self.direction
+    }
+
+    fn fov(&self) -> i32 {
+        self.fov.0
     }
 
     fn is_locked(&self) -> bool {

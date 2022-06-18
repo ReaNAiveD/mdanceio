@@ -1,6 +1,8 @@
 use cgmath::{
-    BaseFloat, BaseNum, ElementWise, InnerSpace, Matrix3, Matrix4, SquareMatrix, Vector3, Vector4, Quaternion,
+    BaseFloat, BaseNum, ElementWise, InnerSpace, Matrix3, Matrix4, Quaternion, SquareMatrix,
+    Vector3, Vector4,
 };
+use nalgebra::Isometry3;
 use nanoem::common::F128;
 
 pub fn f128_to_vec3(v: F128) -> Vector3<f32> {
@@ -19,7 +21,10 @@ pub fn f128_to_quat(v: F128) -> Quaternion<f32> {
     v.0.into()
 }
 
-pub fn mat4_truncate<S>(v: Matrix4<S>) -> Matrix3<S> where S: BaseNum {
+pub fn mat4_truncate<S>(v: Matrix4<S>) -> Matrix3<S>
+where
+    S: BaseNum,
+{
     Matrix3 {
         x: v.x.truncate(),
         y: v.y.truncate(),
@@ -29,6 +34,28 @@ pub fn mat4_truncate<S>(v: Matrix4<S>) -> Matrix3<S> where S: BaseNum {
 
 pub fn lerp_f32(a: f32, b: f32, amount: f32) -> f32 {
     a + (b - a) * amount
+}
+
+pub fn to_na_mat4(v: Matrix4<f32>) -> nalgebra::Matrix4<f32> {
+    nalgebra::Matrix4::new(
+        v[0][0], v[0][1], v[0][2], v[0][3], v[1][0], v[1][1], v[1][2], v[1][3], v[2][0], v[2][1],
+        v[2][2], v[2][3], v[3][0], v[3][1], v[3][2], v[3][3],
+    )
+}
+
+pub fn to_na_mat3(v: Matrix3<f32>) -> nalgebra::Matrix3<f32> {
+    nalgebra::Matrix3::new(
+        v[0][0], v[0][1], v[0][2], v[1][0], v[1][1], v[1][2], v[2][0], v[2][1], v[2][2],
+    )
+}
+
+pub fn to_isometry(v: Matrix4<f32>) -> Isometry3<f32> {
+    nalgebra::Isometry {
+        rotation: nalgebra::UnitQuaternion::from_matrix(&to_na_mat3(mat4_truncate(v))),
+        translation: nalgebra::Translation {
+            vector: nalgebra::vector![v[3][0], v[3][1], v[3][2]],
+        },
+    }
 }
 
 pub struct EnumUtils {}
