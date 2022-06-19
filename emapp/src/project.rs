@@ -95,6 +95,24 @@ pub enum FilePathMode {}
 
 pub enum CursorType {}
 
+#[derive(Debug, Clone, Copy, Default)]
+struct HandleAllocator(u32);
+
+impl HandleAllocator {
+    pub fn new() -> Self {
+        Self(0)
+    }
+
+    pub fn next(&mut self) -> u32 {
+        self.0 += 1;
+        self.0
+    }
+
+    pub fn clear(&mut self) {
+        self.0 = 0u32;
+    }
+}
+
 pub struct RenderPassBundle {}
 
 pub struct SharedRenderTargetImageContainer {}
@@ -290,6 +308,8 @@ impl ViewLayout {
     }
 }
 
+pub type ModelHandle = u32;
+
 pub struct Project {
     // background_video_renderer: Box<dyn BackgroundVideoRenderer<Error>>,
     // confirmor: Box<dyn Confirmor>,
@@ -360,8 +380,9 @@ pub struct Project {
     // all_offscreen_render_targets: HashMap<Rc<RefCell<Effect>>, HashMap<String, Vec<OffscreenRenderTargetCondition>>>,
     fallback_texture: wgpu::Texture,
     // // TODO: bx::HandleAlloc *m_objectHandleAllocator;
+    object_handler_allocator: HandleAllocator,
     // accessory_handle_map: HashMap<u16, Rc<RefCell<Accessory>>>,
-    // model_handle_map: HashMap<u16, Rc<RefCell<Model>>>,
+    model_handle_map: HashMap<ModelHandle, Model>,
     // motion_handle_map: HashMap<u16, Rc<RefCell<Motion>>>,
     // render_pass_bundle_map: HashMap<u32, RenderPassBundle>,
     // hashed_render_pass_bundle_map: HashMap<u32, Rc<RefCell<RenderPassBundle>>>,
@@ -400,7 +421,6 @@ pub struct Project {
     // active: bool,
     rigid_body_set: rapier3d::dynamics::RigidBodySet,
     collider_set: rapier3d::geometry::ColliderSet,
-    tmp_model: Option<Box<Model>>,
     tmp_texture_map: HashMap<String, Rc<wgpu::Texture>>,
 }
 
@@ -485,11 +505,12 @@ impl Project {
             shadow_camera,
             light: directional_light,
             fallback_texture,
+            object_handler_allocator: HandleAllocator::new(),
+            model_handle_map: HashMap::new(),
             viewport_primary_pass,
             viewport_secondary_pass,
             rigid_body_set: rapier3d::dynamics::RigidBodySet::new(),
             collider_set: rapier3d::geometry::ColliderSet::new(),
-            tmp_model: None,
             tmp_texture_map: HashMap::new(),
         }
     }
@@ -624,7 +645,7 @@ impl Project {
 }
 
 impl Project {
-    pub fn load_tmp_model(&mut self, model_data: &[u8], device: &wgpu::Device) {
+    pub fn load_model(&mut self, model_data: &[u8], device: &wgpu::Device) {
         if let Ok(model) = Model::new_from_bytes(
             model_data,
             self.parse_language(),
@@ -634,7 +655,8 @@ impl Project {
             0,
             device,
         ) {
-            self.tmp_model = Some(Box::new(model));
+            self.model_handle_map
+                .insert(self.object_handler_allocator.next(), model);
         }
     }
 
@@ -686,10 +708,9 @@ impl Project {
     }
 
     pub fn update_bind_texture(&mut self) {
-        self.tmp_model
-            .as_mut()
-            .unwrap()
-            .create_all_images(&self.tmp_texture_map);
+        for (handle, model) in &mut self.model_handle_map {
+            model.create_all_images(&self.tmp_texture_map);
+        }
     }
 
     fn create_fallback_image(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
@@ -845,7 +866,7 @@ impl Project {
             self.shadow_camera.clear(&self.clear_pass, device, queue);
             if self.editing_mode != EditingMode::Select {
                 // scope(m_currentOffscreenRenderPass, pass), scope2(m_originOffscreenRenderPass, pass)
-                if let Some(drawable) = &self.tmp_model {
+                for (handle, drawable) in &self.model_handle_map {
                     // TODO: judge effect script class
                     let color_view = self.shadow_camera.color_texture_view();
                     let depth_view = self.shadow_camera.depth_texture_view();
@@ -905,7 +926,7 @@ impl Project {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        if let Some(drawable) = &self.tmp_model {
+        for (handle, drawable) in &self.model_handle_map {
             drawable.draw(
                 view,
                 Some(&self.viewport_primary_depth_view()),

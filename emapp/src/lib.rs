@@ -46,6 +46,7 @@ mod ray;
 mod clear_pass;
 mod technique;
 mod line_drawer;
+mod deformer;
 
 #[cfg(test)]
 mod tests {

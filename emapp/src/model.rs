@@ -757,6 +757,7 @@ impl Model {
 
     pub fn upload(&mut self) {
         // TODO
+        self.states.uploaded = true;
     }
 
     pub fn create_all_images(&mut self, texture_lut: &HashMap<String, Rc<wgpu::Texture>>) {

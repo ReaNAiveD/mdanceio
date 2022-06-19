@@ -28,7 +28,7 @@ impl StateController {
     }
 
     pub fn load_model(&mut self, data: &[u8], device: &wgpu::Device) {
-        self.project.load_tmp_model(data, device);
+        self.project.load_model(data, device);
     }
     
     pub fn load_texture(
