@@ -39,7 +39,7 @@ struct FragmentInput {
     @location(3) texcoord1: vec2<f32>,
     @location(4) eye: vec3<f32>,
     @location(5) shadow0: vec4<f32>,
-}
+};
 
 let alpha_test_threshold: f32 = 0.005;
 
@@ -61,28 +61,21 @@ struct ModelParameters {
     use_texture_sampler: vec4<f32>,
     sphere_texture_type: vec4<f32>,
     shadow_map_size: vec4<f32>,
-}
+};
 
-@group(1)
-@binding(0)
+@group(1) @binding(0)
 var<uniform> model_parameters: ModelParameters;
-@group(0)
-@binding(2)
+@group(0) @binding(2)
 var diffuse_texture: texture_2d<f32>;
-@group(0)
-@binding(3)
+@group(0) @binding(3)
 var diffuse_texture_sampler: sampler;
-@group(0)
-@binding(4)
+@group(0) @binding(4)
 var sphere_map_texture: texture_2d<f32>;
-@group(0)
-@binding(5)
+@group(0) @binding(5)
 var sphere_map_texture_sampler: sampler;
-@group(0)
-@binding(6)
+@group(0) @binding(6)
 var toon_texture: texture_2d<f32>;
-@group(0)
-@binding(7)
+@group(0) @binding(7)
 var toon_texture_sampler: sampler;
 
 fn has_diffuse_texture() -> bool {

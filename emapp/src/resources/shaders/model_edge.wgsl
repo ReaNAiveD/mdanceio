@@ -11,71 +11,71 @@ fn saturate_v4(x: vec4<f32>) -> vec4<f32> {
 }
 
 struct VertexInput {
-    [[location(0)]] position: vec3<f32>;
-    [[location(1)]] normal: vec3<f32>;
-    [[location(2)]] texcoord0: vec2<f32>;
-    [[location(3)]] uva1: vec4<f32>;
-    [[location(4)]] uva2: vec4<f32>;
-    [[location(5)]] uva3: vec4<f32>;
-    [[location(6)]] uva4: vec4<f32>;
-    [[location(7)]] color0: vec4<f32>;
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) texcoord0: vec2<f32>,
+    @location(3) uva1: vec4<f32>,
+    @location(4) uva2: vec4<f32>,
+    @location(5) uva3: vec4<f32>,
+    @location(6) uva4: vec4<f32>,
+    @location(7) color0: vec4<f32>,
 };
 
 struct VertexOutput {
-    [[builtin(position)]] position: vec4<f32>;
-    [[location(0)]] color0: vec4<f32>;
-    [[location(1)]] normal: vec3<f32>;
-    [[location(2)]] texcoord0: vec2<f32>;
-    [[location(3)]] texcoord1: vec2<f32>;
-    [[location(4)]] eye: vec3<f32>;
-    [[location(5)]] shadow0: vec4<f32>;
+    @builtin(position) position: vec4<f32>,
+    @location(0) color0: vec4<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) texcoord0: vec2<f32>,
+    @location(3) texcoord1: vec2<f32>,
+    @location(4) eye: vec3<f32>,
+    @location(5) shadow0: vec4<f32>,
     // builtin("PointSize") or psize when NANOEM_IO_HAS_POINT
 };
 
 struct FragmentInput {
-    [[location(0)]] color0: vec4<f32>;
-    [[location(1)]] normal: vec3<f32>;
-    [[location(2)]] texcoord0: vec2<f32>;
-    [[location(3)]] texcoord1: vec2<f32>;
-    [[location(4)]] eye: vec3<f32>;
-    [[location(5)]] shadow0: vec4<f32>;
+    @location(0) color0: vec4<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) texcoord0: vec2<f32>,
+    @location(3) texcoord1: vec2<f32>,
+    @location(4) eye: vec3<f32>,
+    @location(5) shadow0: vec4<f32>,
 };
 
 let alpha_test_threshold: f32 = 0.005;
 
 struct ModelParameters {
-    model_matrix: mat4x4<f32>;
-    model_view_matrix: mat4x4<f32>;
-    model_view_projection_matrix: mat4x4<f32>;
-    light_view_projection_matrix: mat4x4<f32>;
-    light_color: vec4<f32>;
-    light_direction: vec4<f32>;
-    camera_position: vec4<f32>;
-    material_ambient: vec4<f32>;
-    material_diffuse: vec4<f32>;
-    material_specular: vec4<f32>;
-    enable_vertex_color: vec4<f32>;
-    diffuse_texture_blend_factor: vec4<f32>;
-    sphere_texture_blend_factor: vec4<f32>;
-    toon_texture_blend_factor: vec4<f32>;
-    use_texture_sampler: vec4<f32>;
-    sphere_texture_type: vec4<f32>;
-    shadow_map_size: vec4<f32>;
+    model_matrix: mat4x4<f32>,
+    model_view_matrix: mat4x4<f32>,
+    model_view_projection_matrix: mat4x4<f32>,
+    light_view_projection_matrix: mat4x4<f32>,
+    light_color: vec4<f32>,
+    light_direction: vec4<f32>,
+    camera_position: vec4<f32>,
+    material_ambient: vec4<f32>,
+    material_diffuse: vec4<f32>,
+    material_specular: vec4<f32>,
+    enable_vertex_color: vec4<f32>,
+    diffuse_texture_blend_factor: vec4<f32>,
+    sphere_texture_blend_factor: vec4<f32>,
+    toon_texture_blend_factor: vec4<f32>,
+    use_texture_sampler: vec4<f32>,
+    sphere_texture_type: vec4<f32>,
+    shadow_map_size: vec4<f32>,
 };
 
-[[group(1), binding(0)]]
+@group(1) @binding(0)
 var<uniform> model_parameters: ModelParameters;
-[[group(0), binding(2)]]
+@group(0) @binding(2)
 var diffuse_texture: texture_2d<f32>;
-[[group(0), binding(3)]]
+@group(0) @binding(3)
 var diffuse_texture_sampler: sampler;
-[[group(0), binding(4)]]
+@group(0) @binding(4)
 var sphere_map_texture: texture_2d<f32>;
-[[group(0), binding(5)]]
+@group(0) @binding(5)
 var sphere_map_texture_sampler: sampler;
-[[group(0), binding(6)]]
+@group(0) @binding(6)
 var toon_texture: texture_2d<f32>;
-[[group(0), binding(7)]]
+@group(0) @binding(7)
 var toon_texture_sampler: sampler;
 
 fn has_diffuse_texture() -> bool {
@@ -135,7 +135,7 @@ fn coverage_alpha(frag_input: FragmentInput, rgba: vec4<f32>) -> vec4<f32> {
     return result;
 }
 
-[[stage(vertex)]]
+@vertex
 fn vs_main(vin: VertexInput) -> VertexOutput {
     let position = vec4<f32>(vin.position, 1.0);
     let normal = vec4<f32>(vin.normal, 0.0);
@@ -148,7 +148,7 @@ fn vs_main(vin: VertexInput) -> VertexOutput {
     return vout;
 }
 
-[[stage(fragment)]]
-fn fs_main(fin: FragmentInput) -> [[location(0)]] vec4<f32> {
+@fragment
+fn fs_main(fin: FragmentInput) -> @location(0) vec4<f32> {
     return coverage_alpha(fin, model_parameters.light_color);
 }
