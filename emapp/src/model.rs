@@ -36,8 +36,8 @@ use crate::{
     undo::UndoStack,
     uri::Uri,
     utils::{
-        f128_to_quat, f128_to_vec3, f128_to_vec4, lerp_f32, mat4_truncate, to_na_mat4,
-        CompareElementWise, Invert, to_isometry,
+        f128_to_quat, f128_to_vec3, f128_to_vec4, lerp_f32, mat4_truncate, to_isometry, to_na_mat4,
+        CompareElementWise, Invert,
     },
 };
 
@@ -52,15 +52,15 @@ pub type NanoemLabel = nanoem::model::ModelLabel;
 pub type NanoemRigidBody = nanoem::model::ModelRigidBody;
 pub type NanoemJoint = nanoem::model::ModelJoint;
 pub type NanoemSoftBody = nanoem::model::ModelSoftBody;
-type VertexIndex = usize;
-type BoneIndex = usize;
-type MaterialIndex = usize;
-type MorphIndex = usize;
-type ConstraintIndex = usize;
-type LabelIndex = usize;
-type RigidBodyIndex = usize;
-type JointIndex = usize;
-type SoftBodyIndex = usize;
+pub type VertexIndex = usize;
+pub type BoneIndex = usize;
+pub type MaterialIndex = usize;
+pub type MorphIndex = usize;
+pub type ConstraintIndex = usize;
+pub type LabelIndex = usize;
+pub type RigidBodyIndex = usize;
+pub type JointIndex = usize;
+pub type SoftBodyIndex = usize;
 
 pub trait SkinDeformer {
     // TODO
@@ -283,7 +283,7 @@ pub struct Model {
     inherent_bones: HashMap<BoneIndex, HashSet<BoneIndex>>,
     constraint_effector_bones: HashSet<BoneIndex>,
     parent_bone_tree: HashMap<BoneIndex, Vec<BoneIndex>>,
-    // shared_fallback_bone: Rc<RefCell<Bone>>,
+    pub shared_fallback_bone: Bone,
     bounding_box: BoundingBox,
     // // UserData m_userData;
     // annotations: HashMap<String, String>,
@@ -653,6 +653,37 @@ impl Model {
                     // shared_fallback_bone,
                     vertex_buffers,
                     index_buffer,
+                    shared_fallback_bone: Bone {
+                        name: "".to_owned(),
+                        canonical_name: "".to_owned(),
+                        matrices: Matrices { world_transform: Matrix4::identity(), local_transform: Matrix4::identity(), normal_transform: Matrix4::identity(), skinning_transform: Matrix4::identity() },
+                        local_orientation: Quaternion::zero(),
+                        local_inherent_orientation: Quaternion::zero(),
+                        local_morph_orientation: Quaternion::zero(),
+                        local_user_orientation: Quaternion::zero(),
+                        constraint_joint_orientation: Quaternion::zero(),
+                        local_translation: Vector3::zero(),
+                        local_inherent_translation: Vector3::zero(),
+                        local_morph_translation: Vector3::zero(),
+                        local_user_translation: Vector3::zero(),
+                        interpolation: BoneKeyframeInterpolation::default(),
+                        states: BoneStates::default(),
+                        origin: NanoemBone {
+                            base: nanoem::model::ModelObject {
+                                index: usize::MAX,
+                            },
+                            name_ja: "".to_owned(),
+                            name_en: "".to_owned(),
+                            constraint: None,
+                            parent_bone_index: -1,
+                            parent_inherent_bone_index: -1,
+                            effector_bone_index: -1,
+                            target_bone_index: -1,
+                            global_bone_index: -1,
+                            stage_index: -1,
+                            ..Default::default()
+                        },
+                    },
                     name,
                     comment,
                     canonical_name,
@@ -1432,6 +1463,14 @@ impl Model {
         }
     }
 
+    pub fn vertices(&self) -> &[Vertex] {
+        &self.vertices
+    }
+
+    pub fn vertices_len(&self) -> usize {
+        self.vertices.len()
+    }
+
     pub fn bones(&self) -> &[Bone] {
         &self.bones
     }
@@ -1445,6 +1484,10 @@ impl Model {
             // TODO: publish set event
             self.active_bone_pair.0 = bone_idx;
         }
+    }
+
+    pub fn morphs(&self) -> &[Morph] {
+        &self.morphs
     }
 
     pub fn active_outside_parent_subject_bone(&self) -> Option<&Bone> {
@@ -1835,7 +1878,7 @@ pub struct Matrices {
     pub skinning_transform: Matrix4<f32>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct BoneKeyframeInterpolation {
     translation_x: KeyframeInterpolationPoint,
     translation_y: KeyframeInterpolationPoint,
@@ -2626,7 +2669,7 @@ pub struct Vertex {
     bones: [Option<BoneIndex>; 4],
     states: u32,
     pub simd: VertexSimd,
-    origin: NanoemVertex,
+    pub origin: NanoemVertex,
 }
 
 impl Vertex {
@@ -3127,7 +3170,7 @@ pub struct Morph {
     canonical_name: String,
     weight: f32,
     dirty: bool,
-    origin: NanoemMorph,
+    pub origin: NanoemMorph,
 }
 
 impl Morph {
@@ -3154,6 +3197,10 @@ impl Morph {
     pub fn reset(&mut self) {
         self.weight = 0f32;
         self.dirty = false;
+    }
+
+    pub fn weight(&self) -> f32 {
+        self.weight
     }
 
     pub fn set_weight(&mut self, value: f32) {
