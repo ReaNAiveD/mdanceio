@@ -652,6 +652,7 @@ impl Project {
             &self.fallback_texture,
             &mut self.rigid_body_set,
             &mut self.collider_set,
+            &self.camera,
             0,
             device,
         ) {

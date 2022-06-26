@@ -16,7 +16,8 @@ use wgpu::{AddressMode, Buffer};
 
 use crate::{
     bounding_box::BoundingBox,
-    camera::Camera,
+    camera::{Camera, PerspectiveCamera},
+    deformer::Deformer,
     drawable::{DrawType, Drawable},
     effect::{Effect, IEffect},
     error::Error,
@@ -235,7 +236,7 @@ pub struct Model {
     // camera: Rc<RefCell<dyn Camera>>,
     // selection: Rc<RefCell<dyn ModelObjectSelection>>,
     // drawer: Box<LinearDrawer>,
-    // skin_deformer: Rc<RefCell<dyn SkinDeformer>>,
+    skin_deformer: Deformer,
     // gizmo: Rc<RefCell<dyn Gizmo>>,
     // vertex_weight_painter: Rc<RefCell<dyn VertexWeightPainter>>,
     // offscreen_passive_render_target_effects: HashMap<String, OffscreenPassiveRenderTargetEffect>,
@@ -325,6 +326,7 @@ impl Model {
         fallback_texture: &wgpu::Texture,
         rigid_body_set: &mut rapier3d::dynamics::RigidBodySet,
         collider_set: &mut rapier3d::geometry::ColliderSet,
+        camera: &dyn Camera,
         handle: u16,
         device: &wgpu::Device,
     ) -> Result<Self, Error> {
@@ -527,7 +529,44 @@ impl Model {
                     .iter()
                     .map(|soft_body| SoftBody::from_nanoem(soft_body, language_type))
                     .collect();
+
+                let shared_fallback_bone = Bone {
+                    name: "".to_owned(),
+                    canonical_name: "".to_owned(),
+                    matrices: Matrices {
+                        world_transform: Matrix4::identity(),
+                        local_transform: Matrix4::identity(),
+                        normal_transform: Matrix4::identity(),
+                        skinning_transform: Matrix4::identity(),
+                    },
+                    local_orientation: Quaternion::zero(),
+                    local_inherent_orientation: Quaternion::zero(),
+                    local_morph_orientation: Quaternion::zero(),
+                    local_user_orientation: Quaternion::zero(),
+                    constraint_joint_orientation: Quaternion::zero(),
+                    local_translation: Vector3::zero(),
+                    local_inherent_translation: Vector3::zero(),
+                    local_morph_translation: Vector3::zero(),
+                    local_user_translation: Vector3::zero(),
+                    interpolation: BoneKeyframeInterpolation::default(),
+                    states: BoneStates::default(),
+                    origin: NanoemBone {
+                        base: nanoem::model::ModelObject { index: usize::MAX },
+                        name_ja: "".to_owned(),
+                        name_en: "".to_owned(),
+                        constraint: None,
+                        parent_bone_index: -1,
+                        parent_inherent_bone_index: -1,
+                        effector_bone_index: -1,
+                        target_bone_index: -1,
+                        global_bone_index: -1,
+                        stage_index: -1,
+                        ..Default::default()
+                    },
+                };
                 // split_bones_per_material();
+
+                let edge_size_scale_factor = 1.0f32;
 
                 let mut offset: usize = 0;
                 let mut unique_bone_index_per_material = 0usize;
@@ -592,29 +631,34 @@ impl Model {
                     references.clear();
                 }
 
-                let vertices = vertices;
                 log::trace!("Len(vertices): {}", vertices.len());
                 let mut vertex_buffer_data: Vec<VertexUnit> = vec![];
                 for vertex in &vertices {
                     vertex_buffer_data.push(vertex.simd.clone().into());
                 }
                 log::trace!("Len(vertex_buffer): {}", vertex_buffer_data.len());
-                let vertex_buffer_even = wgpu::util::DeviceExt::create_buffer_init(
+                let edge_size = Self::internal_edge_size(&bones, camera, edge_size_scale_factor);
+                let skin_deformer = Deformer::new(
+                    &vertex_buffer_data,
+                    &vertices,
+                    &bones,
+                    &shared_fallback_bone,
+                    &morphs,
+                    edge_size,
                     device,
-                    &wgpu::util::BufferInitDescriptor {
-                        label: Some(format!("Model/{}/VertexBuffer/Even", canonical_name).as_str()),
-                        contents: bytemuck::cast_slice(&vertex_buffer_data),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    },
                 );
-                let vertex_buffer_odd = wgpu::util::DeviceExt::create_buffer_init(
-                    device,
-                    &wgpu::util::BufferInitDescriptor {
-                        label: Some(format!("Model/{}/VertexBuffer/Odd", canonical_name).as_str()),
-                        contents: bytemuck::cast_slice(&vertex_buffer_data),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    },
-                );
+                let vertex_buffer_even = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(format!("Model/{}/VertexBuffer/Even", canonical_name).as_str()),
+                    size: vertices.len() as u64,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
+                    mapped_at_creation: true,
+                });
+                let vertex_buffer_odd = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(format!("Model/{}/VertexBuffer/Odd", canonical_name).as_str()),
+                    size: vertices.len() as u64,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
+                    mapped_at_creation: true,
+                });
                 let vertex_buffers = [vertex_buffer_even, vertex_buffer_odd];
                 log::trace!("Len(index_buffer): {}", &opaque.vertex_indices.len());
                 let index_buffer = wgpu::util::DeviceExt::create_buffer_init(
@@ -629,6 +673,7 @@ impl Model {
                 Ok(Self {
                     handle,
                     opaque,
+                    skin_deformer,
                     bone_index_hash_map,
                     bones,
                     morphs,
@@ -653,37 +698,7 @@ impl Model {
                     // shared_fallback_bone,
                     vertex_buffers,
                     index_buffer,
-                    shared_fallback_bone: Bone {
-                        name: "".to_owned(),
-                        canonical_name: "".to_owned(),
-                        matrices: Matrices { world_transform: Matrix4::identity(), local_transform: Matrix4::identity(), normal_transform: Matrix4::identity(), skinning_transform: Matrix4::identity() },
-                        local_orientation: Quaternion::zero(),
-                        local_inherent_orientation: Quaternion::zero(),
-                        local_morph_orientation: Quaternion::zero(),
-                        local_user_orientation: Quaternion::zero(),
-                        constraint_joint_orientation: Quaternion::zero(),
-                        local_translation: Vector3::zero(),
-                        local_inherent_translation: Vector3::zero(),
-                        local_morph_translation: Vector3::zero(),
-                        local_user_translation: Vector3::zero(),
-                        interpolation: BoneKeyframeInterpolation::default(),
-                        states: BoneStates::default(),
-                        origin: NanoemBone {
-                            base: nanoem::model::ModelObject {
-                                index: usize::MAX,
-                            },
-                            name_ja: "".to_owned(),
-                            name_en: "".to_owned(),
-                            constraint: None,
-                            parent_bone_index: -1,
-                            parent_inherent_bone_index: -1,
-                            effector_bone_index: -1,
-                            target_bone_index: -1,
-                            global_bone_index: -1,
-                            stage_index: -1,
-                            ..Default::default()
-                        },
-                    },
+                    shared_fallback_bone,
                     name,
                     comment,
                     canonical_name,
@@ -691,7 +706,7 @@ impl Model {
                     count_vertex_skinning_needed,
                     stage_vertex_buffer_index: 0,
                     edge_color: Vector4::new(0f32, 0f32, 0f32, 1f32),
-                    edge_size_scale_factor: 1.0f32,
+                    edge_size_scale_factor,
                     bounding_box: BoundingBox::new(),
                     states: ModelStates {
                         physics_simulation: true,
@@ -1513,18 +1528,21 @@ impl Model {
             .and_then(|idx| self.bones.get(idx))
     }
 
-    pub fn edge_size(&self, project: &Project) -> f32 {
-        if self.bones.len() > 1 {
-            let camera = project.active_camera();
-            let bone = &self.bones[1];
+    fn internal_edge_size(bones: &[Bone], camera: &dyn Camera, edge_size_scale_factor: f32) -> f32 {
+        if bones.len() > 1 {
+            let bone = &bones[1];
             let bone_position = bone.world_transform_origin();
             (bone_position - camera.position()).magnitude()
                 * (camera.fov() as f32 / 30f32).clamp(0f32, 1f32)
                 * 0.001f32
-                * self.edge_size_scale_factor
+                * edge_size_scale_factor
         } else {
             0f32
         }
+    }
+
+    pub fn edge_size(&self, camera: &dyn Camera) -> f32 {
+        Self::internal_edge_size(&self.bones, camera, self.edge_size_scale_factor)
     }
 
     pub fn get_name(&self) -> &String {
@@ -1565,7 +1583,7 @@ impl Drawable for Model {
                     self.draw_color(color_view, depth_view, project, device, queue, adapter_info)
                 }
                 DrawType::Edge => {
-                    let edge_size_scale_factor = self.edge_size(project);
+                    let edge_size_scale_factor = self.edge_size(project.active_camera());
                     if edge_size_scale_factor > 0f32 {
                         self.draw_edge(
                             edge_size_scale_factor,
