@@ -368,6 +368,7 @@ impl Merger<'_, '_> {
                 );
             }
         }
+        self.dest.update_bone_keyframe_sort_index();
     }
 
     pub fn merge_all_camera_keyframes(&mut self) {
@@ -381,6 +382,7 @@ impl Merger<'_, '_> {
                 .dest
                 .add_camera_keyframe(keyframe.clone(), keyframe.base.frame_index);
         }
+        self.dest.update_camera_keyframe_sort_index();
     }
 
     pub fn merge_all_light_keyframes(&mut self) {
@@ -394,6 +396,7 @@ impl Merger<'_, '_> {
                 .dest
                 .add_light_keyframe(keyframe.clone(), keyframe.base.frame_index);
         }
+        self.dest.update_light_keyframe_sort_index();
     }
 
     pub fn merge_all_model_keyframes(&mut self) {
@@ -407,6 +410,7 @@ impl Merger<'_, '_> {
                 .dest
                 .add_model_keyframe(keyframe.clone(), keyframe.base.frame_index);
         }
+        self.dest.update_model_keyframe_sort_index();
     }
 
     pub fn merge_all_morph_keyframes(&mut self) {
@@ -424,6 +428,7 @@ impl Merger<'_, '_> {
                 }
             }
         }
+        self.dest.update_morph_keyframe_sort_index();
     }
 
     pub fn merge_all_self_shadow_keyframes(&mut self) {
@@ -437,6 +442,7 @@ impl Merger<'_, '_> {
                 .dest
                 .add_self_shadow_keyframe(keyframe.clone(), keyframe.base.frame_index);
         }
+        self.dest.update_self_shadow_keyframe_sort_index();
     }
 }
 
