@@ -11,6 +11,7 @@ pub trait Light {
     fn is_translucent_ground_shadow_enabled(&self) -> bool;
 }
 
+#[derive(Debug, Clone)]
 pub struct DirectionalLight {
     // TODO: undo_stack
     color: Vector3<f32>,
@@ -74,6 +75,10 @@ impl DirectionalLight {
             Self::INITIAL_DIRECTION
         };
         self.dirty = true;
+    }
+
+    pub fn set_dirty(&mut self, value: bool) {
+        self.dirty = value;
     }
 }
 

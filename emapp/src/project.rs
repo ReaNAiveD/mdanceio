@@ -4,7 +4,7 @@ use std::{
     rc::Rc,
 };
 
-use cgmath::{Vector2, Vector4};
+use cgmath::{ElementWise, Vector2, Vector3, Vector4, VectorSpace};
 
 use crate::{
     accessory::Accessory,
@@ -30,7 +30,7 @@ use crate::{
     model::{BindPose, Bone, Model, SkinDeformer, VisualizationClause},
     model_program_bundle::ModelProgramBundle,
     motion::Motion,
-    physics_engine::PhysicsEngine,
+    physics_engine::{PhysicsEngine, SimulationTiming},
     pixel_format::PixelFormat,
     primitive_2d::Primitive2d,
     progress::CancelPublisher,
@@ -40,6 +40,7 @@ use crate::{
     translator::{LanguageType, Translator},
     undo::UndoStack,
     uri::Uri,
+    utils::lerp_f32,
 };
 
 pub trait Confirmor {
@@ -321,23 +322,24 @@ pub struct Project {
     // shared_resource_factory: Box<dyn SharedResourceFactory>,
     // translator: Box<dyn Translator>,
     // shared_image_loader: Option<Rc<ImageLoader>>,
-    // transform_model_order_list: Vec<Rc<RefCell<Model>>>,
-    // active_model_pair: (Option<Rc<RefCell<Model>>>, Option<Rc<RefCell<Model>>>),
+    transform_model_order_list: Vec<ModelHandle>,
+    active_model_pair: (Option<ModelHandle>, Option<ModelHandle>),
     // active_accessory: Option<Rc<RefCell<Accessory>>>,
     // audio_player: Option<Box<dyn AudioPlayer>>,
     // physics_engine: Option<Rc<PhysicsEngine>>,
     camera: PerspectiveCamera,
     light: DirectionalLight,
-    grid: Box<Grid>,
-    // camera_motion: Rc<RefCell<Motion>>,
-    // light_motion: Rc<RefCell<Motion>>,
-    // self_shadow_motion: Rc<RefCell<Motion>>,
     shadow_camera: ShadowCamera,
+    grid: Box<Grid>,
+    camera_motion: Motion,
+    light_motion: Motion,
+    self_shadow_motion: Motion,
     // undo_stack: Rc<RefCell<UndoStack>>,
     // all_models: Vec<Rc<RefCell<Model>>>,
     // all_accessories: Vec<Rc<RefCell<Accessory>>>,
     // all_motions: Vec<Rc<RefCell<Motion>>>,
     // drawable_to_motion_ptrs: HashMap<Rc<RefCell<dyn Drawable>>, Rc<RefCell<Motion>>>,
+    model_to_motion: HashMap<ModelHandle, Motion>,
     // all_traces: Vec<Rc<RefCell<dyn Track>>>,
     // selected_track: Option<Rc<RefCell<dyn Track>>>,
     // last_save_state: Option<SaveState>,
@@ -472,6 +474,8 @@ impl Project {
         let shadow_camera = ShadowCamera::new(&device);
         let directional_light = DirectionalLight::new();
 
+        let mut object_handler_allocator = HandleAllocator::new();
+
         Self {
             editing_mode: EditingMode::None,
             language: LanguageType::English,
@@ -493,7 +497,12 @@ impl Project {
                     Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
                 ),
             },
+            active_model_pair: (None, None),
             grid: Box::new(Grid::new(device)),
+            camera_motion: Motion::empty(object_handler_allocator.next()),
+            light_motion: Motion::empty(object_handler_allocator.next()),
+            self_shadow_motion: Motion::empty(object_handler_allocator.next()),
+            model_to_motion: HashMap::new(),
             draw_type: DrawType::Color,
             depends_on_script_external: vec![],
             clear_pass: Box::new(ClearPass::new(device)),
@@ -505,8 +514,9 @@ impl Project {
             shadow_camera,
             light: directional_light,
             fallback_texture,
-            object_handler_allocator: HandleAllocator::new(),
+            object_handler_allocator,
             model_handle_map: HashMap::new(),
+            transform_model_order_list: vec![],
             viewport_primary_pass,
             viewport_secondary_pass,
             rigid_body_set: rapier3d::dynamics::RigidBodySet::new(),
@@ -620,7 +630,9 @@ impl Project {
     // pub fn create_camera()
 
     pub fn active_model(&self) -> Option<&Model> {
-        todo!()
+        self.active_model_pair
+            .0
+            .and_then(|idx| self.model_handle_map.get(&idx))
     }
 
     pub fn find_model_by_name(&self, name: &str) -> Option<&Model> {
@@ -628,6 +640,10 @@ impl Project {
     }
 
     pub fn resolve_bone(&self, value: (&str, &str)) -> Option<&Bone> {
+        todo!()
+    }
+
+    pub fn resolve_model_motion(&self, model: ModelHandle) -> Option<&Motion> {
         todo!()
     }
 
@@ -645,6 +661,112 @@ impl Project {
 }
 
 impl Project {
+    pub fn synchronize_all_motions(
+        &mut self,
+        frame_index: u32,
+        amount: f32,
+        timing: SimulationTiming,
+    ) {
+        // TODO: for model motions
+        for handle in &self.transform_model_order_list {
+            if let Some(model) = self.model_handle_map.get_mut(handle) {
+                let outside_parent_bone_map = HashMap::new();
+                if let Some(motion) = self.model_to_motion.get(handle) {
+                    model.synchronize_motion(
+                        motion,
+                        frame_index,
+                        amount,
+                        timing,
+                        &outside_parent_bone_map,
+                    );
+                }
+            }
+        }
+        if timing == SimulationTiming::After {
+            // TODO: for accessory motions
+            self.synchronize_camera(frame_index, amount);
+            self.synchronize_light(frame_index, amount);
+            self.synchronize_self_shadow(frame_index, amount);
+        }
+    }
+
+    pub fn synchronize_camera(&mut self, frame_index: u32, amount: f32) {
+        const CAMERA_DIRECTION: Vector3<f32> = Vector3::new(-1f32, 1f32, 1f32);
+        let mut camera0 = self.camera.clone();
+        camera0.synchronize_parameters(&self.camera_motion, frame_index, self);
+        let look_at0 = camera0.look_at(self);
+        if amount > 0f32
+            && self
+                .camera_motion
+                .find_camera_keyframe(frame_index + 1)
+                .is_none()
+        {
+            let mut camera1 = self.camera.clone();
+            camera1.synchronize_parameters(&self.camera_motion, frame_index, self);
+            let look_at1 = camera1.look_at(self);
+            self.camera.set_angle(
+                camera0
+                    .angle()
+                    .lerp(camera1.angle(), amount)
+                    .mul_element_wise(CAMERA_DIRECTION),
+            );
+            self.camera
+                .set_distance(lerp_f32(camera0.distance(), camera1.distance(), amount));
+            self.camera.set_fov_radians(lerp_f32(
+                camera0.fov_radians(),
+                camera1.fov_radians(),
+                amount,
+            ));
+            self.camera.set_look_at(look_at0.lerp(look_at1, amount));
+        } else {
+            self.camera
+                .set_angle(camera0.angle().mul_element_wise(CAMERA_DIRECTION));
+            self.camera.set_distance(camera0.distance());
+            self.camera.set_fov_radians(camera0.fov_radians());
+            self.camera.set_look_at(look_at0);
+        }
+        self.camera.set_perspective(camera0.is_perspective());
+        self.camera.interpolation = camera0.interpolation;
+        let bound_look_at = self.camera.bound_look_at(self);
+        self.camera.update(
+            self.layout.viewport_image_size,
+            &self.layout.logical_scale_uniformed_viewport_image_rect(),
+            bound_look_at,
+        );
+        self.camera.set_dirty(false);
+    }
+
+    pub fn synchronize_light(&mut self, frame_index: u32, amount: f32) {
+        let mut light0 = self.light.clone();
+        light0.synchronize_parameters(&self.light_motion, frame_index);
+        if amount > 0f32 {
+            let mut light1 = self.light.clone();
+            light1.synchronize_parameters(&self.light_motion, frame_index + 1);
+            self.light
+                .set_color(light0.color().lerp(light1.color(), amount));
+            self.light
+                .set_direction(light0.direction().lerp(light1.direction(), amount));
+        } else {
+            self.light.set_color(light0.color());
+            self.light.set_direction(light0.direction());
+        }
+        self.light.set_dirty(false);
+    }
+
+    pub fn synchronize_self_shadow(&mut self, frame_index: u32, amount: f32) {
+        if let Some(keyframe) = self
+            .self_shadow_motion
+            .find_self_shadow_keyframe(frame_index)
+        {
+            self.shadow_camera.set_distance(keyframe.distance);
+            self.shadow_camera
+                .set_coverage_mode((keyframe.mode as u32).into());
+            self.shadow_camera.set_dirty(false);
+        }
+    }
+}
+
+impl Project {
     pub fn load_model(&mut self, model_data: &[u8], device: &wgpu::Device) {
         if let Ok(model) = Model::new_from_bytes(
             model_data,
@@ -658,6 +780,25 @@ impl Project {
         ) {
             self.model_handle_map
                 .insert(self.object_handler_allocator.next(), model);
+        }
+    }
+
+    pub fn load_model_motion(&mut self, motion_data: &[u8], device: &wgpu::Device) {
+        if self.active_model().is_some() {
+            if let Ok(motion) = Motion::new_from_bytes(
+                motion_data,
+                self.local_frame_index.0,
+                self.object_handler_allocator.next(),
+            ) {
+                // TODO: record history in motion redo
+                let (missing_bones, missing_morphs) =
+                    motion.test_all_missing_model_objects(self.active_model().unwrap());
+                if missing_bones.len() > 0 && missing_morphs.len() > 0 {
+                    // TODO: Dialog hint motion missing
+                }
+                // TODO: add all to motion selection
+                
+            }
         }
     }
 

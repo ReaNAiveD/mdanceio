@@ -20,11 +20,13 @@ use nanoem::{
     motion::{MotionCameraKeyframe, MotionCameraKeyframeInterpolation, MotionTrackBundle},
 };
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 enum TransformCoordinateType {
     Global,
     Local,
 }
 
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 enum FollowingType {
     None = 1,
     Model,
@@ -62,6 +64,7 @@ pub struct CameraKeyframeInterpolation {
     distance: KeyframeInterpolationPoint,
 }
 
+#[derive(Debug, Clone)]
 pub struct PerspectiveCamera {
     // TODO: undo_stack_t *m_undoStack;
     bezier_curves_data: RefCell<HashMap<CurveCacheKey, Box<BezierCurve>>>,
@@ -75,7 +78,7 @@ pub struct PerspectiveCamera {
     angle: Vector3<f32>,
     distance: f32,
     fov: (i32, f32),
-    interpolation: CameraKeyframeInterpolation,
+    pub interpolation: CameraKeyframeInterpolation,
     automatic_bezier_control_point: Vector4<u8>,
     following_type: FollowingType,
     perspective: bool,
@@ -131,9 +134,8 @@ impl PerspectiveCamera {
         &mut self,
         viewport_image_size: Vector2<u16>,
         logical_scale_uniformed_viewport_image_rect: &Vector4<f32>,
-        project: &Project,
+        bound_look_at: Vector3<f32>,
     ) {
-        let look_at = self.bound_look_at(project);
         let angle = self.angle.mul_element_wise(Self::ANGLE_SCALE_FACTOR);
         let x = Quaternion::from_angle_x(Rad(angle.x));
         let y = Quaternion::from_angle_y(Rad(angle.y));
@@ -144,9 +146,9 @@ impl PerspectiveCamera {
         self.view_matrix[3] += Vector4::new(0.0f32, 0.0f32, self.distance, 0.0f32);
         let position = self.view_matrix.affine_invert().unwrap()[3].truncate();
         if self.distance > 0.0 {
-            self.direction = (look_at - position).normalize();
+            self.direction = (bound_look_at - position).normalize();
         } else if self.distance < 0.0 {
-            self.direction = (position - look_at).normalize();
+            self.direction = (position - bound_look_at).normalize();
         }
         self.position = position;
         if self.perspective {
@@ -178,10 +180,10 @@ impl PerspectiveCamera {
         motion: &Motion,
         frame_index: u32,
         project: &Project,
-        global_track_bundle: &MotionTrackBundle<()>,
     ) {
         const DISTANCE_FACTOR: f32 = -1.0f32;
         let outside_parent = ("".to_owned(), "".to_owned());
+        let global_track_bundle = &motion.opaque.global_motion_track_bundle;
         if let Some(keyframe) = motion.find_camera_keyframe(frame_index) {
             self.set_look_at(f128_to_vec3(keyframe.look_at));
             self.set_angle(f128_to_vec3(keyframe.angle));
@@ -489,11 +491,19 @@ impl PerspectiveCamera {
         }
     }
 
+    pub fn angle(&self) -> Vector3<f32> {
+        self.angle
+    }
+
     pub fn set_angle(&mut self, value: Vector3<f32>) {
         if !self.locked && !value.abs_diff_eq(&self.angle, Vector3::<f32>::default_epsilon()) {
             self.angle = value;
             self.dirty = true;
         }
+    }
+
+    pub fn distance(&self) -> f32 {
+        self.distance
     }
 
     pub fn set_distance(&mut self, value: f32) {
@@ -511,12 +521,20 @@ impl PerspectiveCamera {
         }
     }
 
+    pub fn fov_radians(&self) -> f32 {
+        self.fov.1
+    }
+
     pub fn set_fov_radians(&mut self, value: f32) {
         if !self.locked && !value.abs_diff_eq(&self.fov.1, f32::default_epsilon()) {
             self.fov.0 = Deg::from(Rad(value)).0 as i32;
             self.fov.1 = value;
             self.dirty = true;
         }
+    }
+
+    pub fn is_perspective(&self) -> bool {
+        self.perspective
     }
 
     pub fn set_perspective(&mut self, value: bool) {
@@ -542,13 +560,13 @@ impl PerspectiveCamera {
         value: FollowingType,
         viewport_image_size: Vector2<u16>,
         logical_scale_uniformed_viewport_image_rect: &Vector4<f32>,
-        project: &Project,
+        bound_look_at: Vector3<f32>,
     ) {
         self.following_type = value;
         self.update(
             viewport_image_size,
             logical_scale_uniformed_viewport_image_rect,
-            project,
+            bound_look_at,
         );
     }
 

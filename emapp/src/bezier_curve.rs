@@ -1,5 +1,6 @@
 use cgmath::{Vector2, Vector4};
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct BezierCurve {
     parameters: Vec<Vector2<f32>>,
     c0: Vector2<u8>,

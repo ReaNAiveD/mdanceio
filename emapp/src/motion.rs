@@ -1,17 +1,22 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
-use cgmath::{Vector1, Vector2, Vector4, Quaternion, BaseNum, VectorSpace};
+use cgmath::{BaseNum, Quaternion, Vector1, Vector2, Vector4, VectorSpace};
 use nanoem::{
-    common::Status,
+    common::{Status, F128},
     motion::{
         MotionAccessoryKeyframe, MotionBoneKeyframe, MotionCameraKeyframe, MotionFormatType,
-        MotionLightKeyframe, MotionModelKeyframe, MotionMorphKeyframe,
+        MotionLightKeyframe, MotionModelKeyframe, MotionMorphKeyframe, MotionSelfShadowKeyframe,
+        MotionTrackBundle,
     },
 };
 
 use crate::{
-    bezier_curve::BezierCurve, model::Model, motion_keyframe_selection::MotionKeyframeSelection,
-    project::Project, uri::Uri,
+    bezier_curve::BezierCurve, error::Error, model::Model,
+    motion_keyframe_selection::MotionKeyframeSelection, project::Project, uri::Uri,
 };
 
 pub type NanoemMotion = nanoem::motion::Motion;
@@ -23,14 +28,14 @@ struct CurveCacheKey {
 }
 
 pub struct Motion {
-    selection: Box<dyn MotionKeyframeSelection>,
+    // selection: Box<dyn MotionKeyframeSelection>,
     pub opaque: NanoemMotion,
     bezier_curves_data: RefCell<HashMap<CurveCacheKey, Box<BezierCurve>>>,
     keyframe_bezier_curves: RefCell<HashMap<Rc<RefCell<MotionBoneKeyframe>>, BezierCurve>>,
     annotations: HashMap<String, String>,
-    file_uri: Uri,
-    format_type: MotionFormatType,
-    handle: u16,
+    // file_uri: Uri,
+    // format_type: MotionFormatType,
+    handle: u32,
     pub dirty: bool,
 }
 
@@ -42,6 +47,35 @@ impl Motion {
         0xe6, 0x98, 0x8e, 0,
     ];
     pub const MAX_KEYFRAME_INDEX: u32 = u32::MAX;
+
+    pub fn new_from_bytes(bytes: &[u8], offset: u32, handle: u32) -> Result<Self, Error> {
+        let mut buffer = nanoem::common::Buffer::create(bytes);
+        match NanoemMotion::load_from_buffer(&mut buffer, offset) {
+            Ok(motion) => Ok(Self {
+                opaque: motion,
+                bezier_curves_data: RefCell::new(HashMap::new()),
+                keyframe_bezier_curves: RefCell::new(HashMap::new()),
+                annotations: HashMap::new(),
+                handle,
+                dirty: false,
+            }),
+            Err(status) => Err(Error::from_nanoem("Cannot load the model: ", status)),
+        }
+    }
+
+    pub fn empty(handle: u32) -> Self {
+        Self {
+            // selection: (),
+            opaque: NanoemMotion::empty(),
+            bezier_curves_data: RefCell::new(HashMap::new()),
+            keyframe_bezier_curves: RefCell::new(HashMap::new()),
+            annotations: HashMap::new(),
+            // file_uri: (),
+            // format_type: (),
+            handle,
+            dirty: false,
+        }
+    }
 
     pub fn loadable_extensions() -> Vec<&'static str> {
         vec![Self::NMD_FORMAT_EXTENSION, Self::VMD_FORMAT_EXTENSION]
@@ -135,11 +169,7 @@ impl Motion {
             .min(Project::MAXIMUM_BASE_DURATION)
     }
 
-    pub fn find_bone_keyframe(
-        &self,
-        name: &str,
-        frame_index: u32,
-    ) -> Option<&MotionBoneKeyframe> {
+    pub fn find_bone_keyframe(&self, name: &str, frame_index: u32) -> Option<&MotionBoneKeyframe> {
         self.opaque.find_bone_keyframe_object(name, frame_index)
     }
 
@@ -147,7 +177,11 @@ impl Motion {
         self.opaque.find_model_keyframe_object(frame_index)
     }
 
-    pub fn find_morph_keyframe(&self, name: &str, frame_index: u32) -> Option<&MotionMorphKeyframe> {
+    pub fn find_morph_keyframe(
+        &self,
+        name: &str,
+        frame_index: u32,
+    ) -> Option<&MotionMorphKeyframe> {
         self.opaque.find_morph_keyframe_object(name, frame_index)
     }
 
@@ -157,6 +191,26 @@ impl Motion {
 
     pub fn find_light_keyframe(&self, frame_index: u32) -> Option<&MotionLightKeyframe> {
         self.opaque.find_light_keyframe_object(frame_index)
+    }
+
+    pub fn find_self_shadow_keyframe(&self, frame_index: u32) -> Option<&MotionSelfShadowKeyframe> {
+        self.opaque.find_self_shadow_keyframe_object(frame_index)
+    }
+
+    pub fn test_all_missing_model_objects(&self, model: &Model) -> (Vec<String>, Vec<String>) {
+        let mut bones = vec![];
+        let mut morphs = vec![];
+        for bone_name in self.opaque.local_bone_motion_track_bundle.tracks.keys() {
+            if !model.contains_bone(bone_name) {
+                bones.push(bone_name.clone());
+            }
+        }
+        for morph_name in self.opaque.local_morph_motion_track_bundle.tracks.keys() {
+            if !model.contains_morph(morph_name) {
+                morphs.push(morph_name.clone())
+            }
+        }
+        (bones, morphs)
     }
 
     pub fn coefficient(prev_frame_index: u32, next_frame_index: u32, frame_index: u32) -> f32 {
@@ -193,14 +247,15 @@ impl Motion {
         prev_value: &Quaternion<f32>,
         next_value: &Quaternion<f32>,
         interval: u32,
-        coef: f32,) -> Quaternion<f32> {
-            if KeyframeInterpolationPoint::is_linear_interpolation(next_interpolation) {
-                prev_value.slerp(*next_value, coef)
-            } else {
-                let t2 = self.bezier_curve(next_interpolation, interval, coef);
-                prev_value.slerp(*next_value, t2)
-            }
+        coef: f32,
+    ) -> Quaternion<f32> {
+        if KeyframeInterpolationPoint::is_linear_interpolation(next_interpolation) {
+            prev_value.slerp(*next_value, coef)
+        } else {
+            let t2 = self.bezier_curve(next_interpolation, interval, coef);
+            prev_value.slerp(*next_value, t2)
         }
+    }
 
     pub fn lerp_value_interpolation(
         &self,
@@ -237,6 +292,150 @@ impl Motion {
             let r = curve.value(value);
             cache.insert(key, curve);
             r
+        }
+    }
+}
+
+struct Merger<'a, 'b> {
+    source: &'a NanoemMotion,
+    overrid: bool,
+    dest: &'b mut NanoemMotion,
+}
+
+impl Merger<'_, '_> {
+    fn reverse_bone_keyframe(origin: &MotionBoneKeyframe) -> MotionBoneKeyframe {
+        let mut result = origin.clone();
+        result.translation = F128([
+            -origin.translation.0[0],
+            origin.translation.0[1],
+            origin.translation.0[2],
+            0f32,
+        ]);
+        result.orientation = F128([
+            origin.orientation.0[0],
+            -origin.orientation.0[1],
+            -origin.orientation.0[2],
+            origin.orientation.0[3],
+        ]);
+        result
+    }
+
+    fn add_bone_keyframe(
+        &mut self,
+        origin: &MotionBoneKeyframe,
+        frame_index: u32,
+        name: &String,
+        reverse: bool,
+        reversed_bone_name_set: &mut HashSet<String>,
+    ) {
+        const LEFT: &'static str = "左";
+        const RIGHT: &'static str = "右";
+        let (new_name, new_frame) = if reverse && name.starts_with(LEFT) {
+            let new_name = name.replacen(LEFT, RIGHT, 1);
+            reversed_bone_name_set.insert(new_name.clone());
+            (new_name, Self::reverse_bone_keyframe(origin))
+        } else if reverse && name.starts_with(RIGHT) {
+            let new_name = name.replacen(RIGHT, LEFT, 1);
+            reversed_bone_name_set.insert(new_name.clone());
+            (new_name, Self::reverse_bone_keyframe(origin))
+        } else {
+            (name.clone(), origin.clone())
+        };
+        if self.overrid
+            || self
+                .dest
+                .find_bone_keyframe_object(name, frame_index)
+                .is_none()
+        {
+            let _ = self.dest.local_bone_motion_track_bundle.force_add_keyframe(
+                new_frame,
+                frame_index,
+                &new_name,
+            );
+        }
+    }
+
+    pub fn merge_all_bone_keyframes(&mut self, reverse: bool) {
+        let mut reversed_bone_name_set = HashSet::new();
+        for (name, track) in &self.source.local_bone_motion_track_bundle.tracks {
+            for (frame_idx, keyframe) in &track.keyframes {
+                self.add_bone_keyframe(
+                    keyframe,
+                    *frame_idx,
+                    name,
+                    reverse,
+                    &mut reversed_bone_name_set,
+                );
+            }
+        }
+    }
+
+    pub fn merge_all_camera_keyframes(&mut self) {
+        for keyframe in &self.source.camera_keyframes {
+            if self.overrid {
+                let _ = self
+                    .dest
+                    .remove_camera_keyframe_object(keyframe.base.frame_index);
+            }
+            let _ = self
+                .dest
+                .add_camera_keyframe(keyframe.clone(), keyframe.base.frame_index);
+        }
+    }
+
+    pub fn merge_all_light_keyframes(&mut self) {
+        for keyframe in &self.source.light_keyframes {
+            if self.overrid {
+                let _ = self
+                    .dest
+                    .remove_light_keyframe_object(keyframe.base.frame_index);
+            }
+            let _ = self
+                .dest
+                .add_light_keyframe(keyframe.clone(), keyframe.base.frame_index);
+        }
+    }
+
+    pub fn merge_all_model_keyframes(&mut self) {
+        for keyframe in &self.source.model_keyframes {
+            if self.overrid {
+                let _ = self
+                    .dest
+                    .remove_model_keyframe_object(keyframe.base.frame_index);
+            }
+            let _ = self
+                .dest
+                .add_model_keyframe(keyframe.clone(), keyframe.base.frame_index);
+        }
+    }
+
+    pub fn merge_all_morph_keyframes(&mut self) {
+        for (name, track) in &self.source.local_morph_motion_track_bundle.tracks {
+            for (frame_index, keyframe) in &track.keyframes {
+                if self.overrid
+                    || self
+                        .dest
+                        .find_morph_keyframe_object(name, *frame_index)
+                        .is_none()
+                {
+                    self.dest
+                        .local_morph_motion_track_bundle
+                        .force_add_keyframe(keyframe.clone(), *frame_index, name);
+                }
+            }
+        }
+    }
+
+    pub fn merge_all_self_shadow_keyframes(&mut self) {
+        for keyframe in &self.source.self_shadow_keyframes {
+            if self.overrid {
+                let _ = self
+                    .dest
+                    .remove_self_shadow_keyframe_object(keyframe.base.frame_index);
+            }
+            let _ = self
+                .dest
+                .add_self_shadow_keyframe(keyframe.clone(), keyframe.base.frame_index);
         }
     }
 }

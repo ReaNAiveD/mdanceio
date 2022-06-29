@@ -388,6 +388,26 @@ impl ShadowCamera {
     pub fn depth_texture_view(&self) -> wgpu::TextureView {
         self.shadow_depth_texture.create_view(&wgpu::TextureViewDescriptor::default())
     }
+
+    pub fn set_distance(&mut self, value: f32) {
+        if value != self.distance {
+            self.distance = value.clamp(Self::MAXIMUM_DISTANCE, Self::MAXIMUM_DISTANCE);
+            self.dirty = true;
+            // TODO: publish event
+        }
+    }
+
+    pub fn set_coverage_mode(&mut self, value: CoverageMode) {
+        if value != self.coverage_mode {
+            self.coverage_mode = value;
+            self.dirty = true;
+            // TODO: publish coverage mode
+        }
+    }
+
+    pub fn set_dirty(&mut self, value: bool) {
+        self.dirty = value;
+    }
 }
 
 impl ShadowCamera {

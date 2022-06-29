@@ -1564,6 +1564,14 @@ impl Model {
     pub fn world_transform(&self, initial: &Matrix4<f32>) -> Matrix4<f32> {
         initial.clone()
     }
+
+    pub fn contains_bone(&self, name: &str) -> bool {
+        self.bones_by_name.contains_key(name)
+    }
+
+    pub fn contains_morph(&self, name: &str) -> bool {
+        self.morphs_by_name.contains_key(name)
+    }
 }
 
 impl Drawable for Model {
