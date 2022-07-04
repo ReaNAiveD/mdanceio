@@ -973,6 +973,14 @@ impl Motion {
         }
     }
 
+    pub fn update_bone_track_index(&mut self) {
+        for (_, track) in &mut self.local_bone_motion_track_bundle.tracks {
+            for (_, keyframe) in &mut track.keyframes {
+                keyframe.bone_track_id = track.id;
+            }
+        }
+    }
+
     pub fn update_morph_keyframe_sort_index(&mut self) {
         for (_, track) in &mut self.local_morph_motion_track_bundle.tracks {
             for (idx, frame_index) in track.ordered_frame_index.iter().enumerate() {
@@ -980,6 +988,14 @@ impl Motion {
                     .keyframes
                     .get_mut(frame_index)
                     .map(|keyframe| keyframe.base.index = idx);
+            }
+        }
+    }
+
+    pub fn update_morph_track_index(&mut self) {
+        for (_, track) in &mut self.local_morph_motion_track_bundle.tracks {
+            for (_, keyframe) in &mut track.keyframes {
+                keyframe.morph_track_id = track.id;
             }
         }
     }

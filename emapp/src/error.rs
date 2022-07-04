@@ -25,7 +25,7 @@ pub trait Exception {
 }
 
 pub struct Error {
-    reason:  String,
+    reason: String,
     recovery_suggestion: String,
     code: i32,
     domain: DomainType,
@@ -62,6 +62,15 @@ impl Exception for Error {
 }
 
 impl Error {
+    pub fn new(reason: &str, recovery_suggestion: &str, domain: DomainType) -> Self {
+        Self {
+            reason: reason.to_owned(),
+            recovery_suggestion: recovery_suggestion.to_owned(),
+            code: 0,
+            domain,
+        }
+    }
+
     pub fn from_nanoem(message: &str, status: nanoem::common::Status) -> Self {
         Self {
             reason: message.to_owned(),

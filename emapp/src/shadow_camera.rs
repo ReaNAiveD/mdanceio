@@ -3,7 +3,7 @@ use cgmath::{
     VectorSpace,
 };
 
-use crate::{project::Project, clear_pass::ClearPass};
+use crate::{project::Project, clear_pass::ClearPass, utils::lerp_f32, camera::Camera};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoverageMode {
@@ -119,7 +119,7 @@ impl ShadowCamera {
             texture_size: Vector2::new(Self::INITIAL_TEXTURE_SIZE, Self::INITIAL_TEXTURE_SIZE),
             coverage_mode: CoverageMode::Type1,
             distance: Self::INITIAL_DISTANCE,
-            enabled: false,
+            enabled: true,
             dirty: false,
         }
     }
@@ -365,6 +365,10 @@ impl ShadowCamera {
         self.texture_size
     }
 
+    pub fn distance(&self) -> f32 {
+        self.distance
+    }
+
     pub fn coverage_mode(&self) -> CoverageMode {
         self.coverage_mode
     }
@@ -405,6 +409,15 @@ impl ShadowCamera {
         }
     }
 
+    pub fn set_enabled(&mut self, value: bool) {
+        if value != self.enabled {
+            self.enabled = value;
+            // invalidate textures when disable
+            self.dirty = true;
+            // TODO: publish event
+        }
+    }
+
     pub fn set_dirty(&mut self, value: bool) {
         self.dirty = value;
     }
@@ -413,6 +426,6 @@ impl ShadowCamera {
 impl ShadowCamera {
     fn lerp(start: f32, end: f32, t: f32) -> f32 {
         // TODO: alter to a lerp with high effic
-        Vector1 { x: start }.lerp(Vector1 { x: end }, t).x
+        lerp_f32(start, end, t)
     }
 }

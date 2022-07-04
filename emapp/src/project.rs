@@ -30,7 +30,7 @@ use crate::{
     model::{BindPose, Bone, Model, SkinDeformer, VisualizationClause},
     model_program_bundle::ModelProgramBundle,
     motion::Motion,
-    physics_engine::{PhysicsEngine, SimulationTiming},
+    physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
     pixel_format::PixelFormat,
     primitive_2d::Primitive2d,
     progress::CancelPublisher,
@@ -204,7 +204,31 @@ impl Pass {
     }
 }
 
-struct FpsUnit {}
+#[derive(Debug, Clone, Copy)]
+struct FpsUnit {
+    value: f32,
+    scale_factor: f32,
+    inverted_value: f32,
+    inverted_scale_factor: f32,
+}
+
+impl FpsUnit {
+    pub const HALF_BASE_FPS: u32 = 30u32;
+    pub const HALF_BASE_FPS_F32: f32 = Self::HALF_BASE_FPS as f32;
+
+    pub fn new(value: f32) -> Self {
+        Self {
+            value: value.max(Self::HALF_BASE_FPS_F32),
+            scale_factor: value / Self::HALF_BASE_FPS_F32,
+            inverted_value: 1f32 / value,
+            inverted_scale_factor: Self::HALF_BASE_FPS_F32 / value,
+        }
+    }
+
+    pub fn value(&self) -> f32 {
+        self.value
+    }
+}
 
 struct OffscreenRenderTargetCondition {}
 
@@ -309,6 +333,41 @@ impl ViewLayout {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ProjectStates {
+    pub disable_hidden_bone_bounds_rigid_body: bool,
+    pub display_user_interface: bool,
+    pub display_transform_handle: bool,
+    pub enable_loop: bool,
+    pub enable_shared_camera: bool,
+    pub enable_ground_shadow: bool,
+    pub enable_multiple_bone_selection: bool,
+    pub enable_bezier_curve_adjustment: bool,
+    pub enable_motion_merge: bool,
+    pub enable_effect_plugin: bool,
+    pub enable_viewport_locked: bool,
+    pub disable_display_sync: bool,
+    pub primary_cursor_type_left: bool,
+    pub loading_redo_file: bool,
+    pub enable_playing_audio_part: bool,
+    pub enable_viewport_with_transparent: bool,
+    pub enable_compiled_effect_cache: bool,
+    pub reset_all_passes: bool,
+    pub cancel_requested: bool,
+    pub enable_uniformed_viewport_image_size: bool,
+    pub viewport_hovered: bool,
+    pub enable_fps_counter: bool,
+    pub enable_performance_monitor: bool,
+    pub input_text_focus: bool,
+    pub viewport_image_size_changed: bool,
+    pub enable_physics_simulation_for_bone_keyframe: bool,
+    pub enable_image_anisotropy: bool,
+    pub enable_image_mipmap: bool,
+    pub enable_power_saving: bool,
+    pub enable_model_editing: bool,
+    pub viewport_window_detached: bool,
+}
+
 pub type ModelHandle = u32;
 
 pub struct Project {
@@ -326,7 +385,7 @@ pub struct Project {
     active_model_pair: (Option<ModelHandle>, Option<ModelHandle>),
     // active_accessory: Option<Rc<RefCell<Accessory>>>,
     // audio_player: Option<Box<dyn AudioPlayer>>,
-    // physics_engine: Option<Rc<PhysicsEngine>>,
+    physics_engine: Box<PhysicsEngine>,
     camera: PerspectiveCamera,
     light: DirectionalLight,
     shadow_camera: ShadowCamera,
@@ -370,7 +429,7 @@ pub struct Project {
     // file_path_mode: FilePathMode,
     // playing_segment: TimeLineSegment,
     // selection_segment: TimeLineSegment,
-    // base_duration: u32,
+    base_duration: u32,
     language: LanguageType,
     layout: ViewLayout,
     // background_video_rect: Vector4<i32>,
@@ -395,7 +454,7 @@ pub struct Project {
     viewport_secondary_pass: Pass,
     // context_2d_pass: Pass,
     // background_image: (Texture, Vector2<u16>),
-    // preferred_motion_fps: FpsUnit,
+    preferred_motion_fps: FpsUnit,
     // editing_fps: u32,
     // bone_interpolation_type: i32,
     // camera_interpolation_type: i32,
@@ -405,15 +464,15 @@ pub struct Project {
     // effect_references: HashMap<String, (Rc<RefCell<Effect>>, i32)>,
     // loaded_effect_set: HashSet<Rc<RefCell<Effect>>>,
     depends_on_script_external: Vec<Box<dyn Drawable>>,
-    // transform_performed_at: (u32, i32),
+    transform_performed_at: (u32, i32),
     // indices_of_material_to_attach_effect: (u16, HashSet<usize>),
     // uptime: (f64, f64),
     local_frame_index: (u32, u32),
-    // time_step_factor: f32,
+    time_step_factor: f32,
     // background_video_scale_factor: f32,
     // circle_radius: f32,
     sample_level: (u32, u32),
-    // state_flags: u64,
+    state_flags: ProjectStates,
     // confirm_seek_flags: u64,
     // last_physics_debug_flags: u32,
     // coordination_system: u32,
@@ -421,8 +480,6 @@ pub struct Project {
     // actual_fps: u32,
     // actual_sequence: u32,
     // active: bool,
-    rigid_body_set: rapier3d::dynamics::RigidBodySet,
-    collider_set: rapier3d::geometry::ColliderSet,
     tmp_texture_map: HashMap<String, Rc<wgpu::Texture>>,
 }
 
@@ -470,38 +527,66 @@ impl Project {
 
         log::trace!("Finish Fallback texture");
 
-        let camera = PerspectiveCamera::new();
-        let shadow_camera = ShadowCamera::new(&device);
+        let layout = ViewLayout {
+            window_device_pixel_ratio: (
+                injector.window_device_pixel_ratio,
+                injector.window_device_pixel_ratio,
+            ),
+            viewport_device_pixel_ratio: (
+                injector.viewport_device_pixel_ratio,
+                injector.viewport_device_pixel_ratio,
+            ),
+            window_size: injector.window_size.into(),
+            viewport_image_size: Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
+            viewport_padding: Vector2::new(0, 0),
+            uniform_viewport_layout_rect: (Vector4::new(0, 0, 0, 0), Vector4::new(0, 0, 0, 0)),
+            uniform_viewport_image_size: (
+                Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
+                Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
+            ),
+        };
+
+        let mut camera = PerspectiveCamera::new();
+        camera.update(
+            layout.viewport_image_size,
+            &layout.logical_scale_uniformed_viewport_image_rect(),
+            camera.look_at(None),
+        );
+        camera.set_dirty(false);
+        let mut shadow_camera = ShadowCamera::new(&device);
+        if adapter.get_info().backend == wgpu::Backend::Gl {
+            // TODO: disable shadow map when gles3
+            shadow_camera.set_enabled(false);
+        }
+        shadow_camera.set_dirty(false);
         let directional_light = DirectionalLight::new();
 
+        let mut physics_engine = Box::new(PhysicsEngine::new());
+        physics_engine.simulation_mode = SimulationMode::EnableTracing;
+
         let mut object_handler_allocator = HandleAllocator::new();
+
+        let mut camera_motion = Motion::empty(object_handler_allocator.next());
+        camera_motion.initialize_camera_frame_0(&camera, None);
+        let mut light_motion = Motion::empty(object_handler_allocator.next());
+        light_motion.initialize_light_frame_0(&directional_light);
+        let mut self_shadow_motion = Motion::empty(object_handler_allocator.next());
+        self_shadow_motion.initialize_self_shadow_frame_0(&shadow_camera);
+
+        // TODO: build tracks
 
         Self {
             editing_mode: EditingMode::None,
             language: LanguageType::English,
-            layout: ViewLayout {
-                window_device_pixel_ratio: (
-                    injector.window_device_pixel_ratio,
-                    injector.window_device_pixel_ratio,
-                ),
-                viewport_device_pixel_ratio: (
-                    injector.viewport_device_pixel_ratio,
-                    injector.viewport_device_pixel_ratio,
-                ),
-                window_size: injector.window_size.into(),
-                viewport_image_size: Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
-                viewport_padding: Vector2::new(0, 0),
-                uniform_viewport_layout_rect: (Vector4::new(0, 0, 0, 0), Vector4::new(0, 0, 0, 0)),
-                uniform_viewport_image_size: (
-                    Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
-                    Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
-                ),
-            },
+            base_duration: Self::MINIMUM_BASE_DURATION,
+            preferred_motion_fps: FpsUnit::new(60f32),
+            time_step_factor: 1f32,
+            layout,
             active_model_pair: (None, None),
             grid: Box::new(Grid::new(device)),
-            camera_motion: Motion::empty(object_handler_allocator.next()),
-            light_motion: Motion::empty(object_handler_allocator.next()),
-            self_shadow_motion: Motion::empty(object_handler_allocator.next()),
+            camera_motion,
+            light_motion,
+            self_shadow_motion,
             model_to_motion: HashMap::new(),
             draw_type: DrawType::Color,
             depends_on_script_external: vec![],
@@ -509,6 +594,7 @@ impl Project {
             viewport_texture_format: (injector.texture_format(), injector.texture_format()),
             viewport_background_color: Vector4::new(0f32, 0f32, 0f32, 1f32),
             local_frame_index: (0, 0),
+            transform_performed_at: (Motion::MAX_KEYFRAME_INDEX, 0),
             sample_level: (0u32, 0u32),
             camera,
             shadow_camera,
@@ -519,10 +605,23 @@ impl Project {
             transform_model_order_list: vec![],
             viewport_primary_pass,
             viewport_secondary_pass,
-            rigid_body_set: rapier3d::dynamics::RigidBodySet::new(),
-            collider_set: rapier3d::geometry::ColliderSet::new(),
+            physics_engine,
             tmp_texture_map: HashMap::new(),
+            state_flags: ProjectStates {
+                display_transform_handle: true,
+                display_user_interface: true,
+                enable_motion_merge: true,
+                enable_uniformed_viewport_image_size: true,
+                enable_fps_counter: true,
+                enable_performance_monitor: true,
+                enable_physics_simulation_for_bone_keyframe: true,
+                enable_image_anisotropy: true,
+                enable_ground_shadow: true,
+                reset_all_passes: adapter.get_info().backend != wgpu::Backend::Gl,
+                ..Default::default()
+            },
         }
+        // TODO: may need to publish set fps event
     }
 
     pub fn parse_language(&self) -> nanoem::common::LanguageType {
@@ -588,33 +687,40 @@ impl Project {
         PixelFormat::new(sample_count)
     }
 
-    // pub fn set_transform_performed_at(&mut self, value: (u32, i32)) {
-    //     self.transform_performed_at = value
-    // }
+    pub fn set_transform_performed_at(&mut self, value: (u32, i32)) {
+        self.transform_performed_at = value
+    }
 
-    // pub fn reset_transform_performed_at(&mut self) {
-    //     self.set_transform_performed_at((Motion::MAX_KEYFRAME_INDEX, 0))
-    // }
+    pub fn reset_transform_performed_at(&mut self) {
+        self.set_transform_performed_at((Motion::MAX_KEYFRAME_INDEX, 0))
+    }
 
-    // pub fn duration(&self, base_duration: u32) -> u32 {
-    //     let mut duration = base_duration.clamp(Self::MINIMUM_BASE_DURATION, Self::MAXIMUM_BASE_DURATION);
-    //     if let Ok(motion) = self.camera_motion.try_borrow() {
-    //         duration = duration.max(motion.duration())
-    //     }
-    //     if let Ok(motion) = self.light_motion.try_borrow() {
-    //         duration = duration.max(motion.duration())
-    //     }
-    //     for motion in self.drawable_to_motion_ptrs.values() {
-    //         if let Ok(motion) = motion.try_borrow() {
-    //             duration = duration.max(motion.duration())
-    //         }
-    //     }
-    //     duration
-    // }
+    pub fn duration(&self, base_duration: u32) -> u32 {
+        let mut duration =
+            base_duration.clamp(Self::MINIMUM_BASE_DURATION, Self::MAXIMUM_BASE_DURATION);
+        duration = duration.max(self.camera_motion.duration());
+        duration = duration.max(self.light_motion.duration());
+        for motion in self.model_to_motion.values() {
+            duration = duration.max(motion.duration());
+        }
+        duration
+    }
 
-    // pub fn project_duration(&self) -> u32 {
-    //     self.duration(self.base_duration)
-    // }
+    pub fn project_duration(&self) -> u32 {
+        self.duration(self.base_duration)
+    }
+
+    pub fn base_duration(&self) -> u32 {
+        self.base_duration
+    }
+
+    pub fn set_base_duration(&mut self, value: u32) {
+        self.base_duration = value
+            .clamp(Self::MINIMUM_BASE_DURATION, Self::MAXIMUM_BASE_DURATION)
+            .max(self.base_duration);
+        let new_duration = self.duration(value);
+        // TODO: Update playing segment and selection segment
+    }
 
     // pub fn find_model_by_name(&self, name: &String) -> Option<Rc<RefCell<Model>>> {
     //     self.transform_model_order_list.iter().find(|rc| rc.borrow().get_name() == name || rc.borrow().get_canonical_name() == name).map(|rc| rc.clone())
@@ -633,6 +739,26 @@ impl Project {
         self.active_model_pair
             .0
             .and_then(|idx| self.model_handle_map.get(&idx))
+    }
+
+    pub fn set_active_model(&mut self, model: Option<ModelHandle>) {
+        let last_active_model = self.active_model_pair.0;
+        if last_active_model != model && !self.state_flags.enable_model_editing {
+            self.active_model_pair = (model, last_active_model);
+            if self.editing_mode == EditingMode::None {
+                self.editing_mode = EditingMode::Select;
+            } else if model.is_none() {
+                self.editing_mode = EditingMode::None;
+            }
+            self.camera.update(
+                self.layout.viewport_image_size,
+                &self.layout.logical_scale_uniformed_viewport_image_rect(),
+                self.camera.bound_look_at(self),
+            );
+            // TODO: publish event
+            // TODO: rebuild tracks
+            self.internal_seek(self.local_frame_index.0);
+        }
     }
 
     pub fn find_model_by_name(&self, name: &str) -> Option<&Model> {
@@ -658,9 +784,64 @@ impl Project {
     pub fn logical_scale_uniformed_viewport_image_size(&self) -> Vector2<u16> {
         self.layout.logical_scale_uniformed_viewport_image_size()
     }
+
+    pub fn physics_simulation_time_step(&self) -> f32 {
+        self.inverted_preferred_motion_fps()
+            * self.preferred_motion_fps.scale_factor
+            * self.time_step_factor
+    }
+
+    pub fn inverted_preferred_motion_fps(&self) -> f32 {
+        self.preferred_motion_fps.inverted_value
+    }
+
+    pub fn is_physics_simulation_enabled(&self) -> bool {
+        match self.physics_engine.simulation_mode {
+            crate::physics_engine::SimulationMode::Disable => false,
+            crate::physics_engine::SimulationMode::EnableAnytime
+            | crate::physics_engine::SimulationMode::EnableTracing => true,
+            crate::physics_engine::SimulationMode::EnablePlaying => self.is_playing(),
+        }
+    }
+
+    pub fn is_playing(&self) -> bool {
+        // TODO: project playing state
+        false
+    }
 }
 
 impl Project {
+    pub fn internal_seek(&mut self, frame_index: u32) {
+        self.internal_seek_precisely(frame_index, 0f32, 0f32);
+    }
+
+    pub fn internal_seek_precisely(&mut self, frame_index: u32, amount: f32, delta: f32) {
+        if self.transform_performed_at.0 != Motion::MAX_KEYFRAME_INDEX
+            && frame_index != self.transform_performed_at.0
+        {
+            // TODO: active model undo stack set offset
+            self.reset_transform_performed_at();
+        }
+        if frame_index < self.local_frame_index.0 {
+            self.restart(frame_index);
+        }
+        self.synchronize_all_motions(frame_index, amount, SimulationTiming::Before);
+        self.internal_perform_physics_simulation(delta);
+        self.synchronize_all_motions(frame_index, amount, SimulationTiming::After);
+        self.mark_all_models_dirty();
+        self.camera.update(
+            self.layout.viewport_image_size,
+            &self.layout.logical_scale_uniformed_viewport_image_rect(),
+            self.camera.bound_look_at(self),
+        );
+        self.light.set_dirty(false);
+        self.camera.set_dirty(false);
+        // TODO: seek background
+        // FIXME?: there's nothing to ensure local_frame <= frame_index
+        self.local_frame_index.1 = frame_index - self.local_frame_index.0;
+        self.local_frame_index.0 = frame_index;
+    }
+
     pub fn synchronize_all_motions(
         &mut self,
         frame_index: u32,
@@ -677,6 +858,7 @@ impl Project {
                         frame_index,
                         amount,
                         timing,
+                        &mut self.physics_engine,
                         &outside_parent_bone_map,
                     );
                 }
@@ -694,7 +876,7 @@ impl Project {
         const CAMERA_DIRECTION: Vector3<f32> = Vector3::new(-1f32, 1f32, 1f32);
         let mut camera0 = self.camera.clone();
         camera0.synchronize_parameters(&self.camera_motion, frame_index, self);
-        let look_at0 = camera0.look_at(self);
+        let look_at0 = camera0.look_at(self.active_model());
         if amount > 0f32
             && self
                 .camera_motion
@@ -703,7 +885,7 @@ impl Project {
         {
             let mut camera1 = self.camera.clone();
             camera1.synchronize_parameters(&self.camera_motion, frame_index, self);
-            let look_at1 = camera1.look_at(self);
+            let look_at1 = camera1.look_at(self.active_model());
             self.camera.set_angle(
                 camera0
                     .angle()
@@ -764,6 +946,13 @@ impl Project {
             self.shadow_camera.set_dirty(false);
         }
     }
+
+    pub fn mark_all_models_dirty(&mut self) {
+        for (_, model) in &mut self.model_handle_map {
+            model.mark_staging_vertex_buffer_dirty();
+        }
+        // TODO: mark blitter dirty
+    }
 }
 
 impl Project {
@@ -772,24 +961,32 @@ impl Project {
             model_data,
             self.parse_language(),
             &self.fallback_texture,
-            &mut self.rigid_body_set,
-            &mut self.collider_set,
+            &mut self.physics_engine,
             &self.camera,
-            0,
             device,
         ) {
+            let handle = self.object_handler_allocator.next();
             self.model_handle_map
-                .insert(self.object_handler_allocator.next(), model);
+                .insert(handle, model);
+            self.set_active_model(Some(handle));
         }
     }
 
-    pub fn load_model_motion(&mut self, motion_data: &[u8], device: &wgpu::Device) {
+    pub fn load_model_motion(&mut self, motion_data: &[u8]) -> Result<(), Error> {
         if self.active_model().is_some() {
-            if let Ok(motion) = Motion::new_from_bytes(
+            Motion::new_from_bytes(
                 motion_data,
                 self.local_frame_index.0,
                 self.object_handler_allocator.next(),
-            ) {
+            )
+            .and_then(|motion| {
+                if motion.opaque.target_model_name == Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
+                    return Err(Error::new(
+                        "読み込まれたモーションはモデル用ではありません",
+                        "",
+                        crate::error::DomainType::DomainTypeApplication,
+                    ));
+                }
                 // TODO: record history in motion redo
                 let (missing_bones, missing_morphs) =
                     motion.test_all_missing_model_objects(self.active_model().unwrap());
@@ -797,7 +994,127 @@ impl Project {
                     // TODO: Dialog hint motion missing
                 }
                 // TODO: add all to motion selection
-                
+                let _ = self.add_model_motion(motion, self.active_model_pair.0.unwrap());
+                self.restart_from_current();
+                Ok(())
+            })
+        } else {
+            Err(Error::new(
+                "モデルモーションを読み込むためのモデルが選択されていません",
+                "モデルを選択してください",
+                crate::error::DomainType::DomainTypeApplication,
+            ))
+        }
+    }
+
+    pub fn load_camera_motion(&mut self, motion_data: &[u8]) -> Result<(), Error> {
+        Motion::new_from_bytes(
+            motion_data,
+            self.local_frame_index.0,
+            self.object_handler_allocator.next(),
+        )
+        .and_then(|motion| {
+            if motion.opaque.target_model_name != Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
+                return Err(Error::new(
+                    "読み込まれたモーションはカメラ及び照明用ではありません",
+                    "",
+                    crate::error::DomainType::DomainTypeApplication,
+                ));
+            }
+            // TODO: record history in motion redo
+            let _ = self.set_camera_motion(motion);
+            Ok(())
+        })
+    }
+
+    pub fn load_light_motion(&mut self, motion_data: &[u8]) -> Result<(), Error> {
+        Motion::new_from_bytes(
+            motion_data,
+            self.local_frame_index.0,
+            self.object_handler_allocator.next(),
+        )
+        .and_then(|motion| {
+            if motion.opaque.target_model_name != Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
+                return Err(Error::new(
+                    "読み込まれたモーションはカメラ及び照明用ではありません",
+                    "",
+                    crate::error::DomainType::DomainTypeApplication,
+                ));
+            }
+            // TODO: record history in motion redo
+            let _ = self.set_light_motion(motion);
+            Ok(())
+        })
+    }
+
+    pub fn add_model_motion(&mut self, mut motion: Motion, model: ModelHandle) -> Option<Motion> {
+        let last_model_motion = self.model_to_motion.get(&model);
+        if let Some(last_model_motion) = last_model_motion.map(|motion| motion.clone()) {
+            if self.state_flags.enable_motion_merge {
+                motion.merge_all_keyframes(&last_model_motion);
+            }
+            if let Some(model_object) = self.model_handle_map.get(&model) {
+                motion.initialize_model_frame_0(model_object);
+                // TODO: clear model undo stack
+                self.model_to_motion.insert(model, motion);
+                self.set_base_duration(self.project_duration());
+                // TODO: publish add motion event
+                return Some(last_model_motion);
+            }
+        }
+        return None;
+    }
+
+    pub fn set_camera_motion(&mut self, mut motion: Motion) -> Motion {
+        let last_motion = self.camera_motion.clone();
+        self.camera_motion = motion;
+        self.set_base_duration(self.project_duration());
+        let active_model = self
+            .active_model_pair
+            .0
+            .and_then(|idx| self.model_handle_map.get(&idx));
+        self.camera_motion
+            .initialize_camera_frame_0(&self.camera, active_model);
+        self.synchronize_camera(self.local_frame_index.0, 0f32);
+        // TODO: publish motion event
+        last_motion
+    }
+
+    pub fn set_light_motion(&mut self, mut motion: Motion) -> Motion {
+        let last_motion = self.light_motion.clone();
+        self.light_motion = motion;
+        self.set_base_duration(self.project_duration());
+        self.light_motion.initialize_light_frame_0(&self.light);
+        self.synchronize_light(self.local_frame_index.0, 0f32);
+        // TODO: publish motion event
+        last_motion
+    }
+
+    pub fn restart_from_current(&mut self) {
+        self.restart(self.local_frame_index.0);
+    }
+
+    fn restart(&mut self, frame_index: u32) {
+        self.synchronize_all_motions(frame_index, 0f32, SimulationTiming::Before);
+        for (handle, model) in &mut self.model_handle_map {
+            model.initialize_all_rigid_bodies_transform_feedback(&mut self.physics_engine);
+            // TODO: soft_bodies
+        }
+        self.internal_perform_physics_simulation(self.physics_simulation_time_step());
+        self.synchronize_all_motions(frame_index, 0f32, SimulationTiming::After);
+        self.mark_all_models_dirty();
+    }
+
+    fn internal_perform_physics_simulation(&mut self, delta: f32) {
+        if self.is_physics_simulation_enabled() {
+            self.physics_engine.step(delta);
+            for (_, model) in &mut self.model_handle_map {
+                if model.is_physics_simulation_enabled() {
+                    model.synchronize_all_rigid_bodies_transform_feedback_from_simulation(
+                        RigidBodyFollowBone::Perform,
+                        &mut self.physics_engine,
+                    );
+                }
             }
         }
     }

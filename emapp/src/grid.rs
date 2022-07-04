@@ -33,7 +33,7 @@ impl Grid {
             cell,
             size,
             opacity,
-            visible: false,
+            visible: true,
         }
     }
 

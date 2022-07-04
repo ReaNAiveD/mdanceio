@@ -58,6 +58,13 @@ pub fn to_isometry(v: Matrix4<f32>) -> Isometry3<f32> {
     }
 }
 
+pub fn from_na_mat4(v: nalgebra::Matrix4<f32>) -> Matrix4<f32> {
+    Matrix4::new(
+        v.m11, v.m12, v.m13, v.m14, v.m21, v.m22, v.m23, v.m24, v.m31, v.m32, v.m33, v.m34, v.m41,
+        v.m42, v.m43, v.m44,
+    )
+}
+
 pub struct EnumUtils {}
 
 macro_rules! set_enabled {

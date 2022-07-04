@@ -8,7 +8,7 @@ use cgmath::{
 
 use crate::{
     bezier_curve::BezierCurve,
-    model::{Bone, NanoemBone},
+    model::{Bone, NanoemBone, Model},
     motion::{Motion, KeyframeInterpolationPoint},
     project::Project,
     ray::Ray,
@@ -21,13 +21,13 @@ use nanoem::{
 };
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-enum TransformCoordinateType {
+pub enum TransformCoordinateType {
     Global,
     Local,
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-enum FollowingType {
+pub enum FollowingType {
     None = 1,
     Model,
     Bone,
@@ -443,10 +443,10 @@ impl PerspectiveCamera {
         .map(|distance| ray.from + ray.direction * distance)
     }
 
-    pub fn look_at(&self, project: &Project) -> Vector3<f32> {
+    pub fn look_at(&self, active_model: Option<&Model>) -> Vector3<f32> {
         match self.following_type {
             FollowingType::None => self.look_at,
-            FollowingType::Model => match project.active_model() {
+            FollowingType::Model => match active_model {
                 Some(model) => {
                     if let Some(bone) = model.find_bone(Bone::NAME_CENTER_OF_VIEWPOINT_IN_JAPANESE)
                     {
@@ -465,7 +465,7 @@ impl PerspectiveCamera {
                 None => self.look_at,
             },
             FollowingType::Bone => {
-                match project.active_model().and_then(|model| model.active_bone()) {
+                match active_model.and_then(|model| model.active_bone()) {
                     Some(bone) => bone_pos(bone),
                     None => Vector3::zero(),
                 }
@@ -477,7 +477,7 @@ impl PerspectiveCamera {
         (match project.resolve_bone((&self.outside_parent.0, &self.outside_parent.1)) {
             Some(bone) => bone.world_transform_origin(),
             None => Vector3::zero(),
-        }) + self.look_at(project)
+        }) + self.look_at(project.active_model())
     }
 
     pub fn set_dirty(&mut self, value: bool) {
@@ -519,6 +519,10 @@ impl PerspectiveCamera {
             self.fov.1 = Rad::from(Deg(value as f32)).0;
             self.dirty = true
         }
+    }
+
+    pub fn fov(&self) -> i32 {
+        self.fov.0
     }
 
     pub fn fov_radians(&self) -> f32 {
