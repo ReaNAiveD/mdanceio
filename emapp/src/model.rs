@@ -40,7 +40,7 @@ use crate::{
     uri::Uri,
     utils::{
         f128_to_quat, f128_to_vec3, f128_to_vec4, from_na_mat4, lerp_f32, mat4_truncate,
-        to_isometry, to_na_mat4, CompareElementWise, Invert,
+        to_isometry, to_na_mat4, to_na_vec3, CompareElementWise, Invert,
     },
 };
 
@@ -836,6 +836,21 @@ impl Model {
 
     fn create_image() {}
 
+    pub fn create_all_bone_bounds_rigid_bodies(&mut self) {
+        for (handle, rigid_body) in self.rigid_bodies.iter().enumerate() {
+            if rigid_body.origin.transform_type != ModelRigidBodyTransformType::FromBoneToSimulation
+            {
+                if let Ok(bone) = usize::try_from(rigid_body.origin.bone_index) {
+                    self.bone_bound_rigid_bodies.insert(bone, handle);
+                }
+            }
+        }
+    }
+
+    pub fn clear_all_bone_bounds_rigid_bodies(&mut self) {
+        self.bone_bound_rigid_bodies.clear();
+    }
+
     pub fn initialize_all_rigid_bodies_transform_feedback(
         &mut self,
         physics_engine: &mut PhysicsEngine,
@@ -985,7 +1000,10 @@ impl Model {
         physics_engine: &mut PhysicsEngine,
     ) {
         for rigid_body in &mut self.rigid_bodies {
-            if let Some(bone) = self.bones.get(rigid_body.origin.bone_index as usize) {
+            if let Some(bone) = usize::try_from(rigid_body.origin.bone_index)
+                .ok()
+                .and_then(|idx| self.bones.get(idx))
+            {
                 let bone_name = bone.canonical_name.clone();
                 if let (Some(prev_frame), Some(next_frame)) = (
                     motion.find_bone_keyframe(&bone_name, frame_index),
@@ -1017,7 +1035,10 @@ impl Model {
         physics_engine: &mut PhysicsEngine,
     ) {
         for rigid_body in &mut self.rigid_bodies {
-            rigid_body.apply_all_forces(physics_engine);
+            let bone = usize::try_from(rigid_body.origin.bone_index)
+                .ok()
+                .and_then(|idx| self.bones.get(idx));
+            rigid_body.apply_all_forces(bone, physics_engine);
             if let Some(bone) = usize::try_from(rigid_body.origin.bone_index)
                 .ok()
                 .and_then(|idx| self.bones.get(idx))
@@ -1583,8 +1604,7 @@ impl Model {
     pub fn find_bone(&self, name: &str) -> Option<&Bone> {
         self.bones_by_name
             .get(name)
-            .map(|index| self.bones.get(*index))
-            .flatten()
+            .and_then(|index| self.bones.get(*index))
     }
 
     pub fn parent_bone(&self, bone: &Bone) -> Option<&Bone> {
@@ -1610,11 +1630,11 @@ impl Model {
         Self::internal_edge_size(&self.bones, camera, self.edge_size_scale_factor)
     }
 
-    pub fn get_name(&self) -> &String {
+    pub fn get_name(&self) -> &str {
         &self.name
     }
 
-    pub fn get_canonical_name(&self) -> &String {
+    pub fn get_canonical_name(&self) -> &str {
         &self.canonical_name
     }
 
@@ -1713,7 +1733,8 @@ impl Model {
 
     pub fn update_staging_vertex_buffer(&mut self, device: &wgpu::Device) {
         if self.states.dirty_staging_buffer {
-            self.skin_deformer.execute(&self.vertex_buffers[self.stage_vertex_buffer_index], device);
+            self.skin_deformer
+                .execute(&self.vertex_buffers[self.stage_vertex_buffer_index], device);
             self.stage_vertex_buffer_index = 1 - self.stage_vertex_buffer_index;
             self.states.dirty_morph = false;
             self.states.dirty_staging_buffer = false;
@@ -3614,8 +3635,53 @@ impl RigidBody {
         }
     }
 
-    pub fn apply_all_forces(&mut self, physics_engine: &mut PhysicsEngine) {
-        todo!()
+    pub fn apply_all_forces(&mut self, bone: Option<&Bone>, physics_engine: &mut PhysicsEngine) {
+        if let Some(physics_rigid_body) = physics_engine
+            .rigid_body_set
+            .get_mut(self.physics_rigid_body)
+        {
+            if self.states.all_forces_should_reset {
+                physics_rigid_body.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
+                physics_rigid_body.set_angvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
+                physics_rigid_body.reset_forces(true);
+            } else {
+                if self.global_torque_force.1 {
+                    physics_rigid_body
+                        .apply_torque_impulse(to_na_vec3(self.global_torque_force.0), true);
+                    self.global_torque_force = (Vector3::new(0f32, 0f32, 0f32), false);
+                }
+                if self.local_torque_force.1 {
+                    if let Some(bone) = bone {
+                        let local_orientation = (to_isometry(bone.matrices.world_transform)
+                            * physics_rigid_body.position())
+                        .rotation;
+                        physics_rigid_body.apply_torque_impulse(
+                            local_orientation * to_na_vec3(self.local_torque_force.0),
+                            true,
+                        );
+                        self.local_torque_force = (Vector3::new(0f32, 0f32, 0f32), false);
+                    }
+                }
+                if self.global_velocity_force.1 {
+                    physics_rigid_body
+                        .apply_impulse(to_na_vec3(self.global_velocity_force.0), true);
+                    self.global_velocity_force = (Vector3::new(0f32, 0f32, 0f32), false);
+                }
+                if self.local_velocity_force.1 {
+                    if let Some(bone) = bone {
+                        let local_orientation = (to_isometry(bone.matrices.world_transform)
+                            * physics_rigid_body.position())
+                        .rotation;
+                        physics_rigid_body.apply_torque_impulse(
+                            local_orientation * to_na_vec3(self.local_velocity_force.0),
+                            true,
+                        );
+                        self.local_velocity_force = (Vector3::new(0f32, 0f32, 0f32), false);
+                    }
+                }
+            }
+            self.states.all_forces_should_reset = false;
+        }
     }
 
     pub fn synchronize_transform_feedback_to_simulation(

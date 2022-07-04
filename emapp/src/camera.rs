@@ -322,7 +322,7 @@ impl PerspectiveCamera {
             {
                 if let Some(bone_name) = global_track_bundle.resolve_id(op.global_bone_track_index)
                 {
-                    self.outside_parent = (model.get_name().clone(), bone_name.clone());
+                    self.outside_parent = (model.get_name().to_owned(), bone_name.clone());
                 }
             }
         }

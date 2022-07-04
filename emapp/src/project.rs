@@ -566,11 +566,11 @@ impl Project {
 
         let mut object_handler_allocator = HandleAllocator::new();
 
-        let mut camera_motion = Motion::empty(object_handler_allocator.next());
+        let mut camera_motion = Motion::empty();
         camera_motion.initialize_camera_frame_0(&camera, None);
-        let mut light_motion = Motion::empty(object_handler_allocator.next());
+        let mut light_motion = Motion::empty();
         light_motion.initialize_light_frame_0(&directional_light);
-        let mut self_shadow_motion = Motion::empty(object_handler_allocator.next());
+        let mut self_shadow_motion = Motion::empty();
         self_shadow_motion.initialize_self_shadow_frame_0(&shadow_camera);
 
         // TODO: build tracks
@@ -722,19 +722,6 @@ impl Project {
         // TODO: Update playing segment and selection segment
     }
 
-    // pub fn find_model_by_name(&self, name: &String) -> Option<Rc<RefCell<Model>>> {
-    //     self.transform_model_order_list.iter().find(|rc| rc.borrow().get_name() == name || rc.borrow().get_canonical_name() == name).map(|rc| rc.clone())
-    // }
-
-    // pub fn resolve_bone(&self, value: &(String, String)) -> Option<Rc<RefCell<nanoem::model::ModelBone>>> {
-    //     if let Some(model) = self.find_model_by_name(&value.0) {
-    //         return  model.borrow().find_bone(&value.1)
-    //     }
-    //     None
-    // }
-
-    // pub fn create_camera()
-
     pub fn active_model(&self) -> Option<&Model> {
         self.active_model_pair
             .0
@@ -762,15 +749,20 @@ impl Project {
     }
 
     pub fn find_model_by_name(&self, name: &str) -> Option<&Model> {
-        todo!()
+        for (idx, model) in &self.model_handle_map {
+            if model.get_name() == name || model.get_canonical_name() == name {
+                return Some(model);
+            }
+        }
+        return None;
     }
 
     pub fn resolve_bone(&self, value: (&str, &str)) -> Option<&Bone> {
-        todo!()
+        self.find_model_by_name(value.0).and_then(|model| model.find_bone(value.1))
     }
 
     pub fn resolve_model_motion(&self, model: ModelHandle) -> Option<&Motion> {
-        todo!()
+        self.model_to_motion.get(&model)
     }
 
     pub fn resolve_logical_cursor_position_in_viewport(
@@ -965,11 +957,27 @@ impl Project {
             &self.camera,
             device,
         ) {
-            let handle = self.object_handler_allocator.next();
-            self.model_handle_map
-                .insert(handle, model);
+            let handle = self.add_model(model);
             self.set_active_model(Some(handle));
         }
+    }
+
+    pub fn add_model(&mut self, mut model: Model) -> ModelHandle {
+        model.clear_all_bone_bounds_rigid_bodies();
+        if !self.state_flags.disable_hidden_bone_bounds_rigid_body {
+            model.create_all_bone_bounds_rigid_bodies();
+        }
+        let model_handle = self.object_handler_allocator.next();
+        self.model_handle_map
+            .insert(model_handle, model);
+        self.transform_model_order_list.push(model_handle);
+        // TODO: add effect to kScriptOrderTypeStandard
+        // TODO: publish event
+        let motion = Motion::empty();
+        // TODO: clear model undo stack
+        self.add_model_motion(motion, model_handle);
+        // TODO: applyAllOffscreenRenderTargetEffectsToDrawable
+        model_handle
     }
 
     pub fn load_model_motion(&mut self, motion_data: &[u8]) -> Result<(), Error> {
@@ -977,7 +985,6 @@ impl Project {
             Motion::new_from_bytes(
                 motion_data,
                 self.local_frame_index.0,
-                self.object_handler_allocator.next(),
             )
             .and_then(|motion| {
                 if motion.opaque.target_model_name == Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
@@ -1011,7 +1018,6 @@ impl Project {
         Motion::new_from_bytes(
             motion_data,
             self.local_frame_index.0,
-            self.object_handler_allocator.next(),
         )
         .and_then(|motion| {
             if motion.opaque.target_model_name != Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
@@ -1031,7 +1037,6 @@ impl Project {
         Motion::new_from_bytes(
             motion_data,
             self.local_frame_index.0,
-            self.object_handler_allocator.next(),
         )
         .and_then(|motion| {
             if motion.opaque.target_model_name != Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {

@@ -44,7 +44,7 @@ pub struct Motion {
     annotations: HashMap<String, String>,
     // file_uri: Uri,
     // format_type: MotionFormatType,
-    handle: u32,
+    // handle: u32,
     pub dirty: bool,
 }
 
@@ -58,7 +58,7 @@ impl Motion {
     ];
     pub const MAX_KEYFRAME_INDEX: u32 = u32::MAX;
 
-    pub fn new_from_bytes(bytes: &[u8], offset: u32, handle: u32) -> Result<Self, Error> {
+    pub fn new_from_bytes(bytes: &[u8], offset: u32) -> Result<Self, Error> {
         let mut buffer = nanoem::common::Buffer::create(bytes);
         match NanoemMotion::load_from_buffer(&mut buffer, offset) {
             Ok(motion) => Ok(Self {
@@ -66,14 +66,13 @@ impl Motion {
                 bezier_curves_data: RefCell::new(HashMap::new()),
                 keyframe_bezier_curves: RefCell::new(HashMap::new()),
                 annotations: HashMap::new(),
-                handle,
                 dirty: false,
             }),
             Err(status) => Err(Error::from_nanoem("Cannot load the model: ", status)),
         }
     }
 
-    pub fn empty(handle: u32) -> Self {
+    pub fn empty() -> Self {
         Self {
             // selection: (),
             opaque: NanoemMotion::empty(),
@@ -82,7 +81,6 @@ impl Motion {
             annotations: HashMap::new(),
             // file_uri: (),
             // format_type: (),
-            handle,
             dirty: false,
         }
     }

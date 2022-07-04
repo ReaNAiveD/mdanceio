@@ -36,6 +36,10 @@ pub fn lerp_f32(a: f32, b: f32, amount: f32) -> f32 {
     a + (b - a) * amount
 }
 
+pub fn to_na_vec3(v: Vector3<f32>) -> nalgebra::Vector3<f32> {
+    nalgebra::Vector3::new(v[0], v[1], v[2])
+}
+
 pub fn to_na_mat4(v: Matrix4<f32>) -> nalgebra::Matrix4<f32> {
     nalgebra::Matrix4::new(
         v[0][0], v[0][1], v[0][2], v[0][3], v[1][0], v[1][1], v[1][2], v[1][3], v[2][0], v[2][1],
