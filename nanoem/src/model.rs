@@ -168,30 +168,6 @@ pub struct Model {
 impl Model {
     const PMX_SIGNATURE: &'static str = "PMX ";
 
-    fn create_empty() -> Self {
-        Self {
-            version: todo!(),
-            codec_type: todo!(),
-            additional_uv_size: todo!(),
-            name_ja: todo!(),
-            name_en: todo!(),
-            comment_ja: todo!(),
-            comment_en: todo!(),
-            vertices: todo!(),
-            vertex_indices: todo!(),
-            materials: todo!(),
-            bones: todo!(),
-            // ordered_bones: todo!(),
-            constraints: todo!(),
-            textures: todo!(),
-            morphs: todo!(),
-            labels: todo!(),
-            rigid_bodies: todo!(),
-            joints: todo!(),
-            soft_bodies: todo!(),
-        }
-    }
-
     fn load_from_pmx(buffer: &mut Buffer) -> Result<Self, Status> {
         let signature = buffer.read_u32_little_endian()?;
         if signature == fourcc('P' as u8, 'M' as u8, 'X' as u8, ' ' as u8)
