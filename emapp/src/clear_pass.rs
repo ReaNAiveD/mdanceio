@@ -31,7 +31,7 @@ impl ClearPass {
         depth_format: wgpu::TextureFormat,
         device: &wgpu::Device,
     ) -> wgpu::RenderPipeline {
-        let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("@mdanceio/ClearPass/Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("resources/shaders/clear.wgsl").into()),
         });
@@ -47,7 +47,7 @@ impl ClearPass {
         };
         let color_target_state = color_formats
             .iter()
-            .map(|format| wgpu::ColorTargetState {
+            .map(|format| Some(wgpu::ColorTargetState {
                 format: format.clone(),
                 blend: Some(wgpu::BlendState {
                     color: wgpu::BlendComponent {
@@ -62,7 +62,7 @@ impl ClearPass {
                     },
                 }),
                 write_mask: wgpu::ColorWrites::ALL,
-            })
+            }))
             .collect::<Vec<_>>();
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("@mdanceio/ClearPass/Pipeline"),

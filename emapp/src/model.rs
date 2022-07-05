@@ -15,7 +15,6 @@ use nanoem::{
     model::ModelRigidBodyTransformType,
     motion::{MotionBoneKeyframe, MotionModelKeyframe, MotionTrackBundle},
 };
-use par::shape::ShapesMesh;
 use wgpu::{AddressMode, Buffer};
 
 use crate::{
@@ -245,8 +244,8 @@ pub struct Model {
     // draw_all_vertex_points: DrawArrayBuffer,
     // draw_all_vertex_faces: DrawIndexedBuffer,
     // draw_all_vertex_weights: DrawIndexedBuffer,
-    // draw_rigid_body: HashMap<Rc<RefCell<ShapesMesh>>, DrawIndexedBuffer>,
-    // draw_joint: HashMap<Rc<RefCell<ShapesMesh>>, DrawIndexedBuffer>,
+    // draw_rigid_body: HashMap<Rc<RefCell<TriMesh>>, DrawIndexedBuffer>,
+    // draw_joint: HashMap<Rc<RefCell<TriMesh>>, DrawIndexedBuffer>,
     opaque: Box<NanoemModel>,
     vertices: Vec<Vertex>,
     vertex_indices: Vec<u32>,

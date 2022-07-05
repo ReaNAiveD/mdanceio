@@ -1,3 +1,6 @@
 .VSCodeCounter/
 .vscode/
 .idea/
+/target
+Cargo.lock
+/test/example/

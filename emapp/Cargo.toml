@@ -8,7 +8,7 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-wgpu = { version = "0.12" }
+wgpu = { version = "0.13.1" }
 log = "0.4"
 bytemuck = { version = "1.9.1", features = ["derive"] }
 cgmath = "0.18.0"
@@ -24,14 +24,10 @@ features = ["png", "jpeg", "tga", "bmp"]
 path = "../nanoem"
 version = "0.1.0"
 
-[dependencies.par]
-path = "../par"
-version = "0.1.0"
-
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.80"
 wasm-bindgen-futures = "0.4.30"
-web-sys = { version = "0.3.57", features = [
+web-sys = { version = "0.3.58", features = [
     "Document",
     "Navigator",
     "Node",
@@ -54,12 +50,12 @@ web-sys = { version = "0.3.57", features = [
     "GpuBufferBindingLayout",
     "GpuBufferBindingType",
     "GpuBufferDescriptor",
-    "GpuBufferUsage",
+    # "GpuBufferUsage",
     "GpuCanvasContext",
     "GpuCanvasConfiguration",
     "GpuColorDict",
     "GpuColorTargetState",
-    "GpuColorWrite",
+    # "GpuColorWrite",
     "GpuCommandBuffer",
     "GpuCommandBufferDescriptor",
     "GpuCommandEncoder",
@@ -89,7 +85,7 @@ web-sys = { version = "0.3.57", features = [
     "GpuImageDataLayout",
     "GpuIndexFormat",
     "GpuLoadOp",
-    "GpuMapMode",
+    # "GpuMapMode",
     "GpuMultisampleState",
     "GpuObjectDescriptorBase",
     "GpuOrigin2dDict",
@@ -98,7 +94,7 @@ web-sys = { version = "0.3.57", features = [
     "GpuPipelineDescriptorBase",
     "GpuPipelineLayout",
     "GpuPipelineLayoutDescriptor",
-    "GpuPipelineStatisticName",
+    # "GpuPipelineStatisticName",
     "GpuPowerPreference",
     "GpuPrimitiveState",
     "GpuPrimitiveTopology",
@@ -124,7 +120,7 @@ web-sys = { version = "0.3.57", features = [
     "GpuSamplerDescriptor",
     "GpuShaderModule",
     "GpuShaderModuleDescriptor",
-    "GpuShaderStage",
+    # "GpuShaderStage",
     "GpuStencilFaceState",
     "GpuStencilOperation",
     "GpuStorageTextureAccess",
@@ -139,7 +135,7 @@ web-sys = { version = "0.3.57", features = [
     "GpuTextureDimension",
     "GpuTextureFormat",
     "GpuTextureSampleType",
-    "GpuTextureUsage",
+    # "GpuTextureUsage",
     "GpuTextureView",
     "GpuTextureViewDescriptor",
     "GpuTextureViewDimension",
@@ -156,10 +152,10 @@ web-sys = { version = "0.3.57", features = [
     "OffscreenCanvas",
     "Window",
 ] }
-js-sys = { version = "0.3.57" }
+js-sys = { version = "0.3.58" }
 console_error_panic_hook = "0.1.7"
 console_log = { version = "0.2.0", features = ["color"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 # We need the Location feature in the framework examples
-web-sys = { version = "0.3.57", features = ["Location"] }
+web-sys = { version = "0.3.58", features = ["Location"] }

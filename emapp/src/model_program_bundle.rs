@@ -630,7 +630,7 @@ impl CommonPass {
                 fragment: Some(wgpu::FragmentState {
                     module: &self.shader,
                     entry_point: "fs_main",
-                    targets: &[color_target_state],
+                    targets: &[Some(color_target_state)],
                 }),
                 primitive: wgpu::PrimitiveState {
                     topology: self.primitive_type,
@@ -673,14 +673,14 @@ impl CommonPass {
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Model Pass Render Pass"),
-                color_attachments: &[wgpu::RenderPassColorAttachment {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: color_attachment_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
                         store: true,
                     },
-                }],
+                })],
                 depth_stencil_attachment: depth_stencil_attachment_view.map(|view| {
                     wgpu::RenderPassDepthStencilAttachment {
                         view,
@@ -776,7 +776,7 @@ impl Deref for ObjectTechnique {
 impl ObjectTechnique {
     pub fn new(device: &wgpu::Device, is_point_draw_enabled: bool) -> Self {
         log::trace!("Load model_color.wgsl");
-        let sd = &wgpu::ShaderModuleDescriptor {
+        let sd = wgpu::ShaderModuleDescriptor {
             label: Some("ModelProgramBundle/ObjectTechnique/ModelColor"),
             source: wgpu::ShaderSource::Wgsl(
                 include_str!("resources/shaders/model_color.wgsl").into(),
@@ -837,7 +837,7 @@ impl Deref for EdgeTechnique {
 impl EdgeTechnique {
     pub fn new(device: &wgpu::Device) -> Self {
         log::trace!("Load model_edge.wgsl");
-        let sd = &wgpu::ShaderModuleDescriptor {
+        let sd = wgpu::ShaderModuleDescriptor {
             label: Some("ModelProgramBundle/ObjectTechnique/ModelEdge"),
             source: wgpu::ShaderSource::Wgsl(
                 include_str!("resources/shaders/model_edge.wgsl").into(),
@@ -897,7 +897,7 @@ impl Deref for GroundShadowTechnique {
 impl GroundShadowTechnique {
     pub fn new(device: &wgpu::Device) -> Self {
         log::trace!("Load model_zplot.wgsl");
-        let sd = &wgpu::ShaderModuleDescriptor {
+        let sd = wgpu::ShaderModuleDescriptor {
             label: Some("ModelProgramBundle/ObjectTechnique/ModelGroundShadow"),
             source: wgpu::ShaderSource::Wgsl(
                 include_str!("resources/shaders/model_ground_shadow.wgsl").into(),
@@ -957,7 +957,7 @@ impl Deref for ZplotTechnique {
 impl ZplotTechnique {
     pub fn new(device: &wgpu::Device) -> Self {
         log::trace!("Load model_zplot.wgsl");
-        let sd = &wgpu::ShaderModuleDescriptor {
+        let sd = wgpu::ShaderModuleDescriptor {
             label: Some("ModelProgramBundle/ObjectTechnique/ModelZplot"),
             source: wgpu::ShaderSource::Wgsl(
                 include_str!("resources/shaders/model_zplot.wgsl").into(),

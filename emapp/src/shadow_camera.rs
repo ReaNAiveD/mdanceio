@@ -143,7 +143,7 @@ impl ShadowCamera {
                 .create_view(&wgpu::TextureViewDescriptor::default());
             let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ShadowCamera/Clear/Pass"),
-                color_attachments: &[wgpu::RenderPassColorAttachment {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &color_texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -155,7 +155,7 @@ impl ShadowCamera {
                         }),
                         store: true,
                     },
-                }],
+                })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &depth_texture_view,
                     depth_ops: Some(wgpu::Operations {

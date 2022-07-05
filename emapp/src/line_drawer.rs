@@ -28,7 +28,7 @@ pub struct LineDrawer {
 
 impl LineDrawer {
     pub fn new(device: &wgpu::Device) -> Self {
-        let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("LineDrawer/Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("resources/shaders/grid.wgsl").into()),
         });
@@ -141,7 +141,7 @@ impl LineDrawer {
                 fragment: Some(wgpu::FragmentState {
                     module: &self.shader,
                     entry_point: "ps_main",
-                    targets: &[wgpu::ColorTargetState {
+                    targets: &[Some(wgpu::ColorTargetState {
                         format: color_format,
                         blend: Some(wgpu::BlendState {
                             color: wgpu::BlendComponent {
@@ -152,7 +152,7 @@ impl LineDrawer {
                             alpha: wgpu::BlendComponent::OVER,
                         }),
                         write_mask: wgpu::ColorWrites::COLOR,
-                    }],
+                    })],
                 }),
                 multiview: None,
             })
@@ -182,14 +182,14 @@ impl LineDrawer {
             let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("LineDrawer/Pass"),
                 color_attachments: &[
-                    wgpu::RenderPassColorAttachment {
+                    Some(wgpu::RenderPassColorAttachment {
                         view: color_attachment_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: true,
                         },
-                    }
+                    })
                 ],
                 depth_stencil_attachment: None,
             });

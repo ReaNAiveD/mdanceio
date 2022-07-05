@@ -41,7 +41,7 @@ impl Deformer {
         edge_size: f32,
         device: &wgpu::Device,
     ) -> Self {
-        let shader = device.create_shader_module(&wgpu::ShaderModuleDescriptor {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader/Deformer"),
             source: wgpu::ShaderSource::Wgsl(
                 include_str!("resources/shaders/model_skinning.wgsl").into(),
@@ -348,7 +348,7 @@ impl Deformer {
             });
             cpass.set_pipeline(&self.pipeline);
             cpass.set_bind_group(0, &bind_group, &[]);
-            cpass.dispatch(self.num_groups, 1, 1);
+            cpass.dispatch_workgroups(self.num_groups, 1, 1);
         }
         command_encoder.pop_debug_group();
     }

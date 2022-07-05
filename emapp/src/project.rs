@@ -1268,7 +1268,7 @@ impl Project {
             );
             let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("@mdanceio/ClearRenderPass"),
-                color_attachments: &[wgpu::RenderPassColorAttachment {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -1280,7 +1280,7 @@ impl Project {
                         }),
                         store: true,
                     },
-                }],
+                })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: depth_stencil_attachment_view,
                     depth_ops: Some(wgpu::Operations {

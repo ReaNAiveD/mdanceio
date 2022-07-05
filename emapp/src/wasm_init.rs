@@ -80,7 +80,7 @@ impl WasmClient {
                 .expect("Unable to find a suitable GPU adapter!");
             log::info!("Got Render Device and Queue");
 
-            let surface_format = surface.get_preferred_format(&adapter).unwrap();
+            let surface_format = surface.get_supported_formats(&adapter)[0];
             let config = wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 format: surface_format,
