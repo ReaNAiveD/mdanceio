@@ -1,0 +1,12 @@
+{
+    "cSpell.words": [
+        "bezier",
+        "coef",
+        "lookat",
+        "Nanoem",
+        "Vocaloid",
+        "Zplot"
+    ],
+    "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
+    "rust-analyzer.debug.engine": "vadimcn.vscode-lldb"
+}
