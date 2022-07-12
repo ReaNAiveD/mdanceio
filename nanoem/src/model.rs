@@ -1,7 +1,5 @@
-use std::{cell::RefCell, rc::Rc};
-
 use crate::{
-    common::{Buffer, LanguageType, MutableBuffer, Status, UserData, F128},
+    common::{Buffer, LanguageType, MutableBuffer, Status, F128},
     utils::fourcc,
 };
 
@@ -61,7 +59,7 @@ impl CodecType {
         let src = buffer.read_buffer(length)?;
         let codec = self.get_encoding();
         // TODO: need bom removal or not?
-        let (cow, encoding_used, had_errors) = codec.decode(src);
+        let (cow, _, had_errors) = codec.decode(src);
         if had_errors {
             return Err(Status::ErrorDecodeUnicodeStringFailed);
         }
@@ -714,7 +712,7 @@ impl Model {
         mut bone: ModelBone,
         index: i32,
     ) -> Result<&'a ModelBone, Status> {
-        let mut result_idx = 0usize;
+        let result_idx;
         if index >= 0 && (index as usize) < self.bones.len() {
             result_idx = index as usize;
             bone.base.index = result_idx;
@@ -2436,7 +2434,7 @@ impl ModelMorphU {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelMorphCategory {
     Unknown = -1,
     Base,

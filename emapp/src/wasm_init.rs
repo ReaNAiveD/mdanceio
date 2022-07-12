@@ -147,6 +147,18 @@ impl WasmClient {
         self.service.load_model(data, &self.device);
     }
 
+    pub fn load_model_motion(&mut self, data: &[u8]) {
+        self.service.load_model_motion(data);
+    }
+    
+    pub fn load_camera_motion(&mut self, data: &[u8]) {
+        self.service.load_camera_motion(data);
+    }
+
+    pub fn load_light_motion(&mut self, data: &[u8]) {
+        self.service.load_light_motion(data);
+    }
+
     pub fn load_texture(&mut self, key: &str, data: &[u8]) {
         self.service
             .load_texture(key, data, &self.device, &self.queue);

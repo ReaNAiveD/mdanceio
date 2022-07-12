@@ -30,6 +30,18 @@ impl StateController {
     pub fn load_model(&mut self, data: &[u8], device: &wgpu::Device) {
         self.project.load_model(data, device);
     }
+
+    pub fn load_model_motion(&mut self, data: &[u8]) {
+        self.project.load_model_motion(data);
+    }
+
+    pub fn load_camera_motion(&mut self, data: &[u8]) {
+        self.project.load_camera_motion(data);
+    }
+
+    pub fn load_light_motion(&mut self, data: &[u8]) {
+        self.project.load_light_motion(data);
+    }
     
     pub fn load_texture(
         &mut self,

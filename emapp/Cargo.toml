@@ -1,5 +1,5 @@
 [package]
-author = ["NAiveD <nice-die@live.com>"]
+authors = ["NAiveD <nice-die@live.com>"]
 edition = "2021"
 name = "nanoemweb-emapp"
 version = "0.1.0"

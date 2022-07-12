@@ -12,7 +12,7 @@ use cgmath::{
 };
 use nalgebra::Isometry;
 use nanoem::{
-    model::ModelRigidBodyTransformType,
+    model::{ModelMorphCategory, ModelRigidBodyTransformType},
     motion::{MotionBoneKeyframe, MotionModelKeyframe, MotionTrackBundle},
 };
 use wgpu::{AddressMode, Buffer};
@@ -32,7 +32,7 @@ use crate::{
     },
     motion::{KeyframeInterpolationPoint, Motion},
     pass,
-    physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationTiming},
+    physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
     project::Project,
     technique::Technique,
     undo::UndoStack,
@@ -205,6 +205,14 @@ struct OffscreenPassiveRenderTargetEffect {
     enabled: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct ModelMorphUsage {
+    pub eyebrow: Option<MorphIndex>,
+    pub eye: Option<MorphIndex>,
+    pub lip: Option<MorphIndex>,
+    pub other: Option<MorphIndex>,
+}
+
 #[derive(Debug, Clone, Copy, Default, Hash)]
 struct ModelStates {
     visible: bool,
@@ -259,7 +267,7 @@ pub struct Model {
     soft_bodies: Vec<SoftBody>,
     // undo_stack: Box<UndoStack>,
     // editing_undo_stack: Box<UndoStack>,
-    // active_morph_ptr: HashMap<nanoem::model::ModelMorphCategory, Rc<RefCell<NanoemMorph>>>,
+    active_morph: ModelMorphUsage,
     // active_constraint_ptr: Rc<RefCell<NanoemConstraint>>,
     // active_material_ptr: Rc<RefCell<NanoemMaterial>>,
     // hovered_bone_ptr: Rc<RefCell<NanoemBone>>,
@@ -468,7 +476,7 @@ impl Model {
                     .iter()
                     .map(|morph| Morph::from_nanoem(&morph, language_type))
                     .collect::<Vec<_>>();
-                for morph in &opaque.morphs {
+                for (index, morph) in opaque.morphs.iter().enumerate() {
                     if let nanoem::model::ModelMorphType::Vertex(morph_vertices) = morph.get_type()
                     {
                         for morph_vertex in morph_vertices {
@@ -484,12 +492,26 @@ impl Model {
                         }
                     }
                     let category = morph.category;
-                    // TODO: set active category
                     for language in nanoem::common::LanguageType::all() {
                         morphs_by_name
                             .insert(morph.get_name(*language).to_owned(), morph.base.index);
                     }
                 }
+                let get_active_morph = |category: ModelMorphCategory| {
+                    opaque
+                        .morphs
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, morph)| morph.category == category)
+                        .next()
+                        .map(|(idx, _)| idx)
+                };
+                let active_morph = ModelMorphUsage {
+                    eyebrow: get_active_morph(ModelMorphCategory::Eyebrow),
+                    eye: get_active_morph(ModelMorphCategory::Eye),
+                    lip: get_active_morph(ModelMorphCategory::Lip),
+                    other: get_active_morph(ModelMorphCategory::Other),
+                };
                 let labels = opaque
                     .labels
                     .iter()
@@ -689,6 +711,7 @@ impl Model {
                     morphs_by_name,
                     bone_to_constraints,
                     active_bone_pair: (None, None),
+                    active_morph,
                     outside_parents: HashMap::new(),
                     constraint_joint_bones,
                     inherent_bones,
@@ -1089,57 +1112,7 @@ impl Model {
                 bone.synchronize_motion(motion, rigid_body, frame_index, amount, physics_engine);
             }
         }
-        for idx in 0..self.bones.len() {
-            let bone = &self.bones[idx];
-            if (bone.origin.flags.is_affected_by_physics_simulation
-                && timing == SimulationTiming::After)
-                || (!bone.origin.flags.is_affected_by_physics_simulation
-                    && timing == SimulationTiming::Before)
-            {
-                let is_constraint_joint_bone_active = Some(true)
-                    == self
-                        .constraint_joint_bones
-                        .get(&bone.origin.base.index)
-                        .and_then(|idx| self.constraints.get(*idx))
-                        .map(|constraint| constraint.states.enabled);
-                let parent_bone = usize::try_from(bone.origin.parent_bone_index)
-                    .ok()
-                    .and_then(|idx| self.bones.get(idx))
-                    .map(|b| (b.clone()));
-                let parent_bone_and_is_constraint_joint_bone_active =
-                    parent_bone.as_ref().map(|bone| {
-                        (
-                            bone,
-                            Some(true)
-                                == self
-                                    .constraint_joint_bones
-                                    .get(&bone.origin.base.index)
-                                    .and_then(|idx| self.constraints.get(*idx))
-                                    .map(|constraint| constraint.states.enabled),
-                        )
-                    });
-                let effector_bone_local_user_orientation =
-                    usize::try_from(bone.origin.effector_bone_index)
-                        .ok()
-                        .and_then(|idx| self.bones.get(idx))
-                        .map(|bone| bone.local_user_orientation);
-                let outside_parent_bone = self
-                    .outside_parents
-                    .get(&idx)
-                    .and_then(|op_path| outside_parent_bone_map.get(op_path));
-                // TODO: process mut bone and model
-                self.bones[idx].apply_all_local_transform(
-                    parent_bone_and_is_constraint_joint_bone_active,
-                    effector_bone_local_user_orientation,
-                    is_constraint_joint_bone_active,
-                );
-                if let Some(outside_parent_bone) = outside_parent_bone {
-                    self.bones[idx].apply_outside_parent_transform(outside_parent_bone);
-                }
-                self.bounding_box
-                    .set(self.bones[idx].world_transform_origin());
-            }
-        }
+        self.apply_all_bones_transform(timing, physics_engine, outside_parent_bone_map);
     }
 
     fn synchronize_morph_motion(&mut self, motion: &Motion, frame_index: u32, amount: f32) {
@@ -1300,6 +1273,156 @@ impl Model {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    pub fn reset_all_morph_deform_states(
+        &mut self,
+        motion: &Motion,
+        frame_index: u32,
+        physics_engine: &mut PhysicsEngine,
+    ) {
+        let mut active_morphs = HashSet::new();
+        active_morphs.insert(self.active_morph.eyebrow);
+        active_morphs.insert(self.active_morph.eye);
+        active_morphs.insert(self.active_morph.lip);
+        active_morphs.insert(self.active_morph.other);
+        for morph_idx in 0..self.morphs.len() {
+            let morph = self.morphs.get(morph_idx).unwrap();
+            match &morph.origin.typ {
+                nanoem::model::ModelMorphType::Bone(children) => {
+                    for child in children {
+                        if let Some((idx, target_bone)) = usize::try_from(child.bone_index)
+                            .ok()
+                            .and_then(|idx| self.bones.get_mut(idx).map(|bone| (idx, bone)))
+                        {
+                            let rigid_body = self
+                                .bone_bound_rigid_bodies
+                                .get(&idx)
+                                .and_then(|idx| self.rigid_bodies.get_mut(*idx));
+                            target_bone.reset_morph_transform();
+                            target_bone.synchronize_motion(
+                                motion,
+                                rigid_body,
+                                frame_index,
+                                0f32,
+                                physics_engine,
+                            );
+                        }
+                    }
+                }
+                nanoem::model::ModelMorphType::Flip(children) => {
+                    for target_morph_index in children
+                        .iter()
+                        .map(|child| usize::try_from(child.morph_index).ok())
+                        .collect::<Vec<_>>()
+                    {
+                        if let Some((idx, target_morph)) = target_morph_index
+                            .and_then(|idx| self.morphs.get_mut(idx).map(|morph| (idx, morph)))
+                        {
+                            if !active_morphs.contains(&Some(idx)) {
+                                let name = target_morph.canonical_name.clone();
+                                target_morph.synchronize_motion(motion, &name, frame_index, 0f32);
+                            }
+                        }
+                    }
+                }
+                nanoem::model::ModelMorphType::Group(children) => {
+                    for target_morph_index in children
+                        .iter()
+                        .map(|child| usize::try_from(child.morph_index).ok())
+                        .collect::<Vec<_>>()
+                    {
+                        if let Some((idx, target_morph)) = target_morph_index
+                            .and_then(|idx| self.morphs.get_mut(idx).map(|morph| (idx, morph)))
+                        {
+                            if !active_morphs.contains(&Some(idx)) {
+                                let name = target_morph.canonical_name.clone();
+                                target_morph.synchronize_motion(motion, &name, frame_index, 0f32);
+                            }
+                        }
+                    }
+                }
+                nanoem::model::ModelMorphType::Material(children) => {
+                    for child in children {
+                        if let Some(target_material) = usize::try_from(child.material_index)
+                            .ok()
+                            .and_then(|idx| self.materials.get_mut(idx))
+                        {
+                            target_material.reset();
+                        }
+                    }
+                }
+                nanoem::model::ModelMorphType::Vertex(_)
+                | nanoem::model::ModelMorphType::Texture(_)
+                | nanoem::model::ModelMorphType::Uva1(_)
+                | nanoem::model::ModelMorphType::Uva2(_)
+                | nanoem::model::ModelMorphType::Uva3(_)
+                | nanoem::model::ModelMorphType::Uva4(_)
+                | nanoem::model::ModelMorphType::Impulse(_) => {}
+            }
+        }
+    }
+
+    fn apply_all_bones_transform(
+        &mut self,
+        timing: SimulationTiming,
+        physics_engine: &mut PhysicsEngine,
+        outside_parent_bone_map: &HashMap<(String, String), Bone>,
+    ) {
+        if timing == SimulationTiming::Before {
+            self.bounding_box.reset();
+        }
+        // TODO: Here nanoem use a ordered bone. If any sort to bone happened, I will change logic here.
+        for idx in 0..self.bones.len() {
+            let bone = &self.bones[idx];
+            if (bone.origin.flags.is_affected_by_physics_simulation
+                && timing == SimulationTiming::After)
+                || (!bone.origin.flags.is_affected_by_physics_simulation
+                    && timing == SimulationTiming::Before)
+            {
+                let is_constraint_joint_bone_active = Some(true)
+                    == self
+                        .constraint_joint_bones
+                        .get(&bone.origin.base.index)
+                        .and_then(|idx| self.constraints.get(*idx))
+                        .map(|constraint| constraint.states.enabled);
+                let parent_bone = usize::try_from(bone.origin.parent_bone_index)
+                    .ok()
+                    .and_then(|idx| self.bones.get(idx))
+                    .map(|b| (b.clone()));
+                let parent_bone_and_is_constraint_joint_bone_active =
+                    parent_bone.as_ref().map(|bone| {
+                        (
+                            bone,
+                            Some(true)
+                                == self
+                                    .constraint_joint_bones
+                                    .get(&bone.origin.base.index)
+                                    .and_then(|idx| self.constraints.get(*idx))
+                                    .map(|constraint| constraint.states.enabled),
+                        )
+                    });
+                let effector_bone_local_user_orientation =
+                    usize::try_from(bone.origin.effector_bone_index)
+                        .ok()
+                        .and_then(|idx| self.bones.get(idx))
+                        .map(|bone| bone.local_user_orientation);
+                let outside_parent_bone = self
+                    .outside_parents
+                    .get(&idx)
+                    .and_then(|op_path| outside_parent_bone_map.get(op_path));
+                self.bones[idx].apply_all_local_transform(
+                    parent_bone_and_is_constraint_joint_bone_active,
+                    effector_bone_local_user_orientation,
+                    is_constraint_joint_bone_active,
+                );
+                if let Some(outside_parent_bone) = outside_parent_bone {
+                    self.bones[idx].apply_outside_parent_transform(outside_parent_bone);
+                }
+                self.bounding_box
+                    .set(self.bones[idx].world_transform_origin());
             }
         }
     }
@@ -1559,6 +1682,35 @@ impl Model {
         }
     }
 
+    pub fn perform_all_bones_transform(
+        &mut self,
+        physics_engine: &mut PhysicsEngine,
+        physics_simulation_time_step: f32,
+        outside_parent_bone_map: &HashMap<(String, String), Bone>,
+    ) {
+        self.apply_all_bones_transform(
+            SimulationTiming::Before,
+            physics_engine,
+            outside_parent_bone_map,
+        );
+        self.solve_all_constraints();
+        if physics_engine.simulation_mode == SimulationMode::EnableAnytime {
+            self.synchronize_all_rigid_bodies_transform_feedback_to_simulation(physics_engine);
+            physics_engine.step(physics_simulation_time_step);
+            self.synchronize_all_rigid_bodies_transform_feedback_from_simulation(
+                RigidBodyFollowBone::Skip,
+                physics_engine,
+            );
+        }
+        self.apply_all_bones_transform(
+            SimulationTiming::After,
+            physics_engine,
+            outside_parent_bone_map,
+        );
+        self.mark_staging_vertex_buffer_dirty();
+        // TODO: handle owned camera
+    }
+
     pub fn vertices(&self) -> &[Vertex] {
         &self.vertices
     }
@@ -1606,6 +1758,24 @@ impl Model {
             .and_then(|index| self.bones.get(*index))
     }
 
+    pub fn find_bone_mut(&mut self, name: &str) -> Option<&mut Bone> {
+        self.bones_by_name
+            .get(name)
+            .and_then(|index| self.bones.get_mut(*index))
+    }
+
+    pub fn find_morph(&self, name: &str) -> Option<&Morph> {
+        self.morphs_by_name
+            .get(name)
+            .and_then(|index| self.morphs.get(*index))
+    }
+
+    pub fn find_morph_mut(&mut self, name: &str) -> Option<&mut Morph> {
+        self.morphs_by_name
+            .get(name)
+            .and_then(|index| self.morphs.get_mut(*index))
+    }
+
     pub fn parent_bone(&self, bone: &Bone) -> Option<&Bone> {
         usize::try_from(bone.origin.parent_bone_index)
             .ok()
@@ -1629,6 +1799,10 @@ impl Model {
         Self::internal_edge_size(&self.bones, camera, self.edge_size_scale_factor)
     }
 
+    pub fn edge_size_scale_factor(&self) -> f32 {
+        self.edge_size_scale_factor
+    }
+
     pub fn get_name(&self) -> &str {
         &self.name
     }
@@ -1643,6 +1817,10 @@ impl Model {
 
     pub fn is_physics_simulation_enabled(&self) -> bool {
         self.states.physics_simulation
+    }
+
+    pub fn is_staging_vertex_buffer_dirty(&self) -> bool {
+        self.states.dirty_staging_buffer
     }
 
     pub fn opacity(&self) -> f32 {
@@ -2008,10 +2186,10 @@ pub struct Matrices {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BoneKeyframeInterpolation {
-    translation_x: KeyframeInterpolationPoint,
-    translation_y: KeyframeInterpolationPoint,
-    translation_z: KeyframeInterpolationPoint,
-    orientation: KeyframeInterpolationPoint,
+    pub translation_x: KeyframeInterpolationPoint,
+    pub translation_y: KeyframeInterpolationPoint,
+    pub translation_z: KeyframeInterpolationPoint,
+    pub orientation: KeyframeInterpolationPoint,
 }
 
 impl BoneKeyframeInterpolation {
@@ -2068,8 +2246,8 @@ impl Default for BoneFrameTransform {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct BoneStates {
-    dirty: bool,
-    editing_masked: bool,
+    pub dirty: bool,
+    pub editing_masked: bool,
 }
 
 #[derive(Debug, Clone)]

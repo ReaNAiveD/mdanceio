@@ -1012,6 +1012,7 @@ impl Motion {
             .sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
         self.self_shadow_keyframes
             .sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
+        self.update_max_frame_index();
     }
 
     pub fn add_accessory_keyframe(

@@ -642,8 +642,16 @@ impl Project {
         self.sample_level.0
     }
 
-    pub fn global_camera(&self) -> &dyn Camera {
+    pub fn current_frame_index(&self) -> u32 {
+        self.local_frame_index.0
+    }
+
+    pub fn global_camera(&self) -> &PerspectiveCamera {
         &self.camera
+    }
+
+    pub fn global_camera_mut(&mut self) -> &mut PerspectiveCamera {
+        &mut self.camera
     }
 
     pub fn active_camera(&self) -> &dyn Camera {
@@ -657,6 +665,10 @@ impl Project {
 
     pub fn global_light(&self) -> &dyn Light {
         &self.light
+    }
+
+    pub fn global_light_mut(&mut self) -> &mut DirectionalLight {
+        &mut self.light
     }
 
     pub fn shared_fallback_image(&self) -> &wgpu::Texture {
@@ -728,6 +740,12 @@ impl Project {
             .and_then(|idx| self.model_handle_map.get(&idx))
     }
 
+    pub fn active_model_mut(&mut self) -> Option<&mut Model> {
+        self.active_model_pair
+            .0
+            .and_then(|idx| self.model_handle_map.get_mut(&idx))
+    }
+
     pub fn set_active_model(&mut self, model: Option<ModelHandle>) {
         let last_active_model = self.active_model_pair.0;
         if last_active_model != model && !self.state_flags.enable_model_editing {
@@ -748,6 +766,10 @@ impl Project {
         }
     }
 
+    pub fn model_mut(&mut self, handle: ModelHandle) -> Option<&mut Model> {
+        self.model_handle_map.get_mut(&handle)
+    }
+
     pub fn find_model_by_name(&self, name: &str) -> Option<&Model> {
         for (idx, model) in &self.model_handle_map {
             if model.get_name() == name || model.get_canonical_name() == name {
@@ -758,7 +780,8 @@ impl Project {
     }
 
     pub fn resolve_bone(&self, value: (&str, &str)) -> Option<&Bone> {
-        self.find_model_by_name(value.0).and_then(|model| model.find_bone(value.1))
+        self.find_model_by_name(value.0)
+            .and_then(|model| model.find_bone(value.1))
     }
 
     pub fn resolve_model_motion(&self, model: ModelHandle) -> Option<&Motion> {
@@ -803,6 +826,18 @@ impl Project {
 }
 
 impl Project {
+    pub fn update_global_camera(&mut self) {
+        let bound_look_at = self.global_camera().bound_look_at(self);
+        let viewport_image_size = self.layout.viewport_image_size;
+        let logical_scale_uniformed_viewport_image_rect =
+            self.layout.logical_scale_uniformed_viewport_image_rect();
+        self.global_camera_mut().update(
+            viewport_image_size,
+            &logical_scale_uniformed_viewport_image_rect,
+            bound_look_at,
+        );
+    }
+
     pub fn internal_seek(&mut self, frame_index: u32) {
         self.internal_seek_precisely(frame_index, 0f32, 0f32);
     }
@@ -832,6 +867,29 @@ impl Project {
         // FIXME?: there's nothing to ensure local_frame <= frame_index
         self.local_frame_index.1 = frame_index - self.local_frame_index.0;
         self.local_frame_index.0 = frame_index;
+    }
+
+    pub fn reset_all_model_edges(
+        &mut self,
+        outside_parent_bone_map: &HashMap<(String, String), Bone>,
+    ) {
+        let physics_simulation_time_step = self.physics_simulation_time_step();
+        for (handle, model) in &mut self.model_handle_map {
+            if model.edge_size_scale_factor() > 0f32 && !model.is_staging_vertex_buffer_dirty() {
+                model.reset_all_morph_deform_states(
+                    self.model_to_motion.get(handle).unwrap(),
+                    self.local_frame_index.0,
+                    &mut self.physics_engine,
+                );
+                model.deform_all_morphs(false);
+                model.perform_all_bones_transform(
+                    &mut self.physics_engine,
+                    physics_simulation_time_step,
+                    outside_parent_bone_map,
+                );
+                model.mark_staging_vertex_buffer_dirty();
+            }
+        }
     }
 
     pub fn synchronize_all_motions(
@@ -948,6 +1006,50 @@ impl Project {
 }
 
 impl Project {
+    pub fn perform_model_bones_transform(&mut self, model: Option<ModelHandle>) {
+        let physics_simulation_time_step = self.physics_simulation_time_step();
+        let outside_parent_bone_map = HashMap::new();
+        if let Some(model) = model
+            .or_else(|| self.active_model_pair.0)
+            .and_then(|handle| self.model_handle_map.get_mut(&handle))
+        {
+            model.perform_all_bones_transform(
+                &mut self.physics_engine,
+                physics_simulation_time_step,
+                &outside_parent_bone_map,
+            );
+        }
+    }
+
+    pub fn register_bone_keyframes(
+        &mut self,
+        model: Option<ModelHandle>,
+        bones: &HashMap<String, Vec<u32>>,
+    ) {
+        self.reset_transform_performed_at();
+        if let Some((handle, model)) =
+            model
+                .or_else(|| self.active_model_pair.0)
+                .and_then(|handle| {
+                    self.model_handle_map
+                        .get_mut(&handle)
+                        .map(|model| (handle, model))
+                })
+        {
+            if let Some(motion) = self.model_to_motion.get_mut(&handle) {
+                let mut updaters = motion.build_add_bone_keyframes_updaters(
+                    model,
+                    bones,
+                    self.state_flags.enable_bezier_curve_adjustment,
+                    self.state_flags.enable_physics_simulation_for_bone_keyframe,
+                );
+                motion.apply_add_bone_keyframes_updaters(model, &mut updaters);
+            }
+        }
+    }
+}
+
+impl Project {
     pub fn load_model(&mut self, model_data: &[u8], device: &wgpu::Device) {
         if let Ok(model) = Model::new_from_bytes(
             model_data,
@@ -968,8 +1070,7 @@ impl Project {
             model.create_all_bone_bounds_rigid_bodies();
         }
         let model_handle = self.object_handler_allocator.next();
-        self.model_handle_map
-            .insert(model_handle, model);
+        self.model_handle_map.insert(model_handle, model);
         self.transform_model_order_list.push(model_handle);
         // TODO: add effect to kScriptOrderTypeStandard
         // TODO: publish event
@@ -982,11 +1083,7 @@ impl Project {
 
     pub fn load_model_motion(&mut self, motion_data: &[u8]) -> Result<(), Error> {
         if self.active_model().is_some() {
-            Motion::new_from_bytes(
-                motion_data,
-                self.local_frame_index.0,
-            )
-            .and_then(|motion| {
+            Motion::new_from_bytes(motion_data, self.local_frame_index.0).and_then(|motion| {
                 if motion.opaque.target_model_name == Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
                     return Err(Error::new(
                         "読み込まれたモーションはモデル用ではありません",
@@ -1015,11 +1112,7 @@ impl Project {
     }
 
     pub fn load_camera_motion(&mut self, motion_data: &[u8]) -> Result<(), Error> {
-        Motion::new_from_bytes(
-            motion_data,
-            self.local_frame_index.0,
-        )
-        .and_then(|motion| {
+        Motion::new_from_bytes(motion_data, self.local_frame_index.0).and_then(|motion| {
             if motion.opaque.target_model_name != Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
                 return Err(Error::new(
                     "読み込まれたモーションはカメラ及び照明用ではありません",
@@ -1034,11 +1127,7 @@ impl Project {
     }
 
     pub fn load_light_motion(&mut self, motion_data: &[u8]) -> Result<(), Error> {
-        Motion::new_from_bytes(
-            motion_data,
-            self.local_frame_index.0,
-        )
-        .and_then(|motion| {
+        Motion::new_from_bytes(motion_data, self.local_frame_index.0).and_then(|motion| {
             if motion.opaque.target_model_name != Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
                 return Err(Error::new(
                     "読み込まれたモーションはカメラ及び照明用ではありません",

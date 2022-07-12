@@ -401,7 +401,7 @@ impl MutableBuffer {
     }
 
     pub fn ensure_size(&mut self, required: usize) -> Result<(), Status> {
-        if let Err(e) = self.data.try_reserve(required) {
+        if let Err(_) = self.data.try_reserve(required) {
             self.offset = 0;
             Err(Status::ErrorReallocFailed)
         } else {
