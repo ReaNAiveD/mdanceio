@@ -3642,8 +3642,8 @@ impl RigidBody {
         if name.is_empty() {
             name = canonical_name.clone();
         }
-        let orientation = rigid_body.orientation.0;
-        let origin = rigid_body.origin.0;
+        let orientation = rigid_body.orientation;
+        let origin = rigid_body.origin;
         let mut world_transform = nalgebra::Isometry3::new(
             nalgebra::vector![origin[0], origin[1], origin[2]],
             nalgebra::vector![orientation[0], orientation[1], orientation[2]],
@@ -3654,7 +3654,7 @@ impl RigidBody {
                 .ok()
                 .and_then(|idx| bones.get(idx))
             {
-                let bone_origin = bone.origin.origin.0;
+                let bone_origin = bone.origin.origin;
                 let offset = nalgebra::Isometry3::translation(
                     bone_origin[0],
                     bone_origin[1],
@@ -3672,7 +3672,7 @@ impl RigidBody {
         .position(world_transform)
         .angular_damping(rigid_body.angular_damping)
         .linear_damping(rigid_body.linear_damping);
-        let size = rigid_body.size.0;
+        let size = rigid_body.size;
         let mut collider_builder = match rigid_body.shape_type {
             nanoem::model::ModelRigidBodyShapeType::Unknown => (None, f32::INFINITY),
             nanoem::model::ModelRigidBodyShapeType::Sphere => (

@@ -3,22 +3,21 @@ use cgmath::{
     Vector3, Vector4,
 };
 use nalgebra::Isometry3;
-use nanoem::common::F128;
 
-pub fn f128_to_vec3(v: F128) -> Vector3<f32> {
+pub fn f128_to_vec3(v: [f32; 4]) -> Vector3<f32> {
     Vector3 {
-        x: v.0[0],
-        y: v.0[1],
-        z: v.0[2],
+        x: v[0],
+        y: v[1],
+        z: v[2],
     }
 }
 
-pub fn f128_to_vec4(v: F128) -> Vector4<f32> {
-    v.0.into()
+pub fn f128_to_vec4(v: [f32; 4]) -> Vector4<f32> {
+    v.into()
 }
 
-pub fn f128_to_quat(v: F128) -> Quaternion<f32> {
-    v.0.into()
+pub fn f128_to_quat(v: [f32; 4]) -> Quaternion<f32> {
+    v.into()
 }
 
 pub fn mat4_truncate<S>(v: Matrix4<S>) -> Matrix3<S>

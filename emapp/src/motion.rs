@@ -6,7 +6,7 @@ use std::{
 
 use cgmath::{BaseNum, Quaternion, Vector1, Vector2, Vector3, Vector4, VectorSpace};
 use nanoem::{
-    common::{Status, F128},
+    common::Status,
     motion::{
         MotionAccessoryKeyframe, MotionBoneKeyframe, MotionBoneKeyframeInterpolation,
         MotionCameraKeyframe, MotionFormatType, MotionKeyframeBase, MotionLightKeyframe,
@@ -184,8 +184,8 @@ impl Motion {
                                 is_selected: false,
                                 annotations: HashMap::new(),
                             },
-                            translation: F128(bone.local_user_translation.extend(1f32).into()),
-                            orientation: F128(bone.local_user_orientation.into()),
+                            translation: bone.local_user_translation.extend(1f32).into(),
+                            orientation: bone.local_user_orientation.into(),
                             interpolation: nanoem::motion::MotionBoneKeyframeInterpolation {
                                 translation_x: Bone::DEFAULT_BEZIER_CONTROL_POINT,
                                 translation_y: Bone::DEFAULT_BEZIER_CONTROL_POINT,
@@ -259,7 +259,7 @@ impl Motion {
                     outside_parents: vec![],
                     has_edge_option: false,
                     edge_scale_factor: 1f32,
-                    edge_color: F128([0f32, 0f32, 0f32, 1f32]),
+                    edge_color: [0f32, 0f32, 0f32, 1f32],
                     is_add_blending_enabled: false,
                     is_physics_simulation_enabled: true,
                 },
@@ -284,8 +284,8 @@ impl Motion {
                         is_selected: false,
                         annotations: HashMap::new(),
                     },
-                    look_at: F128(camera.look_at(active_model).extend(0f32).into()),
-                    angle: F128(camera.angle().extend(0f32).into()),
+                    look_at: camera.look_at(active_model).extend(0f32).into(),
+                    angle: camera.angle().extend(0f32).into(),
                     distance: -camera.distance(),
                     fov: camera.fov(),
                     interpolation: nanoem::motion::MotionCameraKeyframeInterpolation::default(),
@@ -310,8 +310,8 @@ impl Motion {
                         is_selected: false,
                         annotations: HashMap::new(),
                     },
-                    color: F128(light.color().extend(0f32).into()),
-                    direction: F128(light.direction().extend(0f32).into()),
+                    color: light.color().extend(0f32).into(),
+                    direction: light.direction().extend(0f32).into(),
                 },
                 0,
             ) {
@@ -573,8 +573,8 @@ impl Motion {
                             is_selected: false,
                             annotations: HashMap::new(),
                         },
-                        translation: F128(updater.state.0.translation.into()),
-                        orientation: F128(updater.state.0.orientation.into()),
+                        translation: updater.state.0.translation.into(),
+                        orientation: updater.state.0.orientation.into(),
                         interpolation: MotionBoneKeyframeInterpolation {
                             translation_x: updater.state.0.bezier_param.translation_x.into(),
                             translation_y: updater.state.0.bezier_param.translation_y.into(),
@@ -762,18 +762,18 @@ struct Merger<'a, 'b> {
 impl Merger<'_, '_> {
     fn reverse_bone_keyframe(origin: &MotionBoneKeyframe) -> MotionBoneKeyframe {
         let mut result = origin.clone();
-        result.translation = F128([
-            -origin.translation.0[0],
-            origin.translation.0[1],
-            origin.translation.0[2],
+        result.translation = [
+            -origin.translation[0],
+            origin.translation[1],
+            origin.translation[2],
             0f32,
-        ]);
-        result.orientation = F128([
-            origin.orientation.0[0],
-            -origin.orientation.0[1],
-            -origin.orientation.0[2],
-            origin.orientation.0[3],
-        ]);
+        ];
+        result.orientation = [
+            origin.orientation[0],
+            -origin.orientation[1],
+            -origin.orientation[2],
+            origin.orientation[3],
+        ];
         result
     }
 

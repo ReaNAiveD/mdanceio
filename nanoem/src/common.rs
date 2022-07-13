@@ -183,17 +183,6 @@ pub struct UserData {
     destroy: UserDataDestroyCallback,
 }
 
-struct F128Components {
-    x: f32,
-    y: f32,
-    z: f32,
-    w: f32,
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-#[repr(align(16))]
-pub struct F128(pub [f32; 4]);
-
 #[macro_export]
 macro_rules! read_primitive {
     ($typ: ty, $read_typ:ident) => {
@@ -297,22 +286,22 @@ impl<'a> Buffer<'a> {
         Ok(v.clamp(0.0f32, 1.0f32))
     }
 
-    pub fn read_f32_3_little_endian(&mut self) -> Result<F128, Status> {
-        return Ok(F128([
+    pub fn read_f32_3_little_endian(&mut self) -> Result<[f32; 4], Status> {
+        return Ok([
             self.read_f32_little_endian()?,
             self.read_f32_little_endian()?,
             self.read_f32_little_endian()?,
             0.0f32,
-        ]));
+        ]);
     }
 
-    pub fn read_f32_4_little_endian(&mut self) -> Result<F128, Status> {
-        return Ok(F128([
+    pub fn read_f32_4_little_endian(&mut self) -> Result<[f32; 4], Status> {
+        return Ok([
             self.read_f32_little_endian()?,
             self.read_f32_little_endian()?,
             self.read_f32_little_endian()?,
             self.read_f32_little_endian()?,
-        ]));
+        ]);
     }
 
     pub fn read_integer(&mut self, size: usize) -> Result<i32, Status> {
@@ -460,19 +449,19 @@ impl MutableBuffer {
         }
     }
 
-    pub fn write_f32_2_little_endian(&mut self, value: F128) -> Result<(), Status> {
-        self.write_f32_little_endian(value.0[0])?;
-        self.write_f32_little_endian(value.0[1])
+    pub fn write_f32_2_little_endian(&mut self, value: [f32; 4]) -> Result<(), Status> {
+        self.write_f32_little_endian(value[0])?;
+        self.write_f32_little_endian(value[1])
     }
 
-    pub fn write_f32_3_little_endian(&mut self, value: F128) -> Result<(), Status> {
+    pub fn write_f32_3_little_endian(&mut self, value: [f32; 4]) -> Result<(), Status> {
         self.write_f32_2_little_endian(value)?;
-        self.write_f32_little_endian(value.0[2])
+        self.write_f32_little_endian(value[2])
     }
 
-    pub fn write_f32_4_little_endian(&mut self, value: F128) -> Result<(), Status> {
+    pub fn write_f32_4_little_endian(&mut self, value: [f32; 4]) -> Result<(), Status> {
         self.write_f32_3_little_endian(value)?;
-        self.write_f32_little_endian(value.0[3])
+        self.write_f32_little_endian(value[3])
     }
 
     // TODO: now clone the total data vec, change to some pointer copy

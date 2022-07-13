@@ -16,7 +16,6 @@ use crate::{
 };
 
 use nanoem::{
-    common::F128,
     motion::{MotionCameraKeyframe, MotionCameraKeyframeInterpolation, MotionTrackBundle},
 };
 

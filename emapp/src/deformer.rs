@@ -84,7 +84,7 @@ impl Deformer {
         let mut vertex_deltas_buffer_data = vec![[0f32; 4]; num_max_morph_items * buffer_size];
         for (vertex_idx, morphs) in vertex2morphs.iter().enumerate() {
             for (idx, morph) in morphs.iter().enumerate() {
-                let position = morph.1.position.0;
+                let position = morph.1.position;
                 let morph_idx = morph.0.origin.base.index + 1;
                 vertex_deltas_buffer_data[vertex_idx * num_max_morph_items + idx] =
                     [position[0], position[1], position[2], morph_idx as f32];
@@ -97,9 +97,9 @@ impl Deformer {
         });
         let mut sdef_buffer_data = vec![[0f32; 4]; num_vertices * 3];
         for (idx, vertex) in vertices.iter().enumerate() {
-            sdef_buffer_data[idx * 3 + 0] = vertex.origin.sdef_c.0;
-            sdef_buffer_data[idx * 3 + 1] = vertex.origin.sdef_r0.0;
-            sdef_buffer_data[idx * 3 + 2] = vertex.origin.sdef_r1.0;
+            sdef_buffer_data[idx * 3 + 0] = vertex.origin.sdef_c;
+            sdef_buffer_data[idx * 3 + 1] = vertex.origin.sdef_r0;
+            sdef_buffer_data[idx * 3 + 2] = vertex.origin.sdef_r1;
         }
         let sdef_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Deformer/SdefBuffer"),

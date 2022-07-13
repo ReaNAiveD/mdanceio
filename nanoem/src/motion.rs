@@ -6,7 +6,7 @@ use std::{
 };
 
 use crate::{
-    common::{Buffer, MutableBuffer, Status, F128},
+    common::{Buffer, MutableBuffer, Status},
     utils::{compare, u8_slice_get_string},
 };
 
@@ -1086,7 +1086,7 @@ pub enum MotionEffectParameterValue {
     BOOL(bool),
     INT(i32),
     FLOAT(f32),
-    VECTOR4(F128),
+    VECTOR4([f32; 4]),
 }
 
 impl Default for MotionEffectParameterValue {
@@ -1205,8 +1205,8 @@ impl MotionKeyframeBase {
 #[derive(Debug)]
 pub struct MotionAccessoryKeyframe {
     pub base: MotionKeyframeBase,
-    pub translation: F128,
-    pub orientation: F128,
+    pub translation: [f32; 4],
+    pub orientation: [f32; 4],
     pub scale_factor: f32,
     pub opacity: f32,
     pub is_add_blending_enabled: bool,
@@ -1249,8 +1249,8 @@ impl MotionAccessoryKeyframe {
                 is_selected: false,
                 annotations: HashMap::new(),
             },
-            translation: F128::default(),
-            orientation: F128::default(),
+            translation: <[f32; 4]>::default(),
+            orientation: <[f32; 4]>::default(),
             scale_factor: f32::default(),
             opacity: f32::default(),
             is_add_blending_enabled: bool::default(),
@@ -1365,8 +1365,8 @@ impl Default for MotionBoneKeyframeInterpolation {
 #[derive(Debug, Clone)]
 pub struct MotionBoneKeyframe {
     pub base: MotionKeyframeBase,
-    pub translation: F128,
-    pub orientation: F128,
+    pub translation: [f32; 4],
+    pub orientation: [f32; 4],
     pub interpolation: MotionBoneKeyframeInterpolation,
     pub bone_track_id: i32,
     pub stage_index: u32,
@@ -1390,8 +1390,8 @@ impl MotionBoneKeyframe {
                 is_selected: false,
                 annotations: HashMap::new(),
             },
-            translation: F128::default(),
-            orientation: F128::default(),
+            translation: <[f32; 4]>::default(),
+            orientation: <[f32; 4]>::default(),
             interpolation: MotionBoneKeyframeInterpolation::default(),
             bone_track_id: 0,
             stage_index: 0,
@@ -1488,8 +1488,8 @@ impl Default for MotionCameraKeyframeInterpolation {
 #[derive(Debug, Clone)]
 pub struct MotionCameraKeyframe {
     pub base: MotionKeyframeBase,
-    pub look_at: F128,
-    pub angle: F128,
+    pub look_at: [f32; 4],
+    pub angle: [f32; 4],
     pub distance: f32,
     pub fov: i32,
     pub interpolation: MotionCameraKeyframeInterpolation,
@@ -1551,8 +1551,8 @@ impl MotionCameraKeyframe {
 #[derive(Debug, Clone)]
 pub struct MotionLightKeyframe {
     pub base: MotionKeyframeBase,
-    pub color: F128,
-    pub direction: F128,
+    pub color: [f32; 4],
+    pub direction: [f32; 4],
 }
 
 impl MotionLightKeyframe {
@@ -1628,7 +1628,7 @@ pub struct MotionModelKeyframe {
     pub outside_parents: Vec<MotionOutsideParent>,
     pub has_edge_option: bool,
     pub edge_scale_factor: f32,
-    pub edge_color: F128,
+    pub edge_color: [f32; 4],
     pub is_add_blending_enabled: bool,
     pub is_physics_simulation_enabled: bool,
 }
@@ -1654,7 +1654,7 @@ impl MotionModelKeyframe {
             outside_parents: vec![],
             has_edge_option: false,
             edge_scale_factor: 0f32,
-            edge_color: F128::default(),
+            edge_color: <[f32; 4]>::default(),
             is_add_blending_enabled: false,
             is_physics_simulation_enabled: true,
         };

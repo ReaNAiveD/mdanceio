@@ -1,5 +1,5 @@
 use crate::{
-    common::{Buffer, LanguageType, MutableBuffer, Status, F128},
+    common::{Buffer, LanguageType, MutableBuffer, Status},
     utils::fourcc,
 };
 
@@ -1039,18 +1039,18 @@ impl Default for ModelVertexType {
 #[derive(Debug, Clone)]
 pub struct ModelVertex {
     pub base: ModelObject,
-    pub origin: F128,
-    pub normal: F128,
-    pub uv: F128,
-    pub additional_uv: [F128; 4],
+    pub origin: [f32; 4],
+    pub normal: [f32; 4],
+    pub uv: [f32; 4],
+    pub additional_uv: [[f32; 4]; 4],
     pub typ: ModelVertexType,
     pub num_bone_indices: usize,
     pub bone_indices: [i32; 4],
     pub num_bone_weights: usize,
-    pub bone_weights: F128,
-    pub sdef_c: F128,
-    pub sdef_r0: F128,
-    pub sdef_r1: F128,
+    pub bone_weights: [f32; 4],
+    pub sdef_c: [f32; 4],
+    pub sdef_r0: [f32; 4],
+    pub sdef_r1: [f32; 4],
     pub edge_size: f32,
     pub bone_weight_origin: u8,
 }
@@ -1065,21 +1065,21 @@ impl ModelVertex {
             base: ModelObject { index },
             origin: buffer.read_f32_3_little_endian()?,
             normal: buffer.read_f32_3_little_endian()?,
-            uv: F128([
+            uv: [
                 buffer.read_f32_little_endian()?,
                 buffer.read_f32_little_endian()?,
                 0.0f32,
                 0.0f32,
-            ]),
-            additional_uv: <[F128; 4]>::default(),
+            ],
+            additional_uv: <[[f32; 4]; 4]>::default(),
             typ: ModelVertexType::from(buffer.read_byte()? as i32),
             num_bone_indices: usize::default(),
             bone_indices: <[i32; 4]>::default(),
             num_bone_weights: usize::default(),
-            bone_weights: F128::default(),
-            sdef_c: F128::default(),
-            sdef_r0: F128::default(),
-            sdef_r1: F128::default(),
+            bone_weights: <[f32; 4]>::default(),
+            sdef_c: <[f32; 4]>::default(),
+            sdef_r0: <[f32; 4]>::default(),
+            sdef_r1: <[f32; 4]>::default(),
             edge_size: f32::default(),
             bone_weight_origin: u8::default(),
         };
@@ -1091,15 +1091,15 @@ impl ModelVertex {
             ModelVertexType::UNKNOWN => return Err(Status::ErrorModelVertexCorrupted),
             ModelVertexType::BDEF1 => {
                 vertex.bone_indices[0] = buffer.read_integer_nullable(bone_index_size as usize)?;
-                vertex.bone_weights.0[0] = 1.0f32;
+                vertex.bone_weights[0] = 1.0f32;
                 vertex.num_bone_indices = 1;
                 vertex.num_bone_weights = 1;
             }
             ModelVertexType::BDEF2 => {
                 vertex.bone_indices[0] = buffer.read_integer_nullable(bone_index_size as usize)?;
                 vertex.bone_indices[1] = buffer.read_integer_nullable(bone_index_size as usize)?;
-                vertex.bone_weights.0[0] = buffer.read_clamped_little_endian()?;
-                vertex.bone_weights.0[1] = 1.0f32 - vertex.bone_weights.0[0];
+                vertex.bone_weights[0] = buffer.read_clamped_little_endian()?;
+                vertex.bone_weights[1] = 1.0f32 - vertex.bone_weights[0];
                 vertex.num_bone_indices = 2;
                 vertex.num_bone_weights = 2;
             }
@@ -1115,16 +1115,16 @@ impl ModelVertex {
             ModelVertexType::SDEF => {
                 vertex.bone_indices[0] = buffer.read_integer_nullable(bone_index_size as usize)?;
                 vertex.bone_indices[1] = buffer.read_integer_nullable(bone_index_size as usize)?;
-                vertex.bone_weights.0[0] = buffer.read_clamped_little_endian()?;
-                vertex.bone_weights.0[1] = 1.0f32 - vertex.bone_weights.0[0];
+                vertex.bone_weights[0] = buffer.read_clamped_little_endian()?;
+                vertex.bone_weights[1] = 1.0f32 - vertex.bone_weights[0];
                 vertex.num_bone_indices = 2;
                 vertex.num_bone_weights = 2;
                 vertex.sdef_c = buffer.read_f32_3_little_endian()?;
-                vertex.sdef_c.0[3] = 1.0f32;
+                vertex.sdef_c[3] = 1.0f32;
                 vertex.sdef_r0 = buffer.read_f32_3_little_endian()?;
-                vertex.sdef_r0.0[3] = 1.0f32;
+                vertex.sdef_r0[3] = 1.0f32;
                 vertex.sdef_r1 = buffer.read_f32_3_little_endian()?;
-                vertex.sdef_r1.0[3] = 1.0f32;
+                vertex.sdef_r1[3] = 1.0f32;
             }
         }
         vertex.edge_size = buffer.read_f32_little_endian()?;
@@ -1152,22 +1152,22 @@ impl ModelVertex {
                     buffer.write_integer(self.bone_indices[0], size)?;
                 }
                 ModelVertexType::BDEF2 => {
-                    if self.bone_weights.0[0] > 0.9995f32 {
+                    if self.bone_weights[0] > 0.9995f32 {
                         buffer.write_byte(i32::from(ModelVertexType::BDEF1) as u8)?;
                         buffer.write_integer(self.bone_indices[0], size)?;
-                    } else if self.bone_weights.0[0] < 0.0005f32 {
+                    } else if self.bone_weights[0] < 0.0005f32 {
                         buffer.write_byte(i32::from(ModelVertexType::BDEF1) as u8)?;
                         buffer.write_integer(self.bone_indices[1], size)?;
-                    } else if self.bone_weights.0[1] > self.bone_weights.0[0] {
+                    } else if self.bone_weights[1] > self.bone_weights[0] {
                         buffer.write_byte(i32::from(self.typ) as u8)?;
                         buffer.write_integer(self.bone_indices[1], size)?;
                         buffer.write_integer(self.bone_indices[0], size)?;
-                        buffer.write_f32_little_endian(self.bone_weights.0[1])?;
+                        buffer.write_f32_little_endian(self.bone_weights[1])?;
                     } else {
                         buffer.write_byte(i32::from(self.typ) as u8)?;
                         buffer.write_integer(self.bone_indices[0], size)?;
                         buffer.write_integer(self.bone_indices[1], size)?;
-                        buffer.write_f32_little_endian(self.bone_weights.0[0])?;
+                        buffer.write_f32_little_endian(self.bone_weights[0])?;
                     }
                 }
                 ModelVertexType::BDEF4 | ModelVertexType::QDEF => {
@@ -1182,7 +1182,7 @@ impl ModelVertex {
                     buffer.write_byte(i32::from(self.typ) as u8)?;
                     buffer.write_integer(self.bone_indices[0], size)?;
                     buffer.write_integer(self.bone_indices[1], size)?;
-                    buffer.write_f32_little_endian(self.bone_weights.0[0])?;
+                    buffer.write_f32_little_endian(self.bone_weights[0])?;
                     buffer.write_f32_3_little_endian(self.sdef_c)?;
                     buffer.write_f32_3_little_endian(self.sdef_r0)?;
                     buffer.write_f32_3_little_endian(self.sdef_r1)?;
@@ -1193,7 +1193,7 @@ impl ModelVertex {
             let weight = if self.bone_weight_origin != 0 {
                 self.bone_weight_origin
             } else {
-                (self.bone_weights.0[0] * 100f32) as u8
+                (self.bone_weights[0] * 100f32) as u8
             };
             buffer.write_i16_little_endian(self.bone_indices[0] as i16)?;
             buffer.write_i16_little_endian(self.bone_indices[1] as i16)?;
@@ -1204,15 +1204,15 @@ impl ModelVertex {
     }
 
     pub fn get_origin(&self) -> [f32; 4] {
-        self.origin.0
+        self.origin
     }
 
     pub fn get_normal(&self) -> [f32; 4] {
-        self.normal.0
+        self.normal
     }
 
     pub fn get_tex_coord(&self) -> [f32; 4] {
-        self.uv.0
+        self.uv
     }
 
     pub fn get_index(&self) -> usize {
@@ -1224,11 +1224,11 @@ impl ModelVertex {
     }
 
     pub fn get_bone_weights(&self) -> [f32; 4] {
-        self.bone_weights.0
+        self.bone_weights
     }
 
     pub fn get_additional_uv(&self) -> [[f32; 4]; 4] {
-        self.additional_uv.map(|uv| uv.0)
+        self.additional_uv
     }
 }
 
@@ -1322,12 +1322,12 @@ pub struct ModelMaterial {
     pub base: ModelObject,
     pub name_ja: String,
     pub name_en: String,
-    pub diffuse_color: F128,
+    pub diffuse_color: [f32; 4],
     pub diffuse_opacity: f32,
     pub specular_power: f32,
-    pub specular_color: F128,
-    pub ambient_color: F128,
-    pub edge_color: F128,
+    pub specular_color: [f32; 4],
+    pub ambient_color: [f32; 4],
+    pub edge_color: [f32; 4],
     pub edge_opacity: f32,
     pub edge_size: f32,
     pub diffuse_texture_index: i32,
@@ -1470,15 +1470,15 @@ impl ModelMaterial {
     }
 
     pub fn get_ambient_color(&self) -> [f32; 4] {
-        self.ambient_color.0
+        self.ambient_color
     }
 
     pub fn get_diffuse_color(&self) -> [f32; 4] {
-        self.diffuse_color.0
+        self.diffuse_color
     }
 
     pub fn get_specular_color(&self) -> [f32; 4] {
-        self.specular_color.0
+        self.specular_color
     }
 
     pub fn get_diffuse_opacity(&self) -> f32 {
@@ -1490,7 +1490,7 @@ impl ModelMaterial {
     }
 
     pub fn get_edge_color(&self) -> [f32; 4] {
-        self.edge_color.0
+        self.edge_color
     }
 
     pub fn get_edge_opacity(&self) -> f32 {
@@ -1712,11 +1712,11 @@ pub struct ModelBone {
     pub name_ja: String,
     pub name_en: String,
     pub constraint: Option<ModelConstraint>,
-    pub origin: F128,
-    pub destination_origin: F128,
-    pub fixed_axis: F128,
-    pub local_x_axis: F128,
-    pub local_z_axis: F128,
+    pub origin: [f32; 4],
+    pub destination_origin: [f32; 4],
+    pub fixed_axis: [f32; 4],
+    pub local_x_axis: [f32; 4],
+    pub local_z_axis: [f32; 4],
     pub inherent_coefficient: f32,
     pub parent_bone_index: i32,
     pub parent_inherent_bone_index: i32,
@@ -1777,10 +1777,10 @@ impl ModelBone {
             name_ja: info.codec_type.get_string(buffer)?,
             name_en: info.codec_type.get_string(buffer)?,
             origin: buffer.read_f32_3_little_endian()?,
-            destination_origin: F128::default(),
-            fixed_axis: F128::default(),
-            local_x_axis: F128::default(),
-            local_z_axis: F128::default(),
+            destination_origin: <[f32; 4]>::default(),
+            fixed_axis: <[f32; 4]>::default(),
+            local_x_axis: <[f32; 4]>::default(),
+            local_z_axis: <[f32; 4]>::default(),
             inherent_coefficient: f32::default(),
             parent_bone_index: buffer.read_integer_nullable(bone_index_size as usize)?,
             parent_inherent_bone_index: i32::default(),
@@ -1811,8 +1811,8 @@ impl ModelBone {
             bone.local_x_axis = buffer.read_f32_3_little_endian()?;
             bone.local_z_axis = buffer.read_f32_3_little_endian()?;
         } else {
-            bone.local_x_axis.0[0] = 1.0f32;
-            bone.local_z_axis.0[2] = 1.0f32;
+            bone.local_x_axis[0] = 1.0f32;
+            bone.local_z_axis[2] = 1.0f32;
         }
         if bone.flags.has_external_parent_bone {
             bone.global_bone_index = buffer.read_i32_little_endian()?;
@@ -1967,8 +1967,8 @@ pub struct ModelConstraintJoint {
     pub base: ModelObject,
     pub bone_index: i32,
     pub has_angle_limit: bool,
-    pub lower_limit: F128,
-    pub upper_limit: F128,
+    pub lower_limit: [f32; 4],
+    pub upper_limit: [f32; 4],
 }
 
 impl ModelConstraintJoint {
@@ -2033,8 +2033,8 @@ impl ModelConstraint {
                 base: ModelObject { index: i },
                 bone_index: buffer.read_integer_nullable(bone_index_size)?,
                 has_angle_limit: buffer.read_byte()? != (0 as u8),
-                lower_limit: F128::default(),
-                upper_limit: F128::default(),
+                lower_limit: <[f32; 4]>::default(),
+                upper_limit: <[f32; 4]>::default(),
             };
             if joint.has_angle_limit {
                 joint.lower_limit = buffer.read_f32_3_little_endian()?;
@@ -2086,8 +2086,8 @@ impl ModelConstraint {
 pub struct ModelMorphBone {
     pub base: ModelObject,
     pub bone_index: i32,
-    pub translation: F128,
-    pub orientation: F128,
+    pub translation: [f32; 4],
+    pub orientation: [f32; 4],
 }
 
 impl ModelMorphBone {
@@ -2198,8 +2198,8 @@ pub struct ModelMorphImpulse {
     pub base: ModelObject,
     pub rigid_body_index: i32,
     pub is_local: bool,
-    pub velocity: F128,
-    pub torque: F128,
+    pub velocity: [f32; 4],
+    pub torque: [f32; 4],
 }
 
 impl ModelMorphImpulse {
@@ -2267,17 +2267,17 @@ pub struct ModelMorphMaterial {
     pub base: ModelObject,
     pub material_index: i32,
     pub operation: ModelMorphMaterialOperationType,
-    pub diffuse_color: F128,
+    pub diffuse_color: [f32; 4],
     pub diffuse_opacity: f32,
-    pub specular_color: F128,
+    pub specular_color: [f32; 4],
     pub specular_power: f32,
-    pub ambient_color: F128,
-    pub edge_color: F128,
+    pub ambient_color: [f32; 4],
+    pub edge_color: [f32; 4],
     pub edge_opacity: f32,
     pub edge_size: f32,
-    pub diffuse_texture_blend: F128,
-    pub sphere_map_texture_blend: F128,
-    pub toon_texture_blend: F128,
+    pub diffuse_texture_blend: [f32; 4],
+    pub sphere_map_texture_blend: [f32; 4],
+    pub toon_texture_blend: [f32; 4],
 }
 
 impl ModelMorphMaterial {
@@ -2335,7 +2335,7 @@ impl ModelMorphMaterial {
 pub struct ModelMorphUv {
     pub base: ModelObject,
     pub vertex_index: i32,
-    pub position: F128,
+    pub position: [f32; 4],
 }
 
 impl ModelMorphUv {
@@ -2372,7 +2372,7 @@ pub struct ModelMorphVertex {
     pub base: ModelObject,
     pub vertex_index: i32,
     pub relative_index: i32,
-    pub position: F128,
+    pub position: [f32; 4],
 }
 
 impl ModelMorphVertex {
@@ -2953,9 +2953,9 @@ pub struct ModelRigidBody {
     pub collision_group_id: i32,
     pub collision_mask: i32,
     pub shape_type: ModelRigidBodyShapeType,
-    pub size: F128,
-    pub origin: F128,
-    pub orientation: F128,
+    pub size: [f32; 4],
+    pub origin: [f32; 4],
+    pub orientation: [f32; 4],
     pub mass: f32,
     pub linear_damping: f32,
     pub angular_damping: f32,
@@ -3092,14 +3092,14 @@ pub struct ModelJoint {
     pub rigid_body_a_index: i32,
     pub rigid_body_b_index: i32,
     pub typ: ModelJointType,
-    pub origin: F128,
-    pub orientation: F128,
-    pub linear_lower_limit: F128,
-    pub linear_upper_limit: F128,
-    pub angular_lower_limit: F128,
-    pub angular_upper_limit: F128,
-    pub linear_stiffness: F128,
-    pub angular_stiffness: F128,
+    pub origin: [f32; 4],
+    pub orientation: [f32; 4],
+    pub linear_lower_limit: [f32; 4],
+    pub linear_upper_limit: [f32; 4],
+    pub angular_lower_limit: [f32; 4],
+    pub angular_upper_limit: [f32; 4],
+    pub linear_stiffness: [f32; 4],
+    pub angular_stiffness: [f32; 4],
 }
 
 impl ModelJoint {
