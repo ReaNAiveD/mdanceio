@@ -174,57 +174,41 @@ impl Motion {
     pub fn initialize_model_frame_0(&mut self, model: &Model) {
         for bone in model.bones() {
             if self.find_bone_keyframe(&bone.canonical_name, 0).is_none() {
-                self.opaque
-                    .local_bone_motion_track_bundle
-                    .force_add_keyframe(
-                        MotionBoneKeyframe {
-                            base: MotionKeyframeBase {
-                                index: 0,
-                                frame_index: 0,
-                                is_selected: false,
-                                annotations: HashMap::new(),
-                            },
-                            translation: bone.local_user_translation.extend(1f32).into(),
-                            orientation: bone.local_user_orientation.into(),
-                            interpolation: nanoem::motion::MotionBoneKeyframeInterpolation {
-                                translation_x: Bone::DEFAULT_BEZIER_CONTROL_POINT,
-                                translation_y: Bone::DEFAULT_BEZIER_CONTROL_POINT,
-                                translation_z: Bone::DEFAULT_BEZIER_CONTROL_POINT,
-                                orientation: Bone::DEFAULT_BEZIER_CONTROL_POINT,
-                            },
-                            bone_track_id: 0,
-                            stage_index: 0,
-                            is_physics_simulation_enabled: true,
+                let _ = self.opaque.local_bone_motion_track_bundle.insert_keyframe(
+                    MotionBoneKeyframe {
+                        base: MotionKeyframeBase {
+                            frame_index: 0,
+                            annotations: HashMap::new(),
                         },
-                        0,
-                        &bone.canonical_name,
-                    );
+                        translation: bone.local_user_translation.extend(1f32).into(),
+                        orientation: bone.local_user_orientation.into(),
+                        interpolation: nanoem::motion::MotionBoneKeyframeInterpolation {
+                            translation_x: Bone::DEFAULT_BEZIER_CONTROL_POINT,
+                            translation_y: Bone::DEFAULT_BEZIER_CONTROL_POINT,
+                            translation_z: Bone::DEFAULT_BEZIER_CONTROL_POINT,
+                            orientation: Bone::DEFAULT_BEZIER_CONTROL_POINT,
+                        },
+                        stage_index: 0,
+                        is_physics_simulation_enabled: true,
+                    },
+                    &bone.canonical_name,
+                );
             }
         }
-        self.opaque.update_bone_track_index();
-        self.opaque.update_bone_keyframe_sort_index();
         for morph in model.morphs() {
             if self.find_morph_keyframe(&morph.canonical_name, 0).is_none() {
-                self.opaque
-                    .local_morph_motion_track_bundle
-                    .force_add_keyframe(
-                        MotionMorphKeyframe {
-                            base: MotionKeyframeBase {
-                                index: 0,
-                                frame_index: 0,
-                                is_selected: false,
-                                annotations: HashMap::new(),
-                            },
-                            weight: morph.weight(),
-                            morph_track_id: 0,
+                let _ = self.opaque.local_morph_motion_track_bundle.insert_keyframe(
+                    MotionMorphKeyframe {
+                        base: MotionKeyframeBase {
+                            frame_index: 0,
+                            annotations: HashMap::new(),
                         },
-                        0,
-                        &morph.canonical_name,
-                    );
+                        weight: morph.weight(),
+                    },
+                    &morph.canonical_name,
+                );
             }
         }
-        self.opaque.update_morph_track_index();
-        self.opaque.update_morph_keyframe_sort_index();
         if self.find_model_keyframe(0).is_none() {
             let constraint_states = model
                 .constraints()
@@ -245,28 +229,21 @@ impl Motion {
                         })
                 })
                 .collect::<Vec<_>>();
-            if let Ok(_) = self.opaque.add_model_keyframe(
-                MotionModelKeyframe {
-                    base: MotionKeyframeBase {
-                        index: 0,
-                        frame_index: 0,
-                        is_selected: false,
-                        annotations: HashMap::new(),
-                    },
-                    visible: true,
-                    constraint_states,
-                    effect_parameters: vec![],
-                    outside_parents: vec![],
-                    has_edge_option: false,
-                    edge_scale_factor: 1f32,
-                    edge_color: [0f32, 0f32, 0f32, 1f32],
-                    is_add_blending_enabled: false,
-                    is_physics_simulation_enabled: true,
+            let _  = self.opaque.add_model_keyframe(MotionModelKeyframe {
+                base: MotionKeyframeBase {
+                    frame_index: 0,
+                    annotations: HashMap::new(),
                 },
-                0,
-            ) {
-                self.opaque.update_model_keyframe_sort_index();
-            }
+                visible: true,
+                constraint_states,
+                effect_parameters: vec![],
+                outside_parents: vec![],
+                has_edge_option: false,
+                edge_scale_factor: 1f32,
+                edge_color: [0f32, 0f32, 0f32, 1f32],
+                is_add_blending_enabled: false,
+                is_physics_simulation_enabled: true,
+            });
         }
     }
 
@@ -276,67 +253,48 @@ impl Motion {
         active_model: Option<&Model>,
     ) {
         if self.find_camera_keyframe(0).is_none() {
-            if let Ok(_) = self.opaque.add_camera_keyframe(
-                MotionCameraKeyframe {
-                    base: MotionKeyframeBase {
-                        index: 0,
-                        frame_index: 0,
-                        is_selected: false,
-                        annotations: HashMap::new(),
-                    },
-                    look_at: camera.look_at(active_model).extend(0f32).into(),
-                    angle: camera.angle().extend(0f32).into(),
-                    distance: -camera.distance(),
-                    fov: camera.fov(),
-                    interpolation: nanoem::motion::MotionCameraKeyframeInterpolation::default(),
-                    is_perspective_view: camera.is_perspective(),
-                    stage_index: 0,
-                    outside_parent: None,
+            let _ = self.opaque.add_camera_keyframe(MotionCameraKeyframe {
+                base: MotionKeyframeBase {
+                    frame_index: 0,
+                    annotations: HashMap::new(),
                 },
-                0,
-            ) {
-                self.opaque.update_camera_keyframe_sort_index();
-            }
+                look_at: camera.look_at(active_model).extend(0f32).into(),
+                angle: camera.angle().extend(0f32).into(),
+                distance: -camera.distance(),
+                fov: camera.fov(),
+                interpolation: nanoem::motion::MotionCameraKeyframeInterpolation::default(),
+                is_perspective_view: camera.is_perspective(),
+                stage_index: 0,
+                outside_parent: None,
+            });
         }
     }
 
     pub fn initialize_light_frame_0(&mut self, light: &DirectionalLight) {
         if self.find_light_keyframe(0).is_none() {
-            if let Ok(_) = self.opaque.add_light_keyframe(
-                MotionLightKeyframe {
-                    base: MotionKeyframeBase {
-                        index: 0,
-                        frame_index: 0,
-                        is_selected: false,
-                        annotations: HashMap::new(),
-                    },
-                    color: light.color().extend(0f32).into(),
-                    direction: light.direction().extend(0f32).into(),
+            let _ = self.opaque.add_light_keyframe(MotionLightKeyframe {
+                base: MotionKeyframeBase {
+                    frame_index: 0,
+                    annotations: HashMap::new(),
                 },
-                0,
-            ) {
-                self.opaque.update_light_keyframe_sort_index();
-            }
+                color: light.color().extend(0f32).into(),
+                direction: light.direction().extend(0f32).into(),
+            });
         }
     }
 
     pub fn initialize_self_shadow_frame_0(&mut self, shadow: &ShadowCamera) {
         if self.find_self_shadow_keyframe(0).is_none() {
-            if let Ok(_) = self.opaque.add_self_shadow_keyframe(
-                MotionSelfShadowKeyframe {
+            let _ = self
+                .opaque
+                .add_self_shadow_keyframe(MotionSelfShadowKeyframe {
                     base: MotionKeyframeBase {
-                        index: 0,
                         frame_index: 0,
-                        is_selected: false,
                         annotations: HashMap::new(),
                     },
                     distance: shadow.distance(),
                     mode: u32::from(shadow.coverage_mode()) as i32,
-                },
-                0,
-            ) {
-                self.opaque.update_self_shadow_keyframe_sort_index();
-            }
+                });
         }
     }
 
@@ -385,9 +343,8 @@ impl Motion {
             let frame_index = keyframe.frame_index_with_offset(offset);
             let mut n_keyframe = keyframe.clone();
             keyframe.copy_outside_parent(target, &mut n_keyframe);
-            let _ = target.add_accessory_keyframe(n_keyframe, frame_index);
+            let _ = target.add_accessory_keyframe(n_keyframe);
         }
-        target.sort_all_keyframes();
         Ok(())
     }
 
@@ -397,7 +354,10 @@ impl Motion {
         offset: i32,
     ) -> Result<(), Status> {
         Self::copy_all_accessory_keyframes(
-            source.get_all_accessory_keyframe_objects(),
+            &source
+                .get_all_accessory_keyframe_objects()
+                .map(|keyframe| keyframe.clone())
+                .collect::<Vec<_>>(),
             target,
             offset,
         )
@@ -412,7 +372,7 @@ impl Motion {
         offset: i32,
     ) -> Result<(), Status> {
         for keyframe in keyframes {
-            let name = keyframe.get_name(parent_motion);
+            // let name = keyframe.get_name(parent_motion);
             // TODO: unfinished
         }
         Ok(())
@@ -562,32 +522,27 @@ impl Motion {
         model: &mut Model,
         updaters: &mut [BoneKeyframeUpdater],
     ) {
+        let last_duration = self.duration();
         for updater in updaters {
-            let old = self.opaque
-                .local_bone_motion_track_bundle
-                .force_add_keyframe(
-                    MotionBoneKeyframe {
-                        base: MotionKeyframeBase {
-                            index: 0,
-                            frame_index: updater.frame_index,
-                            is_selected: false,
-                            annotations: HashMap::new(),
-                        },
-                        translation: updater.state.0.translation.into(),
-                        orientation: updater.state.0.orientation.into(),
-                        interpolation: MotionBoneKeyframeInterpolation {
-                            translation_x: updater.state.0.bezier_param.translation_x.into(),
-                            translation_y: updater.state.0.bezier_param.translation_y.into(),
-                            translation_z: updater.state.0.bezier_param.translation_z.into(),
-                            orientation: updater.state.0.bezier_param.orientation.into(),
-                        },
-                        bone_track_id: 0,
-                        stage_index: updater.state.0.stage_index,
-                        is_physics_simulation_enabled: updater.state.0.enable_physics_simulation,
+            let old = self.opaque.local_bone_motion_track_bundle.insert_keyframe(
+                MotionBoneKeyframe {
+                    base: MotionKeyframeBase {
+                        frame_index: updater.frame_index,
+                        annotations: HashMap::new(),
                     },
-                    updater.frame_index,
-                    &updater.name,
-                );
+                    translation: updater.state.0.translation.into(),
+                    orientation: updater.state.0.orientation.into(),
+                    interpolation: MotionBoneKeyframeInterpolation {
+                        translation_x: updater.state.0.bezier_param.translation_x.into(),
+                        translation_y: updater.state.0.bezier_param.translation_y.into(),
+                        translation_z: updater.state.0.bezier_param.translation_z.into(),
+                        orientation: updater.state.0.bezier_param.orientation.into(),
+                    },
+                    stage_index: updater.state.0.stage_index,
+                    is_physics_simulation_enabled: updater.state.0.enable_physics_simulation,
+                },
+                &updater.name,
+            );
             if old.is_none() && updater.updated() {
                 log::warn!("No existing keyframe when update bone keyframe")
             }
@@ -601,11 +556,7 @@ impl Motion {
                 }
             }
         }
-        self.opaque.update_bone_track_index();
-        self.opaque.update_bone_keyframe_sort_index();
         self.set_dirty(true);
-        let last_duration = self.duration();
-        self.opaque.sort_all_keyframes();
         let current_duration = self.duration();
         if last_duration != current_duration {
             // TODO: publish duration updated event
@@ -622,7 +573,7 @@ impl Motion {
 
     pub fn duration(&self) -> u32 {
         self.opaque
-            .get_max_frame_index()
+            .max_frame_index()
             .min(Project::MAXIMUM_BASE_DURATION)
     }
 
@@ -804,11 +755,10 @@ impl Merger<'_, '_> {
                 .find_bone_keyframe_object(name, frame_index)
                 .is_none()
         {
-            let _ = self.dest.local_bone_motion_track_bundle.force_add_keyframe(
-                new_frame,
-                frame_index,
-                &new_name,
-            );
+            let _ = self
+                .dest
+                .local_bone_motion_track_bundle
+                .insert_keyframe(new_frame, &new_name);
         }
     }
 
@@ -825,49 +775,35 @@ impl Merger<'_, '_> {
                 );
             }
         }
-        self.dest.update_bone_keyframe_sort_index();
     }
 
     pub fn merge_all_camera_keyframes(&mut self) {
-        for keyframe in &self.source.camera_keyframes {
-            if self.overrid {
-                let _ = self
+        for (frame_index, keyframe) in &self.source.camera_keyframes.keyframes {
+            if self.overrid
+                || self
                     .dest
-                    .remove_camera_keyframe_object(keyframe.base.frame_index);
+                    .find_camera_keyframe_object(*frame_index)
+                    .is_none()
+            {
+                let _ = self.dest.add_camera_keyframe(keyframe.clone());
             }
-            let _ = self
-                .dest
-                .add_camera_keyframe(keyframe.clone(), keyframe.base.frame_index);
         }
-        self.dest.update_camera_keyframe_sort_index();
     }
 
     pub fn merge_all_light_keyframes(&mut self) {
-        for keyframe in &self.source.light_keyframes {
-            if self.overrid {
-                let _ = self
-                    .dest
-                    .remove_light_keyframe_object(keyframe.base.frame_index);
+        for (frame_index, keyframe) in &self.source.light_keyframes.keyframes {
+            if self.overrid || self.dest.find_light_keyframe_object(*frame_index).is_none() {
+                let _ = self.dest.add_light_keyframe(keyframe.clone());
             }
-            let _ = self
-                .dest
-                .add_light_keyframe(keyframe.clone(), keyframe.base.frame_index);
         }
-        self.dest.update_light_keyframe_sort_index();
     }
 
     pub fn merge_all_model_keyframes(&mut self) {
-        for keyframe in &self.source.model_keyframes {
-            if self.overrid {
-                let _ = self
-                    .dest
-                    .remove_model_keyframe_object(keyframe.base.frame_index);
+        for (frame_index, keyframe) in &self.source.model_keyframes.keyframes {
+            if self.overrid || self.dest.find_model_keyframe_object(*frame_index).is_none() {
+                let _ = self.dest.add_model_keyframe(keyframe.clone());
             }
-            let _ = self
-                .dest
-                .add_model_keyframe(keyframe.clone(), keyframe.base.frame_index);
         }
-        self.dest.update_model_keyframe_sort_index();
     }
 
     pub fn merge_all_morph_keyframes(&mut self) {
@@ -881,25 +817,23 @@ impl Merger<'_, '_> {
                 {
                     self.dest
                         .local_morph_motion_track_bundle
-                        .force_add_keyframe(keyframe.clone(), *frame_index, name);
+                        .insert_keyframe(keyframe.clone(), name);
                 }
             }
         }
-        self.dest.update_morph_keyframe_sort_index();
     }
 
     pub fn merge_all_self_shadow_keyframes(&mut self) {
-        for keyframe in &self.source.self_shadow_keyframes {
-            if self.overrid {
-                let _ = self
+        for (frame_index, keyframe) in &self.source.self_shadow_keyframes.keyframes {
+            if self.overrid
+                || self
                     .dest
-                    .remove_self_shadow_keyframe_object(keyframe.base.frame_index);
+                    .find_self_shadow_keyframe_object(*frame_index)
+                    .is_none()
+            {
+                let _ = self.dest.add_self_shadow_keyframe(keyframe.clone());
             }
-            let _ = self
-                .dest
-                .add_self_shadow_keyframe(keyframe.clone(), keyframe.base.frame_index);
         }
-        self.dest.update_self_shadow_keyframe_sort_index();
     }
 }
 

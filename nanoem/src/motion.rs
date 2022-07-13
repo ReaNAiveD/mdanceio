@@ -46,6 +46,78 @@ where
             ),
         }
     }
+
+    /// Insert a Keyframe into the track without keeping ordered_frame_index sort.
+    ///
+    /// # Argument
+    ///
+    /// * `keyframe` - The keyframe to be inserted. The `frame_index` of keyframe will be used as hash key.
+    /// * `force` - If force, we will replace old keyframe when `frame_index` conflicts.
+    ///
+    /// # Return
+    ///
+    /// Return a `Err(Status::ErrorMotionCameraKeyframeAlreadyExists)` when conflicting and not force.
+    /// Otherwise return a Ok with replaced keyframe.
+    fn insert_keyframe_no_sort(&mut self, keyframe: K, force: bool) -> Result<Option<K>, Status> {
+        let frame_index = keyframe.frame_index();
+        if !force && self.keyframes.contains_key(&frame_index) {
+            return Err(Status::ErrorMotionCameraKeyframeAlreadyExists);
+        }
+        let old = self.keyframes.insert(frame_index, keyframe);
+        if let None = old {
+            self.ordered_frame_index.push(frame_index);
+        }
+        Ok(old)
+    }
+
+    pub fn insert_keyframe(&mut self, keyframe: K) -> Option<K> {
+        let frame_index = keyframe.frame_index();
+        let old = self.keyframes.insert(frame_index, keyframe);
+        if let None = old {
+            let pos = self
+                .ordered_frame_index
+                .binary_search(&frame_index)
+                .unwrap_or_else(|e| e);
+            self.ordered_frame_index.insert(pos, frame_index);
+        }
+        old
+    }
+
+    pub fn remove_keyframe(&mut self, frame_index: u32) -> Option<K> {
+        if let Ok(index) = self.ordered_frame_index.binary_search(&frame_index) {
+            self.ordered_frame_index.remove(index);
+        }
+        self.keyframes.remove(&frame_index)
+    }
+}
+
+impl<K> MotionTrack<K> {
+    pub fn new(name: &str, id: i32) -> Self {
+        Self {
+            id,
+            name: name.to_owned(),
+            keyframes: HashMap::new(),
+            ordered_frame_index: vec![],
+        }
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &K> + '_ {
+        self.ordered_frame_index
+            .iter()
+            .filter_map(|frame_index| self.keyframes.get(frame_index))
+    }
+
+    fn sort(&mut self) {
+        self.ordered_frame_index.sort();
+    }
+
+    pub fn max_frame_index(&self) -> Option<u32> {
+        self.ordered_frame_index.last().map(|index| *index)
+    }
+
+    pub fn len(&self) -> usize {
+        self.keyframes.len()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -138,44 +210,6 @@ impl<K> MotionTrackBundle<K> {
             .id
     }
 
-    fn add_keyframe(&mut self, keyframe: K, frame_index: u32, track_name: &str) {
-        if let Some(track) = self.get_mut_by_name(track_name) {
-            if let None = track.keyframes.insert(frame_index, keyframe) {
-                let pos = track
-                    .ordered_frame_index
-                    .binary_search(&frame_index)
-                    .unwrap_or_else(|e| e);
-                track.ordered_frame_index.insert(pos, frame_index);
-            }
-        }
-    }
-
-    pub fn force_add_keyframe(
-        &mut self,
-        keyframe: K,
-        frame_index: u32,
-        track_name: &str,
-    ) -> Option<K> {
-        let track = self
-            .tracks
-            .entry(track_name.to_owned())
-            .or_insert(MotionTrack {
-                id: self.allocator.next(),
-                name: track_name.to_string(),
-                keyframes: HashMap::new(),
-                ordered_frame_index: vec![],
-            });
-        let old = track.keyframes.insert(frame_index, keyframe);
-        if let None = old {
-            let pos = track
-                .ordered_frame_index
-                .binary_search(&frame_index)
-                .unwrap_or_else(|e| e);
-            track.ordered_frame_index.insert(pos, frame_index);
-        };
-        old
-    }
-
     fn remove_keyframe(&mut self, frame_index: u32, name: &str) {
         if let Some(track) = self.get_mut_by_name(name) {
             if let Some(_) = track.keyframes.remove(&frame_index) {
@@ -188,9 +222,24 @@ impl<K> MotionTrackBundle<K> {
         }
     }
 
+    fn sort(&mut self) {
+        for (_, track) in &mut self.tracks {
+            track.sort();
+        }
+    }
+
     fn clear(&mut self) {
         self.allocator.clear();
         self.tracks = HashMap::new();
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&K, String)> + '_ {
+        self.tracks.iter().flat_map(|(name, track)| {
+            track
+                .keyframes
+                .iter()
+                .map(|(_, keyframe)| (keyframe, name.to_owned()))
+        })
     }
 
     pub fn find_keyframes_map(&self, track_name: &str) -> Option<&HashMap<u32, K>> {
@@ -206,15 +255,6 @@ impl<K> MotionTrackBundle<K>
 where
     K: Keyframe,
 {
-    pub fn iter(&self) -> TrackBundleIter<K> {
-        TrackBundleIter {
-            tracks: &self.tracks,
-            next: self.tracks.keys().map(|s| (s.clone(), 0)).collect(),
-            keys: self.tracks.keys().map(|s| s.clone()).collect(),
-            key_index: 0,
-        }
-    }
-
     pub fn max_frame_index(&self) -> Option<u32> {
         self.tracks
             .values()
@@ -222,64 +262,47 @@ where
             .max()
             .map(|n| *n)
     }
-}
 
-// TODO: 需要更快的有序迭代解决方案
-pub struct TrackBundleIter<'a, K: Keyframe> {
-    tracks: &'a HashMap<String, MotionTrack<K>>,
-    next: HashMap<String, usize>,
-    keys: Vec<String>,
-    key_index: usize,
-}
-
-impl<'a, K> Iterator for TrackBundleIter<'a, K>
-where
-    K: Keyframe,
-{
-    type Item = &'a K;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let frame_min_index = self
-            .keys
-            .iter()
-            .enumerate()
-            .map(|(key_index, key)| {
-                self.tracks.get(key).and_then(|track| {
-                    self.next
-                        .get(key)
-                        .and_then(|idx| track.ordered_frame_index.get(*idx))
-                        .and_then(|f_idx| track.keyframes.get(f_idx))
-                        .map(|keyframe| (key_index, keyframe.frame_index()))
-                })
-            })
-            .filter(|o| o.is_some())
-            .map(|o| o.unwrap())
-            .min_by_key(|(key_index, frame_index)| {
-                (
-                    *frame_index,
-                    if *key_index < self.key_index {
-                        *key_index + self.keys.len()
-                    } else {
-                        *key_index
-                    },
-                )
+    /// Insert a Keyframe into the track without keeping ordered_frame_index sort.
+    ///
+    /// # Argument
+    ///
+    /// * `keyframe` - The keyframe to be inserted. The `frame_index` of keyframe will be used as hash key.
+    /// * `force` - If force, we will replace old keyframe when `frame_index` conflicts.
+    ///
+    /// # Return
+    ///
+    /// Return a `Err(Status::ErrorMotionCameraKeyframeAlreadyExists)` when conflicting and not force.
+    /// Otherwise return a Ok with replaced keyframe.
+    fn insert_keyframe_no_sort(
+        &mut self,
+        keyframe: K,
+        track_name: &str,
+        force: bool,
+    ) -> Result<Option<K>, Status> {
+        let track = self
+            .tracks
+            .entry(track_name.to_owned())
+            .or_insert(MotionTrack {
+                id: self.allocator.next(),
+                name: track_name.to_string(),
+                keyframes: HashMap::new(),
+                ordered_frame_index: vec![],
             });
-        if let Some((key_index, min_index)) = frame_min_index {
-            self.key_index = key_index;
-            self.keys.get(key_index).and_then(|key| {
-                self.tracks.get(key).and_then(|track| {
-                    self.next.get_mut(key).and_then(|idx| {
-                        *idx += 1;
-                        track
-                            .ordered_frame_index
-                            .get(*idx - 1)
-                            .and_then(|f_idx| track.keyframes.get(f_idx))
-                    })
-                })
-            })
-        } else {
-            None
-        }
+        track.insert_keyframe_no_sort(keyframe, force)
+    }
+
+    pub fn insert_keyframe(&mut self, keyframe: K, track_name: &str) -> Option<K> {
+        let track = self
+            .tracks
+            .entry(track_name.to_owned())
+            .or_insert(MotionTrack {
+                id: self.allocator.next(),
+                name: track_name.to_string(),
+                keyframes: HashMap::new(),
+                ordered_frame_index: vec![],
+            });
+        track.insert_keyframe(keyframe)
     }
 }
 
@@ -310,16 +333,15 @@ impl Default for MotionFormatType {
 pub struct Motion {
     pub annotations: HashMap<String, String>,
     pub target_model_name: String,
-    pub accessory_keyframes: Vec<MotionAccessoryKeyframe>,
-    pub camera_keyframes: Vec<MotionCameraKeyframe>,
-    pub light_keyframes: Vec<MotionLightKeyframe>,
-    pub model_keyframes: Vec<MotionModelKeyframe>,
-    pub self_shadow_keyframes: Vec<MotionSelfShadowKeyframe>,
+    pub accessory_keyframes: MotionTrack<MotionAccessoryKeyframe>,
+    pub camera_keyframes: MotionTrack<MotionCameraKeyframe>,
+    pub light_keyframes: MotionTrack<MotionLightKeyframe>,
+    pub model_keyframes: MotionTrack<MotionModelKeyframe>,
+    pub self_shadow_keyframes: MotionTrack<MotionSelfShadowKeyframe>,
     pub local_bone_motion_track_bundle: MotionTrackBundle<MotionBoneKeyframe>,
     pub local_morph_motion_track_bundle: MotionTrackBundle<MotionMorphKeyframe>,
     pub global_motion_track_bundle: MotionTrackBundle<()>, // 这个是用于NMD的
     pub typ: MotionFormatType,
-    pub max_frame_index: u32,
     pub preferred_fps: f32,
 }
 
@@ -334,16 +356,15 @@ impl Motion {
         Self {
             annotations: HashMap::new(),
             target_model_name: "".to_owned(),
-            accessory_keyframes: vec![],
-            camera_keyframes: vec![],
-            light_keyframes: vec![],
-            model_keyframes: vec![],
-            self_shadow_keyframes: vec![],
+            accessory_keyframes: MotionTrack::new("accessory", 0),
+            camera_keyframes: MotionTrack::new("camera", 0),
+            light_keyframes: MotionTrack::new("light", 0),
+            model_keyframes: MotionTrack::new("model", 0),
+            self_shadow_keyframes: MotionTrack::new("self_shadow", 0),
             local_bone_motion_track_bundle: MotionTrackBundle::new(),
             local_morph_motion_track_bundle: MotionTrackBundle::new(),
             global_motion_track_bundle: MotionTrackBundle::new(),
             typ: MotionFormatType::Unknown,
-            max_frame_index: 0,
             preferred_fps: 30f32,
         }
     }
@@ -362,12 +383,6 @@ impl Motion {
         self.global_motion_track_bundle.resolve_name_or_new(name)
     }
 
-    fn set_max_frame_index(&mut self, base: &MotionKeyframeBase) {
-        if base.frame_index > self.max_frame_index {
-            self.max_frame_index = base.frame_index;
-        }
-    }
-
     pub fn load_from_buffer(buffer: &mut Buffer, offset: u32) -> Result<Self, Status> {
         Self::load_from_buffer_vmd(buffer, offset)
     }
@@ -376,16 +391,15 @@ impl Motion {
         let mut motion = Self {
             annotations: HashMap::new(),
             target_model_name: "".to_owned(),
-            accessory_keyframes: vec![],
-            camera_keyframes: vec![],
-            light_keyframes: vec![],
-            model_keyframes: vec![],
-            self_shadow_keyframes: vec![],
+            accessory_keyframes: MotionTrack::new("accessory", 0),
+            camera_keyframes: MotionTrack::new("camera", 0),
+            light_keyframes: MotionTrack::new("light", 0),
+            model_keyframes: MotionTrack::new("model", 0),
+            self_shadow_keyframes: MotionTrack::new("self_shadow", 0),
             local_bone_motion_track_bundle: MotionTrackBundle::new(),
             local_morph_motion_track_bundle: MotionTrackBundle::new(),
             global_motion_track_bundle: MotionTrackBundle::new(),
             typ: MotionFormatType::Unknown,
-            max_frame_index: 0,
             preferred_fps: 30f32,
         };
         let sig = buffer.read_buffer(Self::VMD_SIGNATURE_SIZE)?;
@@ -419,22 +433,18 @@ impl Motion {
         self.local_morph_motion_track_bundle =
             Self::parse_morph_keyframe_block_vmd(buffer, offset)?;
         if buffer.is_end() {
-            self.update_max_frame_index();
             return Ok(());
         }
         self.camera_keyframes = Self::parse_camera_keyframe_block_vmd(buffer, offset)?;
         if buffer.is_end() {
-            self.update_max_frame_index();
             return Ok(());
         }
         self.light_keyframes = Self::parse_light_keyframe_block_vmd(buffer, offset)?;
         if buffer.is_end() {
-            self.update_max_frame_index();
             return Ok(());
         }
         self.self_shadow_keyframes = Self::parse_self_shadow_keyframe_block_vmd(buffer, offset)?;
         if buffer.is_end() {
-            self.update_max_frame_index();
             return Ok(());
         }
         self.model_keyframes = Self::parse_model_keyframe_block_vmd(
@@ -442,7 +452,6 @@ impl Motion {
             offset,
             &mut self.local_bone_motion_track_bundle,
         )?;
-        self.update_max_frame_index();
         if buffer.is_end() {
             return Ok(());
         } else {
@@ -460,12 +469,10 @@ impl Motion {
             local_bone_motion_track_bundle.clear();
             for i in 0..num_bone_keyframes {
                 let (mut keyframe, bone_name) = MotionBoneKeyframe::parse_vmd(buffer, offset)?;
-                keyframe.base.index = i;
-                let track_id = local_bone_motion_track_bundle.resolve_name_or_new(&bone_name);
-                keyframe.bone_track_id = track_id;
-                let frame_index = keyframe.base.frame_index;
-                local_bone_motion_track_bundle.add_keyframe(keyframe, frame_index, &bone_name);
+                local_bone_motion_track_bundle
+                    .insert_keyframe_no_sort(keyframe, &bone_name, false)?;
             }
+            local_bone_motion_track_bundle.sort();
         }
         Ok(local_bone_motion_track_bundle)
     }
@@ -479,12 +486,13 @@ impl Motion {
         if num_morph_keyframes > 0 {
             for i in 0..num_morph_keyframes {
                 let (mut keyframe, morph_name) = MotionMorphKeyframe::parse_vmd(buffer, offset)?;
-                keyframe.base.index = i;
-                let track_id = local_morph_motion_track_bundle.resolve_name_or_new(&morph_name);
-                keyframe.morph_track_id = track_id;
-                let frame_index = keyframe.base.frame_index;
-                local_morph_motion_track_bundle.add_keyframe(keyframe, frame_index, &morph_name);
+                local_morph_motion_track_bundle.insert_keyframe_no_sort(
+                    keyframe,
+                    &morph_name,
+                    false,
+                )?;
             }
+            local_morph_motion_track_bundle.sort();
         }
         Ok(local_morph_motion_track_bundle)
     }
@@ -492,16 +500,15 @@ impl Motion {
     fn parse_camera_keyframe_block_vmd(
         buffer: &mut Buffer,
         offset: u32,
-    ) -> Result<Vec<MotionCameraKeyframe>, Status> {
+    ) -> Result<MotionTrack<MotionCameraKeyframe>, Status> {
         let num_camera_keyframes = buffer.read_len()?;
-        let mut camera_keyframes = vec![];
+        let mut camera_keyframes = MotionTrack::new("camera", 0);
         if num_camera_keyframes > 0 {
             for i in 0..num_camera_keyframes {
-                let mut keyframe = MotionCameraKeyframe::parse_vmd(buffer, offset)?;
-                keyframe.base.index = i;
-                camera_keyframes.push(keyframe);
+                let keyframe = MotionCameraKeyframe::parse_vmd(buffer, offset)?;
+                camera_keyframes.insert_keyframe_no_sort(keyframe, false)?;
             }
-            camera_keyframes.sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
+            camera_keyframes.sort();
         }
         Ok(camera_keyframes)
     }
@@ -509,16 +516,15 @@ impl Motion {
     fn parse_light_keyframe_block_vmd(
         buffer: &mut Buffer,
         offset: u32,
-    ) -> Result<Vec<MotionLightKeyframe>, Status> {
+    ) -> Result<MotionTrack<MotionLightKeyframe>, Status> {
         let num_light_keyframes = buffer.read_len()?;
-        let mut light_keyframes = vec![];
+        let mut light_keyframes = MotionTrack::new("light", 0);
         if num_light_keyframes > 0 {
             for i in 0..num_light_keyframes {
                 let mut keyframe = MotionLightKeyframe::parse_vmd(buffer, offset)?;
-                keyframe.base.index = i;
-                light_keyframes.push(keyframe);
+                light_keyframes.insert_keyframe_no_sort(keyframe, false)?;
             }
-            light_keyframes.sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base))
+            light_keyframes.sort();
         }
         Ok(light_keyframes)
     }
@@ -526,16 +532,15 @@ impl Motion {
     fn parse_self_shadow_keyframe_block_vmd(
         buffer: &mut Buffer,
         offset: u32,
-    ) -> Result<Vec<MotionSelfShadowKeyframe>, Status> {
+    ) -> Result<MotionTrack<MotionSelfShadowKeyframe>, Status> {
         let num_self_shadow_keyframes = buffer.read_len()?;
-        let mut self_shadow_keyframes = vec![];
+        let mut self_shadow_keyframes = MotionTrack::new("self_shadow", 0);
         if num_self_shadow_keyframes > 0 {
             for i in 0..num_self_shadow_keyframes {
                 let mut keyframe = MotionSelfShadowKeyframe::parse_vmd(buffer, offset)?;
-                keyframe.base.index = i;
-                self_shadow_keyframes.push(keyframe);
+                self_shadow_keyframes.insert_keyframe_no_sort(keyframe, false)?;
             }
-            self_shadow_keyframes.sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base))
+            self_shadow_keyframes.sort();
         }
         Ok(self_shadow_keyframes)
     }
@@ -544,55 +549,18 @@ impl Motion {
         buffer: &mut Buffer,
         offset: u32,
         local_bone_track: &mut MotionTrackBundle<MotionBoneKeyframe>,
-    ) -> Result<Vec<MotionModelKeyframe>, Status> {
+    ) -> Result<MotionTrack<MotionModelKeyframe>, Status> {
         let num_model_keyframes = buffer.read_len()?;
-        let mut model_keyframes = vec![];
+        let mut model_keyframes = MotionTrack::new("model", 0);
         if num_model_keyframes > 0 {
             for i in 0..num_model_keyframes {
                 let mut keyframe =
                     MotionModelKeyframe::parse_vmd(buffer, offset, local_bone_track)?;
-                keyframe.base.index = i;
-                model_keyframes.push(keyframe);
+                model_keyframes.insert_keyframe_no_sort(keyframe, false)?;
             }
-            model_keyframes.sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base))
+            model_keyframes.sort();
         }
         Ok(model_keyframes)
-    }
-
-    fn update_max_frame_index(&mut self) {
-        self.max_frame_index = self
-            .local_bone_motion_track_bundle
-            .max_frame_index()
-            .unwrap_or(0)
-            .max(
-                self.local_morph_motion_track_bundle
-                    .max_frame_index()
-                    .unwrap_or(0),
-            )
-            .max(
-                self.camera_keyframes
-                    .last()
-                    .map(|keyframe| keyframe.base.frame_index)
-                    .unwrap_or(0),
-            )
-            .max(
-                self.light_keyframes
-                    .last()
-                    .map(|keyframe| keyframe.base.frame_index)
-                    .unwrap_or(0),
-            )
-            .max(
-                self.self_shadow_keyframes
-                    .last()
-                    .map(|keyframe| keyframe.base.frame_index)
-                    .unwrap_or(0),
-            )
-            .max(
-                self.model_keyframes
-                    .last()
-                    .map(|keyframe| keyframe.base.frame_index)
-                    .unwrap_or(0),
-            )
     }
 
     pub fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
@@ -624,8 +592,8 @@ impl Motion {
         buffer: &mut MutableBuffer,
     ) -> Result<(), Status> {
         buffer.write_u32_little_endian(self.local_bone_motion_track_bundle.keyframe_len() as u32)?;
-        for keyframe in self.local_bone_motion_track_bundle.iter() {
-            keyframe.save_to_buffer(&self.local_bone_motion_track_bundle, buffer)?;
+        for (keyframe, bone_name) in self.local_bone_motion_track_bundle.iter() {
+            keyframe.save_to_buffer(&bone_name, buffer)?;
         }
         Ok(())
     }
@@ -636,8 +604,8 @@ impl Motion {
     ) -> Result<(), Status> {
         buffer
             .write_u32_little_endian(self.local_morph_motion_track_bundle.keyframe_len() as u32)?;
-        for keyframe in self.local_morph_motion_track_bundle.iter() {
-            keyframe.save_to_buffer(&self.local_morph_motion_track_bundle, buffer)?;
+        for (keyframe, morph_name) in self.local_morph_motion_track_bundle.iter() {
+            keyframe.save_to_buffer(&morph_name, buffer)?;
         }
         Ok(())
     }
@@ -647,7 +615,7 @@ impl Motion {
         buffer: &mut MutableBuffer,
     ) -> Result<(), Status> {
         buffer.write_u32_little_endian(self.camera_keyframes.len() as u32)?;
-        for keyframe in &self.camera_keyframes {
+        for keyframe in self.camera_keyframes.iter() {
             keyframe.save_to_buffer(buffer)?;
         }
         Ok(())
@@ -658,7 +626,7 @@ impl Motion {
         buffer: &mut MutableBuffer,
     ) -> Result<(), Status> {
         buffer.write_u32_little_endian(self.light_keyframes.len() as u32)?;
-        for keyframe in &self.light_keyframes {
+        for keyframe in self.light_keyframes.iter() {
             keyframe.save_to_buffer(buffer)?;
         }
         Ok(())
@@ -669,7 +637,7 @@ impl Motion {
         buffer: &mut MutableBuffer,
     ) -> Result<(), Status> {
         buffer.write_u32_little_endian(self.self_shadow_keyframes.len() as u32)?;
-        for keyframe in &self.self_shadow_keyframes {
+        for keyframe in self.self_shadow_keyframes.iter() {
             keyframe.save_to_buffer(buffer)?;
         }
         Ok(())
@@ -680,7 +648,7 @@ impl Motion {
         buffer: &mut MutableBuffer,
     ) -> Result<(), Status> {
         buffer.write_u32_little_endian(self.model_keyframes.len() as u32)?;
-        for keyframe in &self.model_keyframes {
+        for keyframe in self.model_keyframes.iter() {
             keyframe.save_to_buffer(&self.local_bone_motion_track_bundle, buffer)?;
         }
         Ok(())
@@ -696,47 +664,7 @@ impl Motion {
 macro_rules! search_closest {
     ($fn_name: ident, $field_name: ident, $typ: ty) => {
         pub fn $fn_name(&self, base_index: u32) -> (Option<&$typ>, Option<&$typ>) {
-            let mut prev_keyframe: Option<&$typ> = None;
-            let mut next_keyframe: Option<&$typ> = None;
-            let mut last_keyframe: Option<&$typ> = None;
-            let mut prev_nearest: u32 = u32::MAX;
-            let mut next_nearest: u32 = u32::MAX;
-            for keyframe in &self.$field_name {
-                let frame_index = keyframe.base.frame_index;
-                if base_index > frame_index && base_index - prev_nearest > base_index - frame_index
-                {
-                    prev_nearest = frame_index;
-                    prev_keyframe = Some(keyframe)
-                } else if base_index < frame_index
-                    && next_nearest - base_index > frame_index - base_index
-                {
-                    next_nearest = frame_index;
-                    next_keyframe = Some(keyframe);
-                } else if last_keyframe.is_none()
-                    || frame_index > last_keyframe.unwrap().base.frame_index
-                {
-                    last_keyframe = Some(keyframe);
-                }
-            }
-            (
-                prev_keyframe,
-                if next_keyframe.is_some() {
-                    next_keyframe
-                } else {
-                    last_keyframe
-                },
-            )
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! update_sort_index {
-    ($fn_name: ident, $field_name: ident) => {
-        pub fn $fn_name(&mut self) {
-            for (idx, keyframe) in self.$field_name.iter_mut().enumerate() {
-                keyframe.base.index = idx;
-            }
+            self.$field_name.search_closest(base_index)
         }
     };
 }
@@ -750,40 +678,59 @@ impl Motion {
         &self.target_model_name
     }
 
-    pub fn get_max_frame_index(&self) -> u32 {
-        self.max_frame_index
+    pub fn max_frame_index(&self) -> u32 {
+        self.local_bone_motion_track_bundle
+            .max_frame_index()
+            .unwrap_or(0)
+            .max(
+                self.local_morph_motion_track_bundle
+                    .max_frame_index()
+                    .unwrap_or(0),
+            )
+            .max(self.camera_keyframes.max_frame_index().unwrap_or(0))
+            .max(self.light_keyframes.max_frame_index().unwrap_or(0))
+            .max(self.self_shadow_keyframes.max_frame_index().unwrap_or(0))
+            .max(self.model_keyframes.max_frame_index().unwrap_or(0))
     }
 
     pub fn get_annotation(&self, key: &str) -> Option<&String> {
         self.annotations.get(key)
     }
 
-    pub fn get_all_accessory_keyframe_objects(&self) -> &Vec<MotionAccessoryKeyframe> {
-        &self.accessory_keyframes
+    pub fn get_all_accessory_keyframe_objects(
+        &self,
+    ) -> impl Iterator<Item = &MotionAccessoryKeyframe> {
+        self.accessory_keyframes.iter()
     }
 
-    pub fn get_all_bone_keyframe_objects(&self) -> impl Iterator<Item = &MotionBoneKeyframe> {
+    pub fn get_all_bone_keyframe_objects(
+        &self,
+    ) -> impl Iterator<Item = (&MotionBoneKeyframe, String)> {
         self.local_bone_motion_track_bundle.iter()
     }
 
-    pub fn get_all_camera_keyframe_objects(&self) -> &Vec<MotionCameraKeyframe> {
-        &self.camera_keyframes
+    pub fn get_all_camera_keyframe_objects(&self) -> impl Iterator<Item = &MotionCameraKeyframe> {
+        self.camera_keyframes.iter()
     }
 
-    pub fn get_all_light_keyframe_objects(&self) -> &Vec<MotionLightKeyframe> {
-        &self.light_keyframes
+    pub fn get_all_light_keyframe_objects(&self) -> impl Iterator<Item = &MotionLightKeyframe> {
+        self.light_keyframes.iter()
     }
 
-    pub fn get_all_motion_keyframe_objects(&self) -> &Vec<MotionModelKeyframe> {
-        &self.model_keyframes
+    pub fn get_all_motion_keyframe_objects(&self) -> impl Iterator<Item = &MotionModelKeyframe> {
+        self.model_keyframes.iter()
     }
 
-    pub fn get_all_morph_keyframe_objects(&self) -> impl Iterator<Item = &MotionMorphKeyframe> {
+    pub fn get_all_morph_keyframe_objects(
+        &self,
+    ) -> impl Iterator<Item = (&MotionMorphKeyframe, String)> {
         self.local_morph_motion_track_bundle.iter()
     }
 
-    pub fn get_all_self_shadow_keyframe_objects(&self) -> &Vec<MotionSelfShadowKeyframe> {
-        &self.self_shadow_keyframes
+    pub fn get_all_self_shadow_keyframe_objects(
+        &self,
+    ) -> impl Iterator<Item = &MotionSelfShadowKeyframe> {
+        self.self_shadow_keyframes.iter()
     }
 
     pub fn extract_bone_track_keyframes(
@@ -812,10 +759,7 @@ impl Motion {
     }
 
     pub fn find_accessory_keyframe_object(&self, index: u32) -> Option<&MotionAccessoryKeyframe> {
-        self.accessory_keyframes
-            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
-            .ok()
-            .and_then(|index| self.accessory_keyframes.get(index))
+        self.accessory_keyframes.keyframes.get(&index)
     }
 
     pub fn find_bone_keyframe_object(&self, name: &str, index: u32) -> Option<&MotionBoneKeyframe> {
@@ -826,46 +770,37 @@ impl Motion {
         }
     }
 
-    pub fn find_camera_keyframe_object(&self, index: u32) -> Option<&MotionCameraKeyframe> {
-        self.camera_keyframes
-            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
-            .ok()
-            .and_then(|index| self.camera_keyframes.get(index))
+    pub fn find_camera_keyframe_object(&self, frame_index: u32) -> Option<&MotionCameraKeyframe> {
+        self.camera_keyframes.keyframes.get(&frame_index)
     }
 
-    pub fn remove_camera_keyframe_object(&mut self, index: u32) -> Option<MotionCameraKeyframe> {
-        self.camera_keyframes
-            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
-            .ok()
-            .map(|idx| self.camera_keyframes.remove(idx))
+    pub fn remove_camera_keyframe_object(
+        &mut self,
+        frame_index: u32,
+    ) -> Option<MotionCameraKeyframe> {
+        self.camera_keyframes.remove_keyframe(frame_index)
     }
 
-    pub fn find_light_keyframe_object(&self, index: u32) -> Option<&MotionLightKeyframe> {
-        self.light_keyframes
-            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
-            .ok()
-            .and_then(|index| self.light_keyframes.get(index))
+    pub fn find_light_keyframe_object(&self, frame_index: u32) -> Option<&MotionLightKeyframe> {
+        self.light_keyframes.keyframes.get(&frame_index)
     }
 
-    pub fn remove_light_keyframe_object(&mut self, index: u32) -> Option<MotionLightKeyframe> {
-        self.light_keyframes
-            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
-            .ok()
-            .map(|idx| self.light_keyframes.remove(idx))
+    pub fn remove_light_keyframe_object(
+        &mut self,
+        frame_index: u32,
+    ) -> Option<MotionLightKeyframe> {
+        self.light_keyframes.remove_keyframe(frame_index)
     }
 
-    pub fn find_model_keyframe_object(&self, index: u32) -> Option<&MotionModelKeyframe> {
-        self.model_keyframes
-            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
-            .ok()
-            .and_then(|index| self.model_keyframes.get(index))
+    pub fn find_model_keyframe_object(&self, frame_index: u32) -> Option<&MotionModelKeyframe> {
+        self.model_keyframes.keyframes.get(&frame_index)
     }
 
-    pub fn remove_model_keyframe_object(&mut self, index: u32) -> Option<MotionModelKeyframe> {
-        self.model_keyframes
-            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
-            .ok()
-            .map(|idx| self.model_keyframes.remove(idx))
+    pub fn remove_model_keyframe_object(
+        &mut self,
+        frame_index: u32,
+    ) -> Option<MotionModelKeyframe> {
+        self.model_keyframes.remove_keyframe(frame_index)
     }
 
     pub fn find_morph_keyframe_object(
@@ -885,22 +820,16 @@ impl Motion {
 
     pub fn find_self_shadow_keyframe_object(
         &self,
-        index: u32,
+        frame_index: u32,
     ) -> Option<&MotionSelfShadowKeyframe> {
-        self.self_shadow_keyframes
-            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
-            .ok()
-            .and_then(|index| self.self_shadow_keyframes.get(index))
+        self.self_shadow_keyframes.keyframes.get(&frame_index)
     }
 
     pub fn remove_self_shadow_keyframe_object(
         &mut self,
-        index: u32,
+        frame_index: u32,
     ) -> Option<MotionSelfShadowKeyframe> {
-        self.self_shadow_keyframes
-            .binary_search_by(|keyframe| keyframe.base.frame_index.cmp(&index))
-            .ok()
-            .map(|idx| self.self_shadow_keyframes.remove(idx))
+        self.self_shadow_keyframes.remove_keyframe(frame_index)
     }
 
     search_closest!(
@@ -953,131 +882,49 @@ impl Motion {
         }
     }
 
-    update_sort_index!(update_accessory_keyframe_sort_index, accessory_keyframes);
-    update_sort_index!(update_camera_keyframe_sort_index, camera_keyframes);
-    update_sort_index!(update_light_keyframe_sort_index, light_keyframes);
-    update_sort_index!(update_model_keyframe_sort_index, model_keyframes);
-    update_sort_index!(
-        update_self_shadow_keyframe_sort_index,
-        self_shadow_keyframes
-    );
-
-    pub fn update_bone_keyframe_sort_index(&mut self) {
-        for (_, track) in &mut self.local_bone_motion_track_bundle.tracks {
-            for (idx, frame_index) in track.ordered_frame_index.iter().enumerate() {
-                track
-                    .keyframes
-                    .get_mut(frame_index)
-                    .map(|keyframe| keyframe.base.index = idx);
-            }
-        }
-    }
-
-    pub fn update_bone_track_index(&mut self) {
-        for (_, track) in &mut self.local_bone_motion_track_bundle.tracks {
-            for (_, keyframe) in &mut track.keyframes {
-                keyframe.bone_track_id = track.id;
-            }
-        }
-    }
-
-    pub fn update_morph_keyframe_sort_index(&mut self) {
-        for (_, track) in &mut self.local_morph_motion_track_bundle.tracks {
-            for (idx, frame_index) in track.ordered_frame_index.iter().enumerate() {
-                track
-                    .keyframes
-                    .get_mut(frame_index)
-                    .map(|keyframe| keyframe.base.index = idx);
-            }
-        }
-    }
-
-    pub fn update_morph_track_index(&mut self) {
-        for (_, track) in &mut self.local_morph_motion_track_bundle.tracks {
-            for (_, keyframe) in &mut track.keyframes {
-                keyframe.morph_track_id = track.id;
-            }
-        }
-    }
-
-    pub fn sort_all_keyframes(&mut self) {
-        self.max_frame_index = 0;
-        self.accessory_keyframes
-            .sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
-        self.camera_keyframes
-            .sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
-        self.light_keyframes
-            .sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
-        self.model_keyframes
-            .sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
-        self.self_shadow_keyframes
-            .sort_by(|a, b| MotionKeyframeBase::compare(&a.base, &b.base));
-        self.update_max_frame_index();
+    fn sort_all_keyframes(&mut self) {
+        self.accessory_keyframes.sort();
+        self.local_bone_motion_track_bundle.sort();
+        self.local_morph_motion_track_bundle.sort();
+        self.camera_keyframes.sort();
+        self.light_keyframes.sort();
+        self.model_keyframes.sort();
+        self.self_shadow_keyframes.sort()
     }
 
     pub fn add_accessory_keyframe(
         &mut self,
         keyframe: MotionAccessoryKeyframe,
-        frame_index: u32,
-    ) -> Result<(), Status> {
-        if self.find_accessory_keyframe_object(frame_index).is_none() {
-            self.accessory_keyframes.push(keyframe);
-            Ok(())
-        } else {
-            Err(Status::ErrorMotionAccessoryKeyframeAlreadyExists)
-        }
+    ) -> Option<MotionAccessoryKeyframe> {
+        self.accessory_keyframes.insert_keyframe(keyframe)
     }
 
     pub fn add_camera_keyframe(
         &mut self,
         keyframe: MotionCameraKeyframe,
-        frame_index: u32,
-    ) -> Result<(), Status> {
-        if self.find_camera_keyframe_object(frame_index).is_none() {
-            self.camera_keyframes.push(keyframe);
-            Ok(())
-        } else {
-            Err(Status::ErrorMotionCameraKeyframeAlreadyExists)
-        }
+    ) -> Option<MotionCameraKeyframe> {
+        self.camera_keyframes.insert_keyframe(keyframe)
     }
 
     pub fn add_light_keyframe(
         &mut self,
         keyframe: MotionLightKeyframe,
-        frame_index: u32,
-    ) -> Result<(), Status> {
-        if self.find_light_keyframe_object(frame_index).is_none() {
-            self.light_keyframes.push(keyframe);
-            Ok(())
-        } else {
-            Err(Status::ErrorMotionLightKeyframeAlreadyExists)
-        }
+    ) -> Option<MotionLightKeyframe> {
+        self.light_keyframes.insert_keyframe(keyframe)
     }
 
     pub fn add_model_keyframe(
         &mut self,
         keyframe: MotionModelKeyframe,
-        frame_index: u32,
-    ) -> Result<(), Status> {
-        if self.find_model_keyframe_object(frame_index).is_none() {
-            self.model_keyframes.push(keyframe);
-            Ok(())
-        } else {
-            Err(Status::ErrorMotionModelKeyframeAlreadyExists)
-        }
+    ) -> Option<MotionModelKeyframe> {
+        self.model_keyframes.insert_keyframe(keyframe)
     }
 
     pub fn add_self_shadow_keyframe(
         &mut self,
         keyframe: MotionSelfShadowKeyframe,
-        frame_index: u32,
-    ) -> Result<(), Status> {
-        if self.find_self_shadow_keyframe_object(frame_index).is_none() {
-            self.self_shadow_keyframes.push(keyframe);
-            Ok(())
-        } else {
-            Err(Status::ErrorMotionSelfShadowKeyframeAlreadyExists)
-        }
+    ) -> Option<MotionSelfShadowKeyframe> {
+        self.self_shadow_keyframes.insert_keyframe(keyframe)
     }
 }
 
@@ -1190,9 +1037,7 @@ impl MotionOutsideParent {
 
 #[derive(Debug, Clone)]
 pub struct MotionKeyframeBase {
-    pub index: usize,
     pub frame_index: u32,
-    pub is_selected: bool,
     pub annotations: HashMap<String, String>,
 }
 
@@ -1221,9 +1066,7 @@ impl Clone for MotionAccessoryKeyframe {
     fn clone(&self) -> Self {
         Self {
             base: MotionKeyframeBase {
-                index: 0,
                 frame_index: 0,
-                is_selected: false,
                 annotations: HashMap::new(),
             },
             translation: self.translation.clone(),
@@ -1240,13 +1083,17 @@ impl Clone for MotionAccessoryKeyframe {
     }
 }
 
+impl Keyframe for MotionAccessoryKeyframe {
+    fn frame_index(&self) -> u32 {
+        self.base.frame_index
+    }
+}
+
 impl MotionAccessoryKeyframe {
     fn create() -> MotionAccessoryKeyframe {
         MotionAccessoryKeyframe {
             base: MotionKeyframeBase {
-                index: 0,
                 frame_index: 0,
-                is_selected: false,
                 annotations: HashMap::new(),
             },
             translation: <[f32; 4]>::default(),
@@ -1368,7 +1215,6 @@ pub struct MotionBoneKeyframe {
     pub translation: [f32; 4],
     pub orientation: [f32; 4],
     pub interpolation: MotionBoneKeyframeInterpolation,
-    pub bone_track_id: i32,
     pub stage_index: u32,
     pub is_physics_simulation_enabled: bool,
 }
@@ -1382,18 +1228,25 @@ impl Keyframe for MotionBoneKeyframe {
 impl MotionBoneKeyframe {
     const VMD_BONE_KEYFRAME_NAME_LENGTH: usize = 15;
 
+    /// Parse bytes from a vmd file into `BoneKeyframe`
+    ///
+    /// # Argument
+    ///
+    /// `buffer` - bytes buffer read from
+    /// `offset` - offset applied to `frame_index`
+    ///
+    /// # Return
+    ///
+    /// The bone keyframe and bone name if successful.
     fn parse_vmd(buffer: &mut Buffer, offset: u32) -> Result<(MotionBoneKeyframe, String), Status> {
         let mut bone_keyframe = MotionBoneKeyframe {
             base: MotionKeyframeBase {
-                index: 0,
                 frame_index: 0,
-                is_selected: false,
                 annotations: HashMap::new(),
             },
             translation: <[f32; 4]>::default(),
             orientation: <[f32; 4]>::default(),
             interpolation: MotionBoneKeyframeInterpolation::default(),
-            bone_track_id: 0,
             stage_index: 0,
             is_physics_simulation_enabled: true,
         };
@@ -1421,23 +1274,13 @@ impl MotionBoneKeyframe {
         Ok((bone_keyframe, name.unwrap_or("".to_owned())))
     }
 
-    fn save_to_buffer(
-        &self,
-        bone_motion_track_bundle: &MotionTrackBundle<Self>,
-        buffer: &mut MutableBuffer,
-    ) -> Result<(), Status> {
-        if let Some(name) = bone_motion_track_bundle.resolve_id(self.bone_track_id) {
-            let (c, _, had_errors) = encoding_rs::SHIFT_JIS.encode(name);
-            if !had_errors {
-                buffer.write_byte_array(&c[0..Self::VMD_BONE_KEYFRAME_NAME_LENGTH.min(c.len())])?;
-                if Self::VMD_BONE_KEYFRAME_NAME_LENGTH > c.len() {
-                    buffer.write_byte_array(&vec![
-                        0u8;
-                        Self::VMD_BONE_KEYFRAME_NAME_LENGTH - c.len()
-                    ])?;
-                }
-            } else {
-                buffer.write_byte_array(&vec![0u8; Self::VMD_BONE_KEYFRAME_NAME_LENGTH])?;
+    fn save_to_buffer(&self, bone_name: &str, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        let (c, _, had_errors) = encoding_rs::SHIFT_JIS.encode(bone_name);
+        if !had_errors {
+            buffer.write_byte_array(&c[0..Self::VMD_BONE_KEYFRAME_NAME_LENGTH.min(c.len())])?;
+            if Self::VMD_BONE_KEYFRAME_NAME_LENGTH > c.len() {
+                buffer
+                    .write_byte_array(&vec![0u8; Self::VMD_BONE_KEYFRAME_NAME_LENGTH - c.len()])?;
             }
         } else {
             buffer.write_byte_array(&vec![0u8; Self::VMD_BONE_KEYFRAME_NAME_LENGTH])?;
@@ -1453,12 +1296,6 @@ impl MotionBoneKeyframe {
         }
         buffer.write_byte_array(&[0u8; 48])?;
         Ok(())
-    }
-
-    pub fn get_name<'a: 'b, 'b>(&self, parent_motion: &'a Motion) -> Option<&'b String> {
-        parent_motion
-            .local_bone_motion_track_bundle
-            .resolve_id(self.bone_track_id)
     }
 }
 
@@ -1498,13 +1335,17 @@ pub struct MotionCameraKeyframe {
     pub outside_parent: Option<MotionOutsideParent>,
 }
 
+impl Keyframe for MotionCameraKeyframe {
+    fn frame_index(&self) -> u32 {
+        self.base.frame_index
+    }
+}
+
 impl MotionCameraKeyframe {
     fn parse_vmd(buffer: &mut Buffer, offset: u32) -> Result<MotionCameraKeyframe, Status> {
         let mut camera_keyframe = MotionCameraKeyframe {
             base: MotionKeyframeBase {
-                index: 0,
                 frame_index: buffer.read_u32_little_endian()? + offset,
-                is_selected: false,
                 annotations: HashMap::new(),
             },
             distance: buffer.read_f32_little_endian()?,
@@ -1555,13 +1396,17 @@ pub struct MotionLightKeyframe {
     pub direction: [f32; 4],
 }
 
+impl Keyframe for MotionLightKeyframe {
+    fn frame_index(&self) -> u32 {
+        self.base.frame_index
+    }
+}
+
 impl MotionLightKeyframe {
     fn parse_vmd(buffer: &mut Buffer, offset: u32) -> Result<MotionLightKeyframe, Status> {
         let light_keyframe = MotionLightKeyframe {
             base: MotionKeyframeBase {
-                index: 0,
                 frame_index: buffer.read_u32_little_endian()? + offset,
-                is_selected: false,
                 annotations: HashMap::new(),
             },
             color: buffer.read_f32_3_little_endian()?,
@@ -1633,6 +1478,12 @@ pub struct MotionModelKeyframe {
     pub is_physics_simulation_enabled: bool,
 }
 
+impl Keyframe for MotionModelKeyframe {
+    fn frame_index(&self) -> u32 {
+        self.base.frame_index
+    }
+}
+
 impl MotionModelKeyframe {
     const PMD_BONE_NAME_LENGTH: usize = 20;
 
@@ -1643,9 +1494,7 @@ impl MotionModelKeyframe {
     ) -> Result<MotionModelKeyframe, Status> {
         let mut model_keyframe = MotionModelKeyframe {
             base: MotionKeyframeBase {
-                index: 0,
                 frame_index: buffer.read_u32_little_endian()? + offset,
-                is_selected: false,
                 annotations: HashMap::new(),
             },
             visible: buffer.read_byte()? == 0,
@@ -1696,7 +1545,6 @@ const VMD_MORPH_KEYFRAME_NAME_LENGTH: usize = 15;
 pub struct MotionMorphKeyframe {
     pub base: MotionKeyframeBase,
     pub weight: f32,
-    pub morph_track_id: i32,
 }
 
 impl Keyframe for MotionMorphKeyframe {
@@ -1725,35 +1573,21 @@ impl MotionMorphKeyframe {
         let frame_index = buffer.read_u32_little_endian()? + offset;
         let motion_morph_keyframe = MotionMorphKeyframe {
             base: MotionKeyframeBase {
-                index: 0,
                 frame_index,
-                is_selected: false,
                 annotations: HashMap::new(),
             },
             weight: buffer.read_f32_little_endian()?,
-            morph_track_id: 0,
         };
         Ok((motion_morph_keyframe, name.unwrap_or("".to_owned())))
     }
 
-    fn save_to_buffer(
-        &self,
-        morph_motion_track_bundle: &MotionTrackBundle<Self>,
-        buffer: &mut MutableBuffer,
-    ) -> Result<(), Status> {
-        if let Some(name) = morph_motion_track_bundle.resolve_id(self.morph_track_id) {
-            let (c, _, has_errors) = encoding_rs::SHIFT_JIS.encode(name);
-            if !has_errors {
+    fn save_to_buffer(&self, morph_name: &str, buffer: &mut MutableBuffer) -> Result<(), Status> {
+        let (c, _, has_errors) = encoding_rs::SHIFT_JIS.encode(morph_name);
+        if !has_errors {
+            buffer.write_byte_array(&c[0..Self::VMD_MORPH_KEYFRAME_NAME_LENGTH.min(c.len())])?;
+            if Self::VMD_MORPH_KEYFRAME_NAME_LENGTH > c.len() {
                 buffer
-                    .write_byte_array(&c[0..Self::VMD_MORPH_KEYFRAME_NAME_LENGTH.min(c.len())])?;
-                if Self::VMD_MORPH_KEYFRAME_NAME_LENGTH > c.len() {
-                    buffer.write_byte_array(&vec![
-                        0u8;
-                        Self::VMD_MORPH_KEYFRAME_NAME_LENGTH - c.len()
-                    ])?;
-                }
-            } else {
-                buffer.write_byte_array(&vec![0u8; Self::VMD_MORPH_KEYFRAME_NAME_LENGTH])?;
+                    .write_byte_array(&vec![0u8; Self::VMD_MORPH_KEYFRAME_NAME_LENGTH - c.len()])?;
             }
         } else {
             buffer.write_byte_array(&vec![0u8; Self::VMD_MORPH_KEYFRAME_NAME_LENGTH])?;
@@ -1771,13 +1605,17 @@ pub struct MotionSelfShadowKeyframe {
     pub mode: i32,
 }
 
+impl Keyframe for MotionSelfShadowKeyframe {
+    fn frame_index(&self) -> u32 {
+        self.base.frame_index
+    }
+}
+
 impl MotionSelfShadowKeyframe {
     fn parse_vmd(buffer: &mut Buffer, offset: u32) -> Result<MotionSelfShadowKeyframe, Status> {
         let self_shadow_keyframe = MotionSelfShadowKeyframe {
             base: MotionKeyframeBase {
-                index: 0,
                 frame_index: buffer.read_u32_little_endian()? + offset,
-                is_selected: false,
                 annotations: HashMap::new(),
             },
             mode: buffer.read_byte()? as i32,
