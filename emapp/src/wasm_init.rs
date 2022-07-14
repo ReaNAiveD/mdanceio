@@ -92,7 +92,7 @@ impl WasmClient {
             log::info!("Finish Configure Surface");
 
             let service = BaseApplicationService::new(
-                &config,
+                // &config,
                 &adapter,
                 &device,
                 &queue,
@@ -101,6 +101,7 @@ impl WasmClient {
                     window_device_pixel_ratio: 1.0f32,
                     viewport_device_pixel_ratio: 1.0f32,
                     window_size: [1, 1],
+                    viewport_size: [size.width as u16, size.height as u16],
                 },
             );
 

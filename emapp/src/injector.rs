@@ -5,7 +5,7 @@ pub struct Injector {
     pub window_device_pixel_ratio: f32,
     pub viewport_device_pixel_ratio: f32,
     pub window_size: [u16; 2],
-    
+    pub viewport_size: [u16; 2],
 }
 
 impl Injector {

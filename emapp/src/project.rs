@@ -499,34 +499,12 @@ impl Project {
     pub const VIEWPORT_SECONDARY_NAME: &'static str = "@mdanceio/Viewport/Secondary";
 
     pub fn new(
-        sc_desc: &wgpu::SurfaceConfiguration,
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         injector: Injector,
     ) -> Self {
         log::trace!("Start Creating new Project");
-        let viewport_primary_pass = Pass::new(
-            Self::VIEWPORT_PRIMARY_NAME,
-            Vector2::new(sc_desc.width as u16, sc_desc.height as u16),
-            injector.texture_format(),
-            1,
-            &device,
-        );
-
-        let viewport_secondary_pass = Pass::new(
-            Self::VIEWPORT_SECONDARY_NAME,
-            Vector2::new(sc_desc.width as u16, sc_desc.height as u16),
-            injector.texture_format(),
-            1,
-            &device,
-        );
-        log::trace!("Finish Primary and Secondary Pass");
-
-        let fallback_texture = Self::create_fallback_image(&device, &queue);
-
-        log::trace!("Finish Fallback texture");
-
         let layout = ViewLayout {
             window_device_pixel_ratio: (
                 injector.window_device_pixel_ratio,
@@ -537,14 +515,45 @@ impl Project {
                 injector.viewport_device_pixel_ratio,
             ),
             window_size: injector.window_size.into(),
-            viewport_image_size: Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
+            viewport_image_size: injector.viewport_size.into(),
             viewport_padding: Vector2::new(0, 0),
             uniform_viewport_layout_rect: (Vector4::new(0, 0, 0, 0), Vector4::new(0, 0, 0, 0)),
             uniform_viewport_image_size: (
-                Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
-                Self::DEFAULT_VIEWPORT_IMAGE_SIZE.into(),
+                injector.viewport_size.into(),
+                injector.viewport_size.into(),
             ),
         };
+
+        let viewport_primary_pass = Pass::new(
+            Self::VIEWPORT_PRIMARY_NAME,
+            Vector2::new(
+                layout.uniform_viewport_image_size.1.x
+                    * layout.viewport_device_pixel_ratio.1 as u16,
+                layout.uniform_viewport_image_size.1.y
+                    * layout.viewport_device_pixel_ratio.1 as u16,
+            ),
+            injector.texture_format(),
+            1,
+            &device,
+        );
+
+        let viewport_secondary_pass = Pass::new(
+            Self::VIEWPORT_SECONDARY_NAME,
+            Vector2::new(
+                layout.uniform_viewport_image_size.1.x
+                    * layout.viewport_device_pixel_ratio.1 as u16,
+                layout.uniform_viewport_image_size.1.y
+                    * layout.viewport_device_pixel_ratio.1 as u16,
+            ),
+            injector.texture_format(),
+            1,
+            &device,
+        );
+        log::trace!("Finish Primary and Secondary Pass");
+
+        let fallback_texture = Self::create_fallback_image(&device, &queue);
+
+        log::trace!("Finish Fallback texture");
 
         let mut camera = PerspectiveCamera::new();
         camera.update(
@@ -1438,7 +1447,7 @@ impl Project {
     }
 
     pub fn draw_viewport(
-        &self,
+        &mut self,
         view: &wgpu::TextureView,
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,

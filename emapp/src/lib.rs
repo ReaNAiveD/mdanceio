@@ -18,7 +18,7 @@ mod forward;
 mod grid;
 mod image_loader;
 mod image_view;
-mod injector;
+pub mod injector;
 mod internal;
 mod light;
 pub mod model;

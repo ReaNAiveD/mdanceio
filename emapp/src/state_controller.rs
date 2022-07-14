@@ -14,7 +14,6 @@ impl StateController {
     ) -> Self {
         Self {
             project: Project::new(
-                sc_desc,
                 adapter,
                 device,
                 queue,

@@ -16,20 +16,19 @@ pub struct BaseApplicationService {
 
 impl BaseApplicationService {
     pub fn new(
-        sc_desc: &wgpu::SurfaceConfiguration,
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         injector: Injector,
     ) -> Self {
         Self {
-            project: Project::new(sc_desc, adapter, device, queue, injector),
+            project: Project::new(adapter, device, queue, injector),
             injector,
         }
     }
 
     pub fn draw_default_pass(
-        &self,
+        &mut self,
         view: &wgpu::TextureView,
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,
