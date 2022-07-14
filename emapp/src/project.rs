@@ -1438,7 +1438,7 @@ impl Project {
     }
 
     pub fn draw_viewport(
-        &mut self,
+        &self,
         view: &wgpu::TextureView,
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,

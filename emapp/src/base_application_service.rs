@@ -29,7 +29,7 @@ impl BaseApplicationService {
     }
 
     pub fn draw_default_pass(
-        &mut self,
+        &self,
         view: &wgpu::TextureView,
         adapter: &wgpu::Adapter,
         device: &wgpu::Device,
