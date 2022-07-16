@@ -141,7 +141,15 @@ impl BaseApplicationService {
         model_handle: Option<ModelHandle>,
         bone_names: &[&str],
     ) {
-        let bones = bone_names.iter().map(|bone_name| ((*bone_name).to_owned(), vec![self.project.current_frame_index()])).collect::<HashMap<_,_>>();
+        let bones = bone_names
+            .iter()
+            .map(|bone_name| {
+                (
+                    (*bone_name).to_owned(),
+                    vec![self.project.current_frame_index()],
+                )
+            })
+            .collect::<HashMap<_, _>>();
         self.project.register_bone_keyframes(model_handle, &bones);
     }
 
@@ -152,13 +160,16 @@ impl BaseApplicationService {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        let img = image::io::Reader::with_format(
-            Cursor::new(data),
-            image::ImageFormat::from_extension(key.split('.').rev().next().unwrap()).unwrap(),
-        )
-        .decode()
-        .unwrap();
-        self.load_decoded_texture(key, &img.to_rgba8(), img.dimensions(), device, queue);
+        if let Some(format) =
+            image::ImageFormat::from_extension(key.split('.').rev().next().unwrap())
+        {
+            let img = image::io::Reader::with_format(Cursor::new(data), format)
+                .decode()
+                .unwrap();
+            self.load_decoded_texture(key, &img.to_rgba8(), img.dimensions(), device, queue);
+        } else {
+            log::warn!("Texture File {} Not supported", key);
+        }
     }
 
     pub fn load_decoded_texture(

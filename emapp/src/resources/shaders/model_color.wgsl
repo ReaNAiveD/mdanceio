@@ -66,6 +66,12 @@ struct ModelParameters {
 @group(1)
 @binding(0)
 var<uniform> model_parameters: ModelParameters;
+
+@group(0) @binding(0)
+var shadow_texture: texture_2d<f32>;
+@group(0) @binding(1)
+var shadow_texture_sampler: sampler;
+
 @group(0)
 @binding(2)
 var diffuse_texture: texture_2d<f32>;
@@ -112,13 +118,6 @@ fn is_sphere_texture_additive() -> bool {
 fn is_sphere_texture_as_sub_texture() -> bool {
     return model_parameters.sphere_texture_type.y != 0.0;
 }
-
-@group(0)
-@binding(0)
-var shadow_texture: texture_2d<f32>;
-@group(0)
-@binding(1)
-var shadow_texture_sampler: sampler;
 
 let threshold_type1: f32 = 1500.0;
 let threshold_type2: f32 = 8000.0;

@@ -113,8 +113,8 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let texture_desc = wgpu::TextureDescriptor {
         label: Some("TargetTexture"),
         size: wgpu::Extent3d {
-            width: injector.window_size[0] as u32,
-            height: injector.window_size[1] as u32,
+            width: injector.viewport_size[0] as u32,
+            height: injector.viewport_size[1] as u32,
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
@@ -166,12 +166,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
         label: Some("ReadBufferEncoder"),
     });
     encoder.copy_texture_to_buffer(
-        wgpu::ImageCopyTexture {
-            texture: &texture,
-            mip_level: 1,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
+        texture.as_image_copy(),
         wgpu::ImageCopyBuffer {
             buffer: &output_buffer,
             layout: wgpu::ImageDataLayout {

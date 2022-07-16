@@ -5,9 +5,9 @@ pub struct PixelFormat {
 }
 
 impl PixelFormat {
-    pub fn new(num_sample: u32) -> Self {
+    pub fn new(color_texture: wgpu::TextureFormat ,num_sample: u32) -> Self {
         Self {
-            color_texture_formats: vec![wgpu::TextureFormat::Bgra8Unorm],
+            color_texture_formats: vec![color_texture],
             // color_texture_formats: vec![wgpu::TextureFormat::Rgba8UnormSrgb],
             depth_texture_format: wgpu::TextureFormat::Depth24PlusStencil8,
             num_sample,

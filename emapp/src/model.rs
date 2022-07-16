@@ -667,17 +667,21 @@ impl Model {
                     edge_size,
                     device,
                 );
+                let bytes_per_vertex = std::mem::size_of::<VertexUnit>();
+                let unpadded_size = vertices.len() * bytes_per_vertex;
+                let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
+                let padding = (align - unpadded_size % align) % align;
                 let vertex_buffer_even = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some(format!("Model/{}/VertexBuffer/Even", canonical_name).as_str()),
-                    size: vertices.len() as u64,
+                    size: (unpadded_size + padding) as u64,
                     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
-                    mapped_at_creation: true,
+                    mapped_at_creation: false,
                 });
                 let vertex_buffer_odd = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some(format!("Model/{}/VertexBuffer/Odd", canonical_name).as_str()),
-                    size: vertices.len() as u64,
+                    size: (unpadded_size + padding) as u64,
                     usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
-                    mapped_at_creation: true,
+                    mapped_at_creation: false,
                 });
                 let vertex_buffers = [vertex_buffer_even, vertex_buffer_odd];
                 log::trace!("Len(index_buffer): {}", &opaque.vertex_indices.len());

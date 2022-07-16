@@ -122,6 +122,8 @@ struct Pass {
     name: String,
     color_texture: wgpu::Texture,
     depth_texture: wgpu::Texture,
+    color_texture_format: wgpu::TextureFormat,
+    depth_texture_format: wgpu::TextureFormat,
     sampler: wgpu::Sampler,
 }
 
@@ -133,12 +135,15 @@ impl Pass {
         sample_count: u32,
         device: &wgpu::Device,
     ) -> Self {
+        let depth_texture_format = wgpu::TextureFormat::Depth24PlusStencil8;
         let (color_texture, depth_texture, sampler) =
-            Self::_update(name, size, color_texture_format, sample_count, device);
+            Self::_update(name, size, color_texture_format, depth_texture_format, sample_count, device);
         Self {
             name: name.to_owned(),
             color_texture,
             depth_texture,
+            color_texture_format,
+            depth_texture_format,
             sampler,
         }
     }
@@ -148,10 +153,12 @@ impl Pass {
             self.name.as_str(),
             size,
             project.viewport_texture_format(),
+            self.depth_texture_format,
             project.sample_count(),
             device,
         );
         self.color_texture = color_texture;
+        self.color_texture_format = project.viewport_texture_format();
         self.depth_texture = depth_texture;
         self.sampler = sampler;
     }
@@ -160,6 +167,7 @@ impl Pass {
         name: &str,
         size: Vector2<u16>,
         color_texture_format: wgpu::TextureFormat,
+        depth_texture_format: wgpu::TextureFormat,
         sample_count: u32,
         device: &wgpu::Device,
     ) -> (wgpu::Texture, wgpu::Texture, wgpu::Sampler) {
@@ -701,11 +709,6 @@ impl Project {
 
     pub fn current_color_attachment_texture(&self) -> Option<&wgpu::TextureView> {
         None
-    }
-
-    // TODO: the origin is found from render_pass_bundle
-    pub fn find_render_pass_pixel_format(&self, sample_count: u32) -> PixelFormat {
-        PixelFormat::new(sample_count)
     }
 
     pub fn set_transform_performed_at(&mut self, value: (u32, i32)) {
@@ -1356,12 +1359,11 @@ impl Project {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.push_debug_group("Project::clearViewportPass");
-        let format = self.find_render_pass_pixel_format(self.sample_count());
         let depth_stencil_attachment_view = &self.viewport_primary_depth_view();
         {
             let pipeline = self.clear_pass.get_pipeline(
-                &format.color_texture_formats,
-                format.depth_texture_format,
+                &[self.viewport_primary_pass.color_texture_format],
+                self.viewport_primary_pass.depth_texture_format,
                 device,
             );
             let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

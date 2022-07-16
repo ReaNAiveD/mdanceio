@@ -81,7 +81,7 @@ impl Deformer {
             .max()
             .unwrap_or(0);
         let buffer_size = (num_max_morph_items * num_vertices).max(1);
-        let mut vertex_deltas_buffer_data = vec![[0f32; 4]; num_max_morph_items * buffer_size];
+        let mut vertex_deltas_buffer_data = vec![[0f32; 4]; buffer_size];
         for (vertex_idx, morphs) in vertex2morphs.iter().enumerate() {
             for (idx, morph) in morphs.iter().enumerate() {
                 let position = morph.1.position;
@@ -213,7 +213,7 @@ impl Deformer {
         let argument_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Deformer/ArgumentBuffer"),
             contents: bytemuck::bytes_of(&argument),
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let matrix_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Deformer/MatrixBuffer"),
@@ -299,12 +299,6 @@ impl Deformer {
     }
 
     pub fn execute(&self, output_buffer: &wgpu::Buffer, device: &wgpu::Device) {
-        // let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        //     label: Some("Deformer/OutputBuffer"),
-        //     size: (vertex_buffer.len() as u64) * (std::mem::size_of::<VertexUnit>() as u64),
-        //     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-        //     mapped_at_creation: true,
-        // });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Deformer/BindGroup"),
             layout: &self.bind_group_layout,
