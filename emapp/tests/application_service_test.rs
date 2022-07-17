@@ -105,7 +105,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let (device, queue) = adapter
         .request_device(
             &Default::default(),
-            Some(std::path::Path::new("target/wgpu-trace")),
+            Some(std::path::Path::new("target/wgpu-trace/application-service-test")),
         )
         .await
         .unwrap();
@@ -145,7 +145,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let mut application = BaseApplicationService::new(&adapter, &device, &queue, injector);
 
     let model_data = std::fs::read("tests/example/Alicia/MMD/Alicia_solid.pmx")?;
-    application.load_model(&model_data, &device);
+    application.load_model(&model_data, &device, &queue);
     drop(model_data);
     let texture_dir = std::fs::read_dir("tests/example/Alicia/FBX/").unwrap();
     for texture_file in texture_dir {
@@ -158,6 +158,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
             &queue,
         );
     }
+    application.update_bind_texture();
     let motion_data = std::fs::read("tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
     application.load_model_motion(&motion_data);
     drop(motion_data);

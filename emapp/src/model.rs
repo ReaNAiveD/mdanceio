@@ -335,6 +335,7 @@ impl Model {
         physics_engine: &mut PhysicsEngine,
         camera: &dyn Camera,
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
     ) -> Result<Self, Error> {
         let mut buffer = nanoem::common::Buffer::create(bytes);
         match NanoemModel::load_from_buffer(&mut buffer) {
@@ -694,7 +695,7 @@ impl Model {
                     },
                 );
                 let mut stage_vertex_buffer_index = 0;
-                skin_deformer.execute(&vertex_buffers[stage_vertex_buffer_index], device);
+                skin_deformer.execute(&vertex_buffers[stage_vertex_buffer_index], device, queue);
                 stage_vertex_buffer_index = 1 - stage_vertex_buffer_index;
 
                 Ok(Self {
@@ -1912,10 +1913,10 @@ impl Model {
         self.states.dirty_staging_buffer = true;
     }
 
-    pub fn update_staging_vertex_buffer(&mut self, device: &wgpu::Device) {
+    pub fn update_staging_vertex_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if self.states.dirty_staging_buffer {
             self.skin_deformer
-                .execute(&self.vertex_buffers[self.stage_vertex_buffer_index], device);
+                .execute(&self.vertex_buffers[self.stage_vertex_buffer_index], device, queue);
             self.stage_vertex_buffer_index = 1 - self.stage_vertex_buffer_index;
             self.states.dirty_morph = false;
             self.states.dirty_staging_buffer = false;

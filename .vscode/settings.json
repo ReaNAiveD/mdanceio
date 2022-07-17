@@ -8,5 +8,5 @@
         "Zplot"
     ],
     "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
-    "rust-analyzer.debug.engine": "vadimcn.vscode-lldb"
+    "rust-analyzer.debug.engine": "ms-vscode.cpptools"
 }

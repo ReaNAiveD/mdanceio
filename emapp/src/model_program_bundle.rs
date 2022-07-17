@@ -560,21 +560,65 @@ impl CommonPass {
             is_offscreen_render_pass_active: false,
         };
         let mut cache = self.pipeline_cache.borrow_mut();
-        let pipeline = cache.entry(key).or_insert_with(||{
+        let pipeline = cache.entry(key).or_insert_with(|| {
             let vertex_size = mem::size_of::<crate::model::VertexUnit>();
             let texture_format = project.viewport_texture_format();
 
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("ModelProgramBundle/PipelineLayout"),
-                    bind_group_layouts: &[&self.texture_bind_group_layout, &self.uniform_bind_group_layout],
+                    bind_group_layouts: &[
+                        &self.texture_bind_group_layout,
+                        &self.uniform_bind_group_layout,
+                    ],
                     push_constant_ranges: &[],
                 });
             // No Difference between technique type edge and other.
             let vertex_buffer_layout = wgpu::VertexBufferLayout {
                 array_stride: vertex_size as wgpu::BufferAddress,
                 step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x4, 4 => Float32x4, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4],
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x3,
+                        offset: 0,
+                        shader_location: 0,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x3,
+                        offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                        shader_location: 1,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x2,
+                        offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress * 2,
+                        shader_location: 2,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x4,
+                        offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress * 3,
+                        shader_location: 3,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x4,
+                        offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress * 4,
+                        shader_location: 4,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x4,
+                        offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress * 5,
+                        shader_location: 5,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x4,
+                        offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress * 6,
+                        shader_location: 6,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x4,
+                        offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress * 7,
+                        shader_location: 7,
+                    },
+                ],
             };
             // Project::setStandardDepthStencilState(desc.depth, desc.stencil);
             // in origin project
@@ -644,7 +688,7 @@ impl CommonPass {
                 primitive: wgpu::PrimitiveState {
                     topology: self.primitive_type,
                     strip_index_format: None,
-                    front_face: wgpu::FrontFace::Ccw,
+                    front_face: wgpu::FrontFace::Cw,
                     cull_mode: self.cull_mode,
                     unclipped_depth: false,
                     polygon_mode: wgpu::PolygonMode::Fill,
@@ -758,11 +802,9 @@ impl Technique for BaseTechnique {
         None
     }
 
-    fn reset_script_command_state(&self) {
-    }
+    fn reset_script_command_state(&self) {}
 
-    fn reset_script_external_color(&self) {
-    }
+    fn reset_script_external_color(&self) {}
 
     fn has_next_script_command(&self) -> bool {
         false
@@ -863,7 +905,7 @@ impl EdgeTechnique {
         }
     }
 
-    pub fn technique_type(&self) -> TechniqueType{
+    pub fn technique_type(&self) -> TechniqueType {
         self.base.technique_type
     }
 }

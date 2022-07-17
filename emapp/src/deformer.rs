@@ -298,7 +298,7 @@ impl Deformer {
         );
     }
 
-    pub fn execute(&self, output_buffer: &wgpu::Buffer, device: &wgpu::Device) {
+    pub fn execute(&self, output_buffer: &wgpu::Buffer, device: &wgpu::Device, queue: &wgpu::Queue) {
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Deformer/BindGroup"),
             layout: &self.bind_group_layout,
@@ -345,5 +345,6 @@ impl Deformer {
             cpass.dispatch_workgroups(self.num_groups, 1, 1);
         }
         command_encoder.pop_debug_group();
+        queue.submit(Some(command_encoder.finish()));
     }
 }

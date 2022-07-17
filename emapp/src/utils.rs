@@ -1,6 +1,6 @@
 use cgmath::{
-    BaseFloat, BaseNum, ElementWise, InnerSpace, Matrix3, Matrix4, Quaternion, SquareMatrix,
-    Vector3, Vector4,
+    perspective, BaseFloat, BaseNum, ElementWise, InnerSpace, Matrix3, Matrix4, Quaternion,
+    SquareMatrix, Vector3, Vector4, Rad,
 };
 use nalgebra::Isometry3;
 
@@ -29,6 +29,19 @@ where
         y: v.y.truncate(),
         z: v.z.truncate(),
     }
+}
+
+pub fn infinite_perspective<S: BaseFloat, A: Into<Rad<S>>>(
+    fovy: A,
+    aspect: S,
+    near: S,
+) -> Matrix4<S> {
+    let two: S = cgmath::num_traits::cast(2).unwrap();
+    let mut result = perspective(fovy, aspect, near, S::infinity());
+    result[2][2] = S::one();
+    result[2][3] = S::one();
+    result[3][2] = -two * near;
+    result
 }
 
 pub fn lerp_f32(a: f32, b: f32, amount: f32) -> f32 {

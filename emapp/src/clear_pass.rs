@@ -47,22 +47,28 @@ impl ClearPass {
         };
         let color_target_state = color_formats
             .iter()
-            .map(|format| Some(wgpu::ColorTargetState {
-                format: format.clone(),
-                blend: Some(wgpu::BlendState {
-                    color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::Zero,
-                        dst_factor: wgpu::BlendFactor::One,
-                        operation: wgpu::BlendOperation::Add,
+            .map(|format| {
+                Some(wgpu::ColorTargetState {
+                    format: format.clone(),
+                    blend: if *format == wgpu::TextureFormat::R32Float {
+                        None
+                    } else {
+                        Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::Zero,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::Zero,
+                                dst_factor: wgpu::BlendFactor::One,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        })
                     },
-                    alpha: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::Zero,
-                        dst_factor: wgpu::BlendFactor::One,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            }))
+                    write_mask: wgpu::ColorWrites::ALL,
+                })
+            })
             .collect::<Vec<_>>();
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("@mdanceio/ClearPass/Pipeline"),

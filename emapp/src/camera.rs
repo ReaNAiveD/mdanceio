@@ -8,16 +8,14 @@ use cgmath::{
 
 use crate::{
     bezier_curve::BezierCurve,
-    model::{Bone, NanoemBone, Model},
-    motion::{Motion, KeyframeInterpolationPoint},
+    model::{Bone, Model, NanoemBone},
+    motion::{KeyframeInterpolationPoint, Motion},
     project::Project,
     ray::Ray,
-    utils::{f128_to_vec3, intersect_ray_plane, project, un_project, Invert},
+    utils::{f128_to_vec3, infinite_perspective, intersect_ray_plane, project, un_project, Invert},
 };
 
-use nanoem::{
-    motion::{MotionCameraKeyframe, MotionCameraKeyframeInterpolation, MotionTrackBundle},
-};
+use nanoem::motion::{MotionCameraKeyframe, MotionCameraKeyframeInterpolation, MotionTrackBundle};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum TransformCoordinateType {
@@ -141,7 +139,7 @@ impl PerspectiveCamera {
         let z = Quaternion::from_angle_z(Rad(angle.z));
         let view_orientation = Matrix3::from(z * x * y);
         self.view_matrix =
-            Matrix4::from(view_orientation) * Matrix4::from_translation(-self.look_at);
+            Matrix4::from(view_orientation) * Matrix4::from_translation(-bound_look_at);
         self.view_matrix[3] += Vector4::new(0.0f32, 0.0f32, self.distance, 0.0f32);
         let position = self.view_matrix.affine_invert().unwrap()[3].truncate();
         if self.distance > 0.0 {
@@ -152,12 +150,11 @@ impl PerspectiveCamera {
         self.position = position;
         if self.perspective {
             self.fov.1 = (Rad::from(Deg(1.0f32)).0).max(self.fov.1);
-            self.projection_matrix = PerspectiveFov {
-                fovy: Rad(self.fov.1),
-                aspect: self.aspect_ratio(logical_scale_uniformed_viewport_image_rect),
-                near: 0.5,
-                far: f32::INFINITY,
-            }
+            self.projection_matrix = infinite_perspective(
+                Rad(self.fov.1),
+                self.aspect_ratio(logical_scale_uniformed_viewport_image_rect),
+                0.5,
+            )
             .into();
         } else {
             let viewport_image_size: Vector2<f32> = viewport_image_size.cast().unwrap();
@@ -174,12 +171,7 @@ impl PerspectiveCamera {
         }
     }
 
-    pub fn synchronize_parameters(
-        &mut self,
-        motion: &Motion,
-        frame_index: u32,
-        project: &Project,
-    ) {
+    pub fn synchronize_parameters(&mut self, motion: &Motion, frame_index: u32, project: &Project) {
         const DISTANCE_FACTOR: f32 = -1.0f32;
         let outside_parent = ("".to_owned(), "".to_owned());
         let global_track_bundle = &motion.opaque.global_motion_track_bundle;
@@ -258,12 +250,20 @@ impl PerspectiveCamera {
                     ));
                     self.set_perspective(prev_frame.is_perspective_view);
                     self.interpolation = CameraKeyframeInterpolation {
-                        lookat_x: KeyframeInterpolationPoint::build(next_frame.interpolation.lookat_x),
-                        lookat_y: KeyframeInterpolationPoint::build(next_frame.interpolation.lookat_y),
-                        lookat_z: KeyframeInterpolationPoint::build(next_frame.interpolation.lookat_z),
+                        lookat_x: KeyframeInterpolationPoint::build(
+                            next_frame.interpolation.lookat_x,
+                        ),
+                        lookat_y: KeyframeInterpolationPoint::build(
+                            next_frame.interpolation.lookat_y,
+                        ),
+                        lookat_z: KeyframeInterpolationPoint::build(
+                            next_frame.interpolation.lookat_z,
+                        ),
                         angle: KeyframeInterpolationPoint::build(next_frame.interpolation.angle),
                         fov: KeyframeInterpolationPoint::build(next_frame.interpolation.fov),
-                        distance: KeyframeInterpolationPoint::build(next_frame.interpolation.distance),
+                        distance: KeyframeInterpolationPoint::build(
+                            next_frame.interpolation.distance,
+                        ),
                     };
                     self.synchronize_outside_parent(&prev_frame, project, global_track_bundle);
                 }
@@ -463,12 +463,10 @@ impl PerspectiveCamera {
                 }
                 None => self.look_at,
             },
-            FollowingType::Bone => {
-                match active_model.and_then(|model| model.active_bone()) {
-                    Some(bone) => bone_pos(bone),
-                    None => Vector3::zero(),
-                }
-            }
+            FollowingType::Bone => match active_model.and_then(|model| model.active_bone()) {
+                Some(bone) => bone_pos(bone),
+                None => Vector3::zero(),
+            },
         }
     }
 

@@ -26,8 +26,8 @@ impl StateController {
         &mut self.project
     }
 
-    pub fn load_model(&mut self, data: &[u8], device: &wgpu::Device) {
-        self.project.load_model(data, device);
+    pub fn load_model(&mut self, data: &[u8], device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.project.load_model(data, device, queue);
     }
 
     pub fn load_model_motion(&mut self, data: &[u8]) {

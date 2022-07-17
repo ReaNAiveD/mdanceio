@@ -73,7 +73,7 @@ impl ShadowCamera {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("ShadowCamera/color"),
+            label: Some("ShadowCamera/depth"),
             size: wgpu::Extent3d {
                 width: Self::INITIAL_TEXTURE_SIZE as u32,
                 height: Self::INITIAL_TEXTURE_SIZE as u32,

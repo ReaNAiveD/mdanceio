@@ -136,8 +136,14 @@ impl Pass {
         device: &wgpu::Device,
     ) -> Self {
         let depth_texture_format = wgpu::TextureFormat::Depth24PlusStencil8;
-        let (color_texture, depth_texture, sampler) =
-            Self::_update(name, size, color_texture_format, depth_texture_format, sample_count, device);
+        let (color_texture, depth_texture, sampler) = Self::_update(
+            name,
+            size,
+            color_texture_format,
+            depth_texture_format,
+            sample_count,
+            device,
+        );
         Self {
             name: name.to_owned(),
             color_texture,
@@ -240,6 +246,7 @@ impl FpsUnit {
 
 struct OffscreenRenderTargetCondition {}
 
+#[derive(Debug, Clone)]
 struct ViewLayout {
     window_device_pixel_ratio: (f32, f32),
     viewport_device_pixel_ratio: (f32, f32),
@@ -525,7 +532,10 @@ impl Project {
             window_size: injector.window_size.into(),
             viewport_image_size: injector.viewport_size.into(),
             viewport_padding: Vector2::new(0, 0),
-            uniform_viewport_layout_rect: (Vector4::new(0, 0, 0, 0), Vector4::new(0, 0, 0, 0)),
+            uniform_viewport_layout_rect: (
+                Vector4::new(0, 0, injector.viewport_size[0], injector.viewport_size[1]),
+                Vector4::new(0, 0, injector.viewport_size[0], injector.viewport_size[1]),
+            ),
             uniform_viewport_image_size: (
                 injector.viewport_size.into(),
                 injector.viewport_size.into(),
@@ -564,6 +574,7 @@ impl Project {
         log::trace!("Finish Fallback texture");
 
         let mut camera = PerspectiveCamera::new();
+
         camera.update(
             layout.viewport_image_size,
             &layout.logical_scale_uniformed_viewport_image_rect(),
@@ -1062,7 +1073,7 @@ impl Project {
 }
 
 impl Project {
-    pub fn load_model(&mut self, model_data: &[u8], device: &wgpu::Device) {
+    pub fn load_model(&mut self, model_data: &[u8], device: &wgpu::Device, queue: &wgpu::Queue) {
         if let Ok(model) = Model::new_from_bytes(
             model_data,
             self.parse_language(),
@@ -1070,6 +1081,7 @@ impl Project {
             &mut self.physics_engine,
             &self.camera,
             device,
+            queue,
         ) {
             let handle = self.add_model(model);
             self.set_active_model(Some(handle));

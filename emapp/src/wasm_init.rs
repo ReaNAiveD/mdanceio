@@ -145,7 +145,7 @@ impl WasmClient {
     }
 
     pub fn load_model(&mut self, data: &[u8]) {
-        self.service.load_model(data, &self.device);
+        self.service.load_model(data, &self.device, &self.queue);
     }
 
     pub fn load_model_motion(&mut self, data: &[u8]) {
