@@ -1478,6 +1478,13 @@ impl Model {
         }
     }
 
+    pub fn set_shadow_map_enabled(&mut self, value: bool) {
+        if self.states.enable_shadow_map != value {
+            self.states.enable_shadow_map = value;
+            // TODO: publish set shadow map event
+        }
+    }
+
     pub fn set_visible(&mut self, value: bool) {
         if self.states.visible != value {
             self.set_all_physics_objects_enabled(value & self.states.physics_simulation);
@@ -1854,12 +1861,11 @@ impl Drawable for Model {
         project: &Project,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        adapter_info: wgpu::AdapterInfo,
     ) {
         if self.is_visible() {
             match typ {
                 DrawType::Color | DrawType::ScriptExternalColor => {
-                    self.draw_color(color_view, depth_view, project, device, queue, adapter_info)
+                    self.draw_color(color_view, depth_view, project, device, queue)
                 }
                 DrawType::Edge => {
                     let edge_size_scale_factor = self.edge_size(project.active_camera());
@@ -1871,7 +1877,6 @@ impl Drawable for Model {
                             project,
                             device,
                             queue,
-                            adapter_info,
                         );
                     }
                 }
@@ -1883,7 +1888,6 @@ impl Drawable for Model {
                             project,
                             device,
                             queue,
-                            adapter_info,
                         )
                     }
                 }
@@ -1895,7 +1899,6 @@ impl Drawable for Model {
                             project,
                             device,
                             queue,
-                            adapter_info,
                         )
                     }
                 }
@@ -1930,7 +1933,6 @@ impl Model {
         project: &Project,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        adapter_info: wgpu::AdapterInfo,
     ) {
         let mut index_offset = 0usize;
         for material in &self.materials {
@@ -1970,7 +1972,6 @@ impl Model {
                         project.shadow_camera(),
                         &Self::INITIAL_WORLD_MATRIX,
                         project,
-                        adapter_info.backend,
                         technique_type,
                         project.shared_fallback_image(),
                     );
@@ -2002,7 +2003,6 @@ impl Model {
         project: &Project,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        adapter_info: wgpu::AdapterInfo,
     ) {
         let mut index_offset = 0usize;
         for material in &self.materials {
@@ -2067,7 +2067,6 @@ impl Model {
         project: &Project,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        adapter_info: wgpu::AdapterInfo,
     ) {
         let mut index_offset = 0usize;
         let world = project.global_light().get_shadow_transform();
@@ -2129,7 +2128,6 @@ impl Model {
         project: &Project,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        adapter_info: wgpu::AdapterInfo,
     ) {
         let mut index_offset = 0usize;
         for material in &self.materials {
@@ -2158,7 +2156,6 @@ impl Model {
                             project.shadow_camera(),
                             &Self::INITIAL_WORLD_MATRIX,
                             project,
-                            adapter_info.backend,
                             technique_type,
                             project.shared_fallback_image(),
                         );

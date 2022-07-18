@@ -70,6 +70,7 @@ pub enum TextureSamplerStage {
 struct CommonPassCacheKey {
     cull_mode: Option<wgpu::Face>,
     primitive_type: wgpu::PrimitiveTopology,
+    technique_type: TechniqueType,
     is_add_blend: bool,
     is_depth_enabled: bool,
     is_offscreen_render_pass_active: bool,
@@ -369,12 +370,11 @@ impl CommonPass {
         shadow_camera: &ShadowCamera,
         world: &Matrix4<f32>,
         project: &Project,
-        backend: wgpu::Backend,
         technique_type: TechniqueType,
         fallback: &wgpu::Texture,
     ) {
         let (view, projection) = shadow_camera.get_view_projection(project);
-        let crop = shadow_camera.get_crop_matrix(backend);
+        let crop = shadow_camera.get_crop_matrix();
         let shadow_map_matrix = projection * view * world;
         self.uniform_buffer.light_view_projection_matrix = (crop * shadow_map_matrix).into();
         self.uniform_buffer.shadow_map_size = shadow_camera
@@ -555,6 +555,7 @@ impl CommonPass {
         let key = CommonPassCacheKey {
             cull_mode: self.cull_mode,
             primitive_type: self.primitive_type,
+            technique_type,
             is_add_blend,
             is_depth_enabled,
             is_offscreen_render_pass_active: false,
@@ -562,7 +563,11 @@ impl CommonPass {
         let mut cache = self.pipeline_cache.borrow_mut();
         let pipeline = cache.entry(key).or_insert_with(|| {
             let vertex_size = mem::size_of::<crate::model::VertexUnit>();
-            let texture_format = project.viewport_texture_format();
+            let texture_format = if technique_type == TechniqueType::Zplot {
+                wgpu::TextureFormat::R32Float
+            } else {
+                project.viewport_texture_format()
+            };
 
             let render_pipeline_layout =
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -632,7 +637,11 @@ impl CommonPass {
             };
             let color_target_state = wgpu::ColorTargetState {
                 format: texture_format,
-                blend: Some(blend_state),
+                blend: if technique_type == TechniqueType::Zplot {
+                    None
+                } else {
+                    Some(blend_state)
+                },
                 write_mask,
             };
             let depth_state = if technique_type == TechniqueType::GroundShadow && is_depth_enabled {

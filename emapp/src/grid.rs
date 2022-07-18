@@ -59,7 +59,6 @@ impl Grid {
         project: &Project,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        adapter_info: wgpu::AdapterInfo,
     ) {
         if self.visible {
             let vertices = self.build_grid_vertices();

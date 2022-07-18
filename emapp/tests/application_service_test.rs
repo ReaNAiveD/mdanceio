@@ -91,7 +91,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
         window_device_pixel_ratio: 1f32,
         viewport_device_pixel_ratio: 1f32,
         window_size: [1920, 1080],
-        viewport_size: [640, 320],
+        viewport_size: [1920, 1080],
     };
     let instance = wgpu::Instance::new(wgpu::Backends::all());
     let adapter = instance

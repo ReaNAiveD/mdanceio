@@ -20,7 +20,6 @@ pub trait Drawable {
         project: &Project,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        adapter_info: wgpu::AdapterInfo,
     );
 
     fn is_visible(&self) -> bool;

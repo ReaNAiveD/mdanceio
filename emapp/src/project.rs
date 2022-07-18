@@ -569,7 +569,7 @@ impl Project {
         );
         log::trace!("Finish Primary and Secondary Pass");
 
-        let fallback_texture = Self::create_fallback_image(&device, &queue);
+        let fallback_texture = Self::create_white_fallback_image(&device, &queue);
 
         log::trace!("Finish Fallback texture");
 
@@ -778,11 +778,6 @@ impl Project {
             } else if model.is_none() {
                 self.editing_mode = EditingMode::None;
             }
-            self.camera.update(
-                self.layout.viewport_image_size,
-                &self.layout.logical_scale_uniformed_viewport_image_rect(),
-                self.camera.bound_look_at(self),
-            );
             // TODO: publish event
             // TODO: rebuild tracks
             self.internal_seek(self.local_frame_index.0);
@@ -879,11 +874,6 @@ impl Project {
         self.internal_perform_physics_simulation(delta);
         self.synchronize_all_motions(frame_index, amount, SimulationTiming::After);
         self.mark_all_models_dirty();
-        self.camera.update(
-            self.layout.viewport_image_size,
-            &self.layout.logical_scale_uniformed_viewport_image_rect(),
-            self.camera.bound_look_at(self),
-        );
         self.light.set_dirty(false);
         self.camera.set_dirty(false);
         // TODO: seek background
@@ -1290,7 +1280,15 @@ impl Project {
         }
     }
 
-    fn create_fallback_image(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+    fn create_white_fallback_image(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+        Self::create_fallback_image([0xffu8, 0xffu8, 0xffu8, 0xffu8], device, queue)
+    }
+
+    fn create_black_fallback_image(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+        Self::create_fallback_image([0x00u8, 0x00u8, 0x00u8, 0xffu8], device, queue)
+    }
+
+    fn create_fallback_image(data: [u8; 4], device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
         let texture_size = wgpu::Extent3d {
             width: 1,
             height: 1,
@@ -1312,7 +1310,7 @@ impl Project {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &[0x00u8, 0x00u8, 0x00u8, 0xffu8],
+            &data,
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: std::num::NonZeroU32::new(4),
@@ -1332,7 +1330,6 @@ impl Project {
     fn draw_all_effects_depends_on_script_external(
         &self,
         view: &wgpu::TextureView,
-        adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
@@ -1355,7 +1352,6 @@ impl Project {
                     self,
                     device,
                     queue,
-                    adapter.get_info(),
                 );
             }
             encoder.pop_debug_group();
@@ -1417,7 +1413,6 @@ impl Project {
     pub fn draw_grid(
         &mut self,
         view: &wgpu::TextureView,
-        adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
@@ -1427,20 +1422,18 @@ impl Project {
             self,
             device,
             queue,
-            adapter.get_info(),
         );
     }
 
     pub fn draw_shadow_map(
         &mut self,
-        adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
         if self.shadow_camera.is_enabled() {
             let (light_view, light_projection) = self.shadow_camera.get_view_projection(self);
             self.shadow_camera.clear(&self.clear_pass, device, queue);
-            if self.editing_mode != EditingMode::Select {
+            // if self.editing_mode != EditingMode::Select {
                 // scope(m_currentOffscreenRenderPass, pass), scope2(m_originOffscreenRenderPass, pass)
                 for (handle, drawable) in &self.model_handle_map {
                     // TODO: judge effect script class
@@ -1453,17 +1446,15 @@ impl Project {
                         self,
                         device,
                         queue,
-                        adapter.get_info(),
                     )
                 }
-            }
+            // }
         }
     }
 
     pub fn draw_viewport(
         &mut self,
         view: &wgpu::TextureView,
-        adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
@@ -1472,7 +1463,7 @@ impl Project {
         encoder.push_debug_group("Project::draw_viewport");
         let is_drawing_color_type = self.draw_type == DrawType::Color;
         let (view_matrix, projection_matrix) = self.active_camera().get_view_transform();
-        self.draw_all_effects_depends_on_script_external(view, adapter, device, queue);
+        self.draw_all_effects_depends_on_script_external(view, device, queue);
         self.clear_view_port_primary_pass(view, device, queue);
         if is_drawing_color_type {
             // TODO: 渲染后边的部分
@@ -1481,7 +1472,6 @@ impl Project {
             ScriptOrder::Standard,
             self.draw_type,
             view,
-            adapter,
             device,
             queue,
         );
@@ -1498,7 +1488,6 @@ impl Project {
         order: ScriptOrder,
         typ: DrawType,
         view: &wgpu::TextureView,
-        adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
@@ -1510,7 +1499,6 @@ impl Project {
                 self,
                 device,
                 queue,
-                adapter.get_info(),
             );
         }
     }

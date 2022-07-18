@@ -34,8 +34,8 @@ impl BaseApplicationService {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        self.project.draw_shadow_map(adapter, device, queue);
-        self.project.draw_viewport(view, adapter, device, queue);
+        self.project.draw_shadow_map(device, queue);
+        self.project.draw_viewport(view, device, queue);
     }
 
     pub fn load_model(&mut self, data: &[u8], device: &wgpu::Device, queue: &wgpu::Queue) {
@@ -52,6 +52,12 @@ impl BaseApplicationService {
 
     pub fn load_light_motion(&mut self, data: &[u8]) {
         self.project.load_light_motion(data);
+    }
+
+    pub fn enable_model_shadow_map(&mut self, value: bool) {
+        if let Some(model) = self.project.active_model_mut() {
+            model.set_shadow_map_enabled(value);
+        }
     }
 
     pub fn set_camera_angle(&mut self, value: Vector3<f32>) {

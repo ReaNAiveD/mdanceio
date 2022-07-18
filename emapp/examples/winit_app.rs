@@ -95,6 +95,7 @@ impl State {
         let model_data = std::fs::read("emapp/tests/example/Alicia/MMD/Alicia_solid.pmx")?;
         self.application.load_model(&model_data, &self.device, &self.queue);
         drop(model_data);
+        self.application.enable_model_shadow_map(true);
         let texture_dir = std::fs::read_dir("emapp/tests/example/Alicia/FBX/").unwrap();
         for texture_file in texture_dir {
             let texture_file = texture_file.unwrap();

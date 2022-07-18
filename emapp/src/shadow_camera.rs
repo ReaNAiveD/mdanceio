@@ -3,7 +3,7 @@ use cgmath::{
     VectorSpace,
 };
 
-use crate::{project::Project, clear_pass::ClearPass, utils::lerp_f32, camera::Camera};
+use crate::{camera::Camera, clear_pass::ClearPass, project::Project, utils::lerp_f32};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoverageMode {
@@ -124,15 +124,14 @@ impl ShadowCamera {
         }
     }
 
-    pub fn clear(
-        &mut self,
-        clear_pass: &ClearPass,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
+    pub fn clear(&mut self, clear_pass: &ClearPass, device: &wgpu::Device, queue: &wgpu::Queue) {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        let pipeline = clear_pass.get_pipeline(&[wgpu::TextureFormat::R32Float], wgpu::TextureFormat::Depth24PlusStencil8, device);
+        let pipeline = clear_pass.get_pipeline(
+            &[wgpu::TextureFormat::R32Float],
+            wgpu::TextureFormat::Depth24PlusStencil8,
+            device,
+        );
         encoder.push_debug_group("ShadowCamera::clear");
         {
             let color_texture_view = self
@@ -229,19 +228,14 @@ impl ShadowCamera {
         }
         let light_view_x = (raw_light_view_x / view_length).normalize();
         let light_view_y = light_direction.cross(light_view_x);
-        let light_view_origin = camera.position() - light.direction() * 50f32;
         let light_view_matrix3 = Matrix3 {
             x: light_view_x,
             y: light_view_y,
             z: light_direction,
         };
         let light_view_matrix3_t = light_view_matrix3.transpose();
-        let light_view_matrix4 = Matrix4 {
-            x: light_view_matrix3_t.x.extend(0f32),
-            y: light_view_matrix3_t.y.extend(0f32),
-            z: light_view_matrix3_t.z.extend(0f32),
-            w: Vector4::new(0f32, 0f32, 0f32, 1f32),
-        };
+        let light_view_matrix4: Matrix4<f32> = light_view_matrix3_t.into();
+        let light_view_origin = camera.position() - light.direction() * 50f32;
         light_view_matrix4 * Matrix4::from_translation(-light_view_origin)
     }
 
@@ -250,7 +244,7 @@ impl ShadowCamera {
         let light = project.global_light();
         let camera_direction = camera.direction();
         let light_direction = light.direction().normalize();
-        let distance = (10000f32 - self.distance) / 10000f32;
+        let distance = (10000f32 - self.distance) / 100000f32;
         let angle = camera_direction.dot(light_direction).abs();
         let half_distance = distance * 0.5f32;
         let distance_x0_15 = distance * 0.15f32;
@@ -268,14 +262,14 @@ impl ShadowCamera {
                         0f32,
                         0f32,
                         distance_x3,
-                        0f32,
-                        -1f32,
-                        0f32,
                         distance * 1.5f32,
+                        distance_x3,
+                        0f32,
+                        0f32,
                         distance_x0_15,
                         0f32,
                         0f32,
-                        distance_x3,
+                        -1f32,
                         0f32,
                         1f32,
                     ),
@@ -294,14 +288,14 @@ impl ShadowCamera {
                         0f32,
                         0f32,
                         distance_x2,
-                        0f32,
-                        -1f32,
-                        0f32,
                         half_distance,
+                        distance,
+                        0f32,
+                        0f32,
                         distance_x0_15,
                         0f32,
                         0f32,
-                        distance,
+                        -1f32,
                         0f32,
                         1f32,
                     ),
@@ -317,14 +311,14 @@ impl ShadowCamera {
                 0f32,
                 0f32,
                 distance,
-                0f32,
-                angle - 1f32,
-                0f32,
                 half_distance * one_minus_angle,
+                distance * one_minus_angle,
+                0f32,
+                0f32,
                 distance_x0_15,
                 0f32,
                 0f32,
-                distance * one_minus_angle,
+                angle - 1f32,
                 0f32,
                 1f32,
             );
@@ -346,19 +340,9 @@ impl ShadowCamera {
         )
     }
 
-    pub fn get_crop_matrix(&self, backend: wgpu::Backend) -> Matrix4<f32> {
-        match backend {
-            wgpu::Backend::Gl => {
-                Matrix4::identity()
-                    * Matrix4::from_translation(Vector3::new(0.5f32, 0.5f32, 0.5f32))
-                    * Matrix4::from_scale(0.5f32)
-            }
-            _ => {
-                Matrix4::identity()
-                    * Matrix4::from_translation(Vector3::new(0.5f32, 0.5f32, 0.5f32))
-                    * Matrix4::from_nonuniform_scale(0.5f32, -0.5f32, 0.5f32)
-            }
-        }
+    pub fn get_crop_matrix(&self) -> Matrix4<f32> {
+        Matrix4::from_translation(Vector3::new(0.5f32, 0.5f32, 0.5f32))
+            * Matrix4::from_nonuniform_scale(0.5f32, -0.5f32, 0.5f32)
     }
 
     pub fn image_size(&self) -> Vector2<u16> {
@@ -382,7 +366,8 @@ impl ShadowCamera {
     }
 
     pub fn color_texture_view(&self) -> wgpu::TextureView {
-        self.shadow_color_texture.create_view(&wgpu::TextureViewDescriptor::default())
+        self.shadow_color_texture
+            .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
     pub fn depth_image(&self) -> &wgpu::Texture {
@@ -390,7 +375,8 @@ impl ShadowCamera {
     }
 
     pub fn depth_texture_view(&self) -> wgpu::TextureView {
-        self.shadow_depth_texture.create_view(&wgpu::TextureViewDescriptor::default())
+        self.shadow_depth_texture
+            .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
     pub fn set_distance(&mut self, value: f32) {
