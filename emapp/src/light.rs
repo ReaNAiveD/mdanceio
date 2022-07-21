@@ -80,6 +80,10 @@ impl DirectionalLight {
     pub fn set_dirty(&mut self, value: bool) {
         self.dirty = value;
     }
+
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
 }
 
 impl Light for DirectionalLight {

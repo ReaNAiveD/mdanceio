@@ -30,12 +30,16 @@ impl BaseApplicationService {
     pub fn draw_default_pass(
         &mut self,
         view: &wgpu::TextureView,
-        adapter: &wgpu::Adapter,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
         self.project.draw_shadow_map(device, queue);
         self.project.draw_viewport(view, device, queue);
+        self.project.update(device, queue);
+    }
+
+    pub fn update_current_project(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.project.update(device, queue);
     }
 
     pub fn load_model(&mut self, data: &[u8], device: &wgpu::Device, queue: &wgpu::Queue) {
@@ -52,6 +56,10 @@ impl BaseApplicationService {
 
     pub fn load_light_motion(&mut self, data: &[u8]) {
         self.project.load_light_motion(data);
+    }
+
+    pub fn seek(&mut self, frame_index: u32) {
+        self.project.seek(frame_index, true);
     }
 
     pub fn enable_model_shadow_map(&mut self, value: bool) {

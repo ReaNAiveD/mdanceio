@@ -240,7 +240,7 @@ impl PerspectiveCamera {
                         next_frame.fov as f32,
                         interval,
                         coef,
-                    ));
+                    ).to_radians());
                     self.set_distance(self.lerp_value_interpolation(
                         &next_frame.interpolation.distance,
                         prev_frame.distance * DISTANCE_FACTOR,
@@ -578,6 +578,10 @@ impl PerspectiveCamera {
 
     pub fn zfar(&self) -> f32 {
         10000.0f32
+    }
+
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
     }
 }
 

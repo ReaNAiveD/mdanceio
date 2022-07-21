@@ -8,6 +8,7 @@
         "Zplot"
     ],
     "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
-    "rust-analyzer.debug.engine": "ms-vscode.cpptools",
-    "rust-analyzer.checkOnSave.command": "clippy"
+    "rust-analyzer.debug.engine": "vadimcn.vscode-lldb",
+    "rust-analyzer.checkOnSave.command": "clippy",
+    "rust-analyzer.debug.openDebugPane": true
 }

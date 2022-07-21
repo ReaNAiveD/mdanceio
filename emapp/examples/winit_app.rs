@@ -110,6 +110,8 @@ impl State {
         self.application.update_bind_texture();
         let motion_data = std::fs::read("emapp/tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
         self.application.load_model_motion(&motion_data);
+        self.application.seek(20);
+        self.application.update_current_project(&self.device, &self.queue);
         drop(motion_data);
         Ok(())
     }
@@ -126,7 +128,7 @@ impl State {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         self.application
-            .draw_default_pass(&view, &self.adapter, &self.device, &self.queue);
+            .draw_default_pass(&view, &self.device, &self.queue);
         output.present();
         Ok(())
     }

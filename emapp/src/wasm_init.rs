@@ -140,7 +140,7 @@ impl WasmClient {
             .create_view(&wgpu::TextureViewDescriptor::default());
 
         self.service
-            .draw_default_pass(&view, &self.adapter, &self.device, &self.queue);
+            .draw_default_pass(&view, &self.device, &self.queue);
         frame.present();
     }
 

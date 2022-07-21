@@ -1754,6 +1754,20 @@ impl Model {
         &self.constraints
     }
 
+    pub fn has_any_dirty_bone(&self) -> bool {
+        self.bones
+            .iter()
+            .map(|bone| bone.states.dirty)
+            .fold(false, |a, b| a | b)
+    }
+
+    pub fn has_any_dirty_morph(&self) -> bool {
+        self.morphs
+            .iter()
+            .map(|morph| morph.dirty)
+            .fold(false, |a, b| a | b)
+    }
+
     pub fn active_outside_parent_subject_bone(&self) -> Option<&Bone> {
         self.active_bone_pair.1.and_then(|idx| self.bones.get(idx))
     }
@@ -1882,24 +1896,12 @@ impl Drawable for Model {
                 }
                 DrawType::GroundShadow => {
                     if self.states.enable_ground_shadow {
-                        self.draw_ground_shadow(
-                            color_view,
-                            depth_view,
-                            project,
-                            device,
-                            queue,
-                        )
+                        self.draw_ground_shadow(color_view, depth_view, project, device, queue)
                     }
                 }
                 DrawType::ShadowMap => {
                     if self.states.enable_shadow_map {
-                        self.draw_shadow_map(
-                            color_view,
-                            depth_view,
-                            project,
-                            device,
-                            queue,
-                        )
+                        self.draw_shadow_map(color_view, depth_view, project, device, queue)
                     }
                 }
             }
@@ -1916,10 +1918,20 @@ impl Model {
         self.states.dirty_staging_buffer = true;
     }
 
-    pub fn update_staging_vertex_buffer(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+    pub fn update_staging_vertex_buffer(
+        &mut self,
+        camera: &dyn Camera,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
         if self.states.dirty_staging_buffer {
             self.skin_deformer
-                .execute(&self.vertex_buffers[self.stage_vertex_buffer_index], device, queue);
+                .update_buffer(self, camera, device, queue);
+            self.skin_deformer.execute(
+                &self.vertex_buffers[self.stage_vertex_buffer_index],
+                device,
+                queue,
+            );
             self.stage_vertex_buffer_index = 1 - self.stage_vertex_buffer_index;
             self.states.dirty_morph = false;
             self.states.dirty_staging_buffer = false;
@@ -2356,9 +2368,9 @@ impl Bone {
     }
 
     fn translate(v: &Vector3<f32>, m: &Matrix4<f32>) -> Matrix4<f32> {
+        // m * Matrix4::from_translation(*v)
         let mut result = *m;
-        result[3] = Vector4::new(1f32, 1f32, 1f32, 1f32);
-        result[3] = result * v.extend(0f32);
+        result[3] = result * v.extend(1f32);
         result
     }
 
@@ -2587,33 +2599,16 @@ impl Bone {
         translation: &Vector3<f32>,
         orientation: &Quaternion<f32>,
     ) {
-        let translation_matrix = Matrix4 {
-            x: Vector4::unit_x(),
-            y: Vector4::unit_y(),
-            z: Vector4::unit_z(),
-            w: translation.extend(1f32),
-        };
-        let local_transform = Matrix4::<f32>::from(*orientation) * translation_matrix;
+        let local_transform = Matrix4::from_translation(*translation) * Matrix4::from(*orientation);
         let bone_origin = f128_to_vec3(self.origin.origin);
         if let Some((parent_origin, parent_world_transform)) = parent_origin_world_transform {
             let offset = bone_origin - parent_origin;
-            let offset_matrix = Matrix4 {
-                x: Vector4::unit_x(),
-                y: Vector4::unit_y(),
-                z: Vector4::unit_z(),
-                w: offset.extend(1f32),
-            };
-            let parent_world_transform = parent_world_transform;
-            let local_transform_with_offset = local_transform * offset_matrix;
-            self.matrices.world_transform = local_transform_with_offset * parent_world_transform;
+            let offset_matrix = Matrix4::from_translation(offset);
+            let local_transform_with_offset = offset_matrix * local_transform;
+            self.matrices.world_transform = parent_world_transform * local_transform_with_offset;
         } else {
-            let offset_matrix = Matrix4 {
-                x: Vector4::unit_x(),
-                y: Vector4::unit_y(),
-                z: Vector4::unit_z(),
-                w: bone_origin.extend(1f32),
-            };
-            self.matrices.world_transform = local_transform * offset_matrix;
+            let offset_matrix = Matrix4::from_translation(bone_origin);
+            self.matrices.world_transform = offset_matrix * local_transform;
         }
         self.matrices.local_transform = local_transform;
         self.matrices.skinning_transform =
@@ -2757,7 +2752,7 @@ impl Bone {
     pub fn apply_outside_parent_transform(&mut self, outside_parent_bone: &Bone) {
         let inv_origin = -f128_to_vec3(self.origin.origin);
         let out = Self::translate(&inv_origin, &self.matrices.world_transform);
-        self.matrices.world_transform = outside_parent_bone.matrices.world_transform * out;
+        self.matrices.world_transform = out * outside_parent_bone.matrices.world_transform;
         let out = Self::translate(&inv_origin, &self.matrices.world_transform);
         self.matrices.local_transform = out;
         self.matrices.skinning_transform = out;
@@ -2997,50 +2992,64 @@ impl Vertex {
     fn from_nanoem(vertex: &NanoemVertex) -> Self {
         let direction = Vector4::new(1f32, 1f32, 1f32, 1f32);
         let texcoord = vertex.get_tex_coord();
-        let bone_indices: [f32; 4] = vertex.get_bone_indices().map(|idx| idx as f32);
+        let bone_indices: [i32; 4] = vertex.get_bone_indices();
         let mut bones = [None; 4];
         match vertex.typ {
             nanoem::model::ModelVertexType::UNKNOWN => {}
             nanoem::model::ModelVertexType::BDEF1 => {
-                bones[0] = vertex
-                    .bone_indices
-                    .get(0)
-                    .map(|idx| if *idx >= 0 { Some(*idx as usize) } else { None })
-                    .flatten();
+                bones[0] = vertex.bone_indices.get(0).and_then(|idx| {
+                    if *idx >= 0 {
+                        Some(*idx as usize)
+                    } else {
+                        None
+                    }
+                });
             }
             nanoem::model::ModelVertexType::BDEF2 | nanoem::model::ModelVertexType::SDEF => {
-                bones[0] = vertex
-                    .bone_indices
-                    .get(0)
-                    .map(|idx| if *idx >= 0 { Some(*idx as usize) } else { None })
-                    .flatten();
-                bones[1] = vertex
-                    .bone_indices
-                    .get(1)
-                    .map(|idx| if *idx >= 0 { Some(*idx as usize) } else { None })
-                    .flatten();
+                bones[0] = vertex.bone_indices.get(0).and_then(|idx| {
+                    if *idx >= 0 {
+                        Some(*idx as usize)
+                    } else {
+                        None
+                    }
+                });
+                bones[1] = vertex.bone_indices.get(1).and_then(|idx| {
+                    if *idx >= 0 {
+                        Some(*idx as usize)
+                    } else {
+                        None
+                    }
+                });
             }
             nanoem::model::ModelVertexType::BDEF4 | nanoem::model::ModelVertexType::QDEF => {
-                bones[0] = vertex
-                    .bone_indices
-                    .get(0)
-                    .map(|idx| if *idx >= 0 { Some(*idx as usize) } else { None })
-                    .flatten();
-                bones[1] = vertex
-                    .bone_indices
-                    .get(1)
-                    .map(|idx| if *idx >= 0 { Some(*idx as usize) } else { None })
-                    .flatten();
-                bones[2] = vertex
-                    .bone_indices
-                    .get(2)
-                    .map(|idx| if *idx >= 0 { Some(*idx as usize) } else { None })
-                    .flatten();
-                bones[3] = vertex
-                    .bone_indices
-                    .get(3)
-                    .map(|idx| if *idx >= 0 { Some(*idx as usize) } else { None })
-                    .flatten();
+                bones[0] = vertex.bone_indices.get(0).and_then(|idx| {
+                    if *idx >= 0 {
+                        Some(*idx as usize)
+                    } else {
+                        None
+                    }
+                });
+                bones[1] = vertex.bone_indices.get(1).and_then(|idx| {
+                    if *idx >= 0 {
+                        Some(*idx as usize)
+                    } else {
+                        None
+                    }
+                });
+                bones[2] = vertex.bone_indices.get(2).and_then(|idx| {
+                    if *idx >= 0 {
+                        Some(*idx as usize)
+                    } else {
+                        None
+                    }
+                });
+                bones[3] = vertex.bone_indices.get(3).and_then(|idx| {
+                    if *idx >= 0 {
+                        Some(*idx as usize)
+                    } else {
+                        None
+                    }
+                });
             }
         }
         let simd = VertexSimd {
@@ -3058,7 +3067,9 @@ impl Vertex {
                 vertex.get_index() as f32,
                 1f32,
             ),
-            indices: bone_indices.into(),
+            indices: bones
+                .map(|bone_idx| bone_idx.map(|idx| idx as f32).unwrap_or(-1f32))
+                .into(),
             delta: Vector4::zero(),
             weights: vertex.get_bone_weights().into(),
             origin_uva: vertex.get_additional_uv().map(|uv| uv.into()),
@@ -3784,7 +3795,7 @@ impl RigidBody {
         {
             let skinning_transform = to_isometry(bone.matrices.skinning_transform);
             physics_rigid_body
-                .set_position(self.initial_world_transform * skinning_transform, true);
+                .set_position(skinning_transform * self.initial_world_transform, true);
             physics_rigid_body.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
             physics_rigid_body.set_angvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
             physics_rigid_body.reset_forces(true);
@@ -3877,7 +3888,7 @@ impl RigidBody {
             {
                 let initial_transform = self.initial_world_transform;
                 let skinning_transform = to_isometry(bone.matrices.skinning_transform);
-                let world_transform = initial_transform * skinning_transform;
+                let world_transform = skinning_transform * initial_transform;
                 physics_rigid_body.set_position(world_transform, true);
                 physics_rigid_body.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
                 physics_rigid_body.set_angvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);

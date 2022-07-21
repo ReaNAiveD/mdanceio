@@ -220,7 +220,7 @@ impl Pass {
 
 #[derive(Debug, Clone, Copy)]
 struct FpsUnit {
-    value: f32,
+    value: u32,
     scale_factor: f32,
     inverted_value: f32,
     inverted_scale_factor: f32,
@@ -230,16 +230,16 @@ impl FpsUnit {
     pub const HALF_BASE_FPS: u32 = 30u32;
     pub const HALF_BASE_FPS_F32: f32 = Self::HALF_BASE_FPS as f32;
 
-    pub fn new(value: f32) -> Self {
+    pub fn new(value: u32) -> Self {
         Self {
-            value: value.max(Self::HALF_BASE_FPS_F32),
-            scale_factor: value / Self::HALF_BASE_FPS_F32,
-            inverted_value: 1f32 / value,
-            inverted_scale_factor: Self::HALF_BASE_FPS_F32 / value,
+            value: value.max(Self::HALF_BASE_FPS),
+            scale_factor: (value as f32) / Self::HALF_BASE_FPS_F32,
+            inverted_value: 1f32 / (value as f32),
+            inverted_scale_factor: Self::HALF_BASE_FPS_F32 / (value as f32),
         }
     }
 
-    pub fn value(&self) -> f32 {
+    pub fn value(&self) -> u32 {
         self.value
     }
 }
@@ -383,6 +383,18 @@ pub struct ProjectStates {
     pub viewport_window_detached: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ConfirmSeekFlags {
+    pub bone: bool,
+    pub camera: bool,
+    pub light: bool,
+    pub model: bool,
+    pub morph: bool,
+    pub self_shadow: bool,
+    pub accessory: bool,
+    pub all: bool,
+}
+
 pub type ModelHandle = u32;
 
 pub struct Project {
@@ -488,7 +500,7 @@ pub struct Project {
     // circle_radius: f32,
     sample_level: (u32, u32),
     state_flags: ProjectStates,
-    // confirm_seek_flags: u64,
+    confirm_seek_flags: ConfirmSeekFlags,
     // last_physics_debug_flags: u32,
     // coordination_system: u32,
     // cursor_modifiers: u32,
@@ -607,7 +619,7 @@ impl Project {
             editing_mode: EditingMode::None,
             language: LanguageType::English,
             base_duration: Self::MINIMUM_BASE_DURATION,
-            preferred_motion_fps: FpsUnit::new(60f32),
+            preferred_motion_fps: FpsUnit::new(60u32),
             time_step_factor: 1f32,
             layout,
             active_model_pair: (None, None),
@@ -648,6 +660,7 @@ impl Project {
                 reset_all_passes: adapter.get_info().backend != wgpu::Backend::Gl,
                 ..Default::default()
             },
+            confirm_seek_flags: ConfirmSeekFlags::default(),
         }
         // TODO: may need to publish set fps event
     }
@@ -844,6 +857,16 @@ impl Project {
 }
 
 impl Project {
+    pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        // TODO: seek if playing
+        // TODO: simulate if simulation anytime
+        for (_, model) in &mut self.model_handle_map {
+            model.update_staging_vertex_buffer(&self.camera, device, queue)
+        }
+        // TODO: mark all animated images updatable
+        // TODO: render background video
+    }
+
     pub fn update_global_camera(&mut self) {
         let bound_look_at = self.global_camera().bound_look_at(self);
         let viewport_image_size = self.layout.viewport_image_size;
@@ -856,11 +879,48 @@ impl Project {
         );
     }
 
-    pub fn internal_seek(&mut self, frame_index: u32) {
+    pub fn seek(&mut self, frame_index: u32, force_seek: bool) {
+        self.seek_precisely(frame_index, 0f32, force_seek)
+    }
+
+    pub fn seek_precisely(&mut self, frame_index: u32, amount: f32, force_seek: bool) {
+        if self.can_seek() {
+            // TODO: if not force, use a confirmer to seek
+            let last_duration = self.project_duration();
+            let seek_from = self.local_frame_index.0;
+            let fps = self.preferred_motion_fps.value();
+            let base = FpsUnit::HALF_BASE_FPS;
+            let fps_rate = fps / base;
+            let seconds = (frame_index as f64) / (base as f64);
+            let delta = if frame_index > seek_from {
+                ((frame_index - seek_from) * fps_rate) as f32 * self.physics_simulation_time_step()
+            } else {
+                0f32
+            };
+            self.set_base_duration(frame_index);
+            // TODO: seek audio player
+            self.internal_seek_precisely(frame_index, amount, delta);
+            // TODO: publish event
+        }
+    }
+
+    fn can_seek(&self) -> bool {
+        let mut seekable = !self.state_flags.enable_model_editing;
+        if let Some(model) = self.active_model() {
+            seekable &= !(model.has_any_dirty_bone() && self.confirm_seek_flags.bone);
+            seekable &= !(model.has_any_dirty_morph() && self.confirm_seek_flags.morph);
+        } else {
+            seekable &= !(self.camera.is_dirty() && self.confirm_seek_flags.camera);
+            seekable &= !(self.light.is_dirty() && self.confirm_seek_flags.light);
+        }
+        seekable
+    }
+
+    fn internal_seek(&mut self, frame_index: u32) {
         self.internal_seek_precisely(frame_index, 0f32, 0f32);
     }
 
-    pub fn internal_seek_precisely(&mut self, frame_index: u32, amount: f32, delta: f32) {
+    fn internal_seek_precisely(&mut self, frame_index: u32, amount: f32, delta: f32) {
         if self.transform_performed_at.0 != Motion::MAX_KEYFRAME_INDEX
             && frame_index != self.transform_performed_at.0
         {
@@ -1156,19 +1216,19 @@ impl Project {
     }
 
     pub fn add_model_motion(&mut self, mut motion: Motion, model: ModelHandle) -> Option<Motion> {
-        let last_model_motion = self.model_to_motion.get(&model);
-        if let Some(last_model_motion) = last_model_motion.map(|motion| motion.clone()) {
+        let last_model_motion = self.model_to_motion.get(&model).map(|motion| motion.clone());
+        if let Some(last_model_motion) = last_model_motion.as_ref() {
             if self.state_flags.enable_motion_merge {
-                motion.merge_all_keyframes(&last_model_motion);
+                motion.merge_all_keyframes(last_model_motion);
             }
-            if let Some(model_object) = self.model_handle_map.get(&model) {
-                motion.initialize_model_frame_0(model_object);
-                // TODO: clear model undo stack
-                self.model_to_motion.insert(model, motion);
-                self.set_base_duration(self.project_duration());
-                // TODO: publish add motion event
-                return Some(last_model_motion);
-            }
+        }
+        if let Some(model_object) = self.model_handle_map.get(&model) {
+            motion.initialize_model_frame_0(model_object);
+            // TODO: clear model undo stack
+            self.model_to_motion.insert(model, motion);
+            self.set_base_duration(self.project_duration());
+            // TODO: publish add motion event
+            return last_model_motion;
         }
         return None;
     }
@@ -1288,7 +1348,11 @@ impl Project {
         Self::create_fallback_image([0x00u8, 0x00u8, 0x00u8, 0xffu8], device, queue)
     }
 
-    fn create_fallback_image(data: [u8; 4], device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Texture {
+    fn create_fallback_image(
+        data: [u8; 4],
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> wgpu::Texture {
         let texture_size = wgpu::Extent3d {
             width: 1,
             height: 1,
@@ -1425,29 +1489,25 @@ impl Project {
         );
     }
 
-    pub fn draw_shadow_map(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
+    pub fn draw_shadow_map(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if self.shadow_camera.is_enabled() {
             let (light_view, light_projection) = self.shadow_camera.get_view_projection(self);
             self.shadow_camera.clear(&self.clear_pass, device, queue);
             // if self.editing_mode != EditingMode::Select {
-                // scope(m_currentOffscreenRenderPass, pass), scope2(m_originOffscreenRenderPass, pass)
-                for (handle, drawable) in &self.model_handle_map {
-                    // TODO: judge effect script class
-                    let color_view = self.shadow_camera.color_texture_view();
-                    let depth_view = self.shadow_camera.depth_texture_view();
-                    drawable.draw(
-                        &color_view,
-                        Some(&depth_view),
-                        DrawType::ShadowMap,
-                        self,
-                        device,
-                        queue,
-                    )
-                }
+            // scope(m_currentOffscreenRenderPass, pass), scope2(m_originOffscreenRenderPass, pass)
+            for (handle, drawable) in &self.model_handle_map {
+                // TODO: judge effect script class
+                let color_view = self.shadow_camera.color_texture_view();
+                let depth_view = self.shadow_camera.depth_texture_view();
+                drawable.draw(
+                    &color_view,
+                    Some(&depth_view),
+                    DrawType::ShadowMap,
+                    self,
+                    device,
+                    queue,
+                )
+            }
             // }
         }
     }
@@ -1468,13 +1528,7 @@ impl Project {
         if is_drawing_color_type {
             // TODO: 渲染后边的部分
         }
-        self._draw_viewport(
-            ScriptOrder::Standard,
-            self.draw_type,
-            view,
-            device,
-            queue,
-        );
+        self._draw_viewport(ScriptOrder::Standard, self.draw_type, view, device, queue);
         if is_drawing_color_type {
             // TODO: 渲染前边部分
         }
