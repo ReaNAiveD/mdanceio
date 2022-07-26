@@ -162,7 +162,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let motion_data = std::fs::read("tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
     application.load_model_motion(&motion_data);
     drop(motion_data);
-    application.draw_default_pass(&texture_view, &adapter, &device, &queue);
+    application.draw_default_pass(&texture_view, &device, &queue);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("ReadBufferEncoder"),
     });

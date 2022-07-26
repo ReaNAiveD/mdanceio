@@ -140,7 +140,7 @@ impl LineDrawer {
                 multisample: wgpu::MultisampleState::default(),
                 fragment: Some(wgpu::FragmentState {
                     module: &self.shader,
-                    entry_point: "ps_main",
+                    entry_point: "fs_main",
                     targets: &[Some(wgpu::ColorTargetState {
                         format: color_format,
                         blend: Some(wgpu::BlendState {

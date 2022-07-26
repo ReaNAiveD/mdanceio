@@ -24,7 +24,7 @@ impl Grid {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("GridPass/Vertices"),
             contents: bytemuck::cast_slice(&vertices[..]),
-            usage: wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         Self {
             line_drawer: LineDrawer::new(device),

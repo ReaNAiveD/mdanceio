@@ -1475,7 +1475,7 @@ impl Project {
     }
 
     pub fn draw_grid(
-        &mut self,
+        &self,
         view: &wgpu::TextureView,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -1526,7 +1526,7 @@ impl Project {
         self.draw_all_effects_depends_on_script_external(view, device, queue);
         self.clear_view_port_primary_pass(view, device, queue);
         if is_drawing_color_type {
-            // TODO: 渲染后边的部分
+            self.draw_grid(view, device, queue);
         }
         self._draw_viewport(ScriptOrder::Standard, self.draw_type, view, device, queue);
         if is_drawing_color_type {
