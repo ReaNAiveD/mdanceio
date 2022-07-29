@@ -65,9 +65,6 @@ impl State {
             &queue,
             emapp::injector::Injector {
                 pixel_format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                window_device_pixel_ratio: 1f32,
-                viewport_device_pixel_ratio: 1f32,
-                window_size: [size.width, size.height],
                 viewport_size: [size.width, size.height],
             },
         );

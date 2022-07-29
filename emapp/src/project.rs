@@ -246,120 +246,6 @@ impl FpsUnit {
 
 struct OffscreenRenderTargetCondition {}
 
-#[derive(Debug, Clone)]
-struct ViewLayout {
-    pub window_device_pixel_ratio: (f32, f32),
-    pub viewport_device_pixel_ratio: (f32, f32),
-    pub window_size: Vector2<u32>,
-    pub viewport_image_size: Vector2<u32>,
-    pub viewport_padding: Vector2<u32>,
-    pub uniform_viewport_layout_rect: (Vector4<u32>, Vector4<u32>),
-    pub uniform_viewport_image_size: (Vector2<u32>, Vector2<u32>),
-}
-
-impl ViewLayout {
-    pub fn viewport_device_pixel_ratio(&self) -> f32 {
-        self.viewport_device_pixel_ratio.0
-    }
-
-    pub fn window_device_pixel_ratio(&self) -> f32 {
-        self.window_device_pixel_ratio.0
-    }
-
-    pub fn logical_scale_uniformed_viewport_layout_rect(&self) -> Vector4<u32> {
-        self.uniform_viewport_layout_rect.0
-    }
-
-    pub fn logical_scale_uniformed_viewport_image_size(&self) -> Vector2<u32> {
-        self.uniform_viewport_image_size.0
-    }
-
-    pub fn device_scale_uniformed_viewport_layout_rect(&self) -> Vector4<u32> {
-        // TODO: Origin Likes below. s * dpr has any meaning?
-        // const nanoem_f32_t dpr = viewportDevicePixelRatio(), s = windowDevicePixelRatio() / dpr;
-        // return Vector4(logicalScaleUniformedViewportLayoutRect()) * dpr * s;
-        let window_device_pixel_ratio = self.window_device_pixel_ratio();
-        self.logical_scale_uniformed_viewport_layout_rect()
-            .map(|v| ((v as f32) * window_device_pixel_ratio) as u32)
-    }
-
-    pub fn device_scale_uniformed_viewport_image_size(&self) -> Vector2<u32> {
-        let window_device_pixel_ratio = self.window_device_pixel_ratio();
-        self.logical_scale_uniformed_viewport_image_size()
-            .map(|v| ((v as f32) * window_device_pixel_ratio) as u32)
-    }
-
-    fn adjust_viewport_image_rect(
-        viewport_image_rect: &mut Vector4<f32>,
-        viewport_layout_rect: Vector4<f32>,
-        viewport_image_size: Vector2<f32>,
-    ) {
-        if viewport_layout_rect.z > viewport_image_size.x {
-            viewport_image_rect.x += (viewport_layout_rect.z - viewport_image_size.x) * 0.5f32;
-            viewport_image_rect.z = viewport_image_size.x;
-        }
-        if viewport_layout_rect.w > viewport_image_size.y {
-            viewport_image_rect.y += (viewport_layout_rect.w - viewport_image_size.y) * 0.5f32;
-            viewport_image_rect.w = viewport_image_size.y;
-        }
-    }
-
-    pub fn logical_scale_uniformed_viewport_image_rect(&self) -> Vector4<f32> {
-        let viewport_layout_rect = self
-            .logical_scale_uniformed_viewport_layout_rect()
-            .map(|v| v as f32);
-        let mut viewport_image_rect = viewport_layout_rect;
-        Self::adjust_viewport_image_rect(
-            &mut viewport_image_rect,
-            viewport_layout_rect,
-            self.logical_scale_uniformed_viewport_image_size()
-                .map(|v| v as f32),
-        );
-        viewport_image_rect.x -= self.viewport_padding.x as f32;
-        viewport_image_rect.y -= self.viewport_padding.y as f32;
-        viewport_image_rect
-    }
-
-    pub fn device_scale_uniformed_viewport_image_rect(&self) -> Vector4<f32> {
-        let viewport_layout_rect = self
-            .device_scale_uniformed_viewport_layout_rect()
-            .map(|v| v as f32);
-        let mut viewport_image_rect = viewport_layout_rect;
-        Self::adjust_viewport_image_rect(
-            &mut viewport_image_rect,
-            viewport_layout_rect,
-            self.device_scale_uniformed_viewport_image_size()
-                .map(|v| v as f32),
-        );
-        viewport_image_rect
-    }
-
-    pub fn resolve_logical_cursor_position_in_viewport(
-        &self,
-        value: &Vector2<i32>,
-    ) -> Vector2<i32> {
-        let size = self.uniform_viewport_image_size.0;
-        let offset =
-            self.uniform_viewport_layout_rect.0.truncate().truncate() + self.viewport_padding;
-        Vector2::new(
-            value.x - offset.x as i32,
-            size.y as i32 - (value.y - offset.y as i32),
-        )
-    }
-
-    pub fn uniformed_viewport_image_size(
-        viewport_layout_size: Vector2<f32>,
-        viewport_image_size: Vector2<f32>,
-    ) -> Vector2<f32> {
-        let viewport_layout_base_ratio = if viewport_image_size.x >= viewport_image_size.y {
-            viewport_layout_size.x / viewport_image_size.x
-        } else {
-            viewport_layout_size.y / viewport_image_size.y
-        };
-        return viewport_image_size * viewport_layout_base_ratio;
-    }
-}
-
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ProjectStates {
     pub disable_hidden_bone_bounds_rigid_body: bool,
@@ -470,7 +356,7 @@ pub struct Project {
     // selection_segment: TimeLineSegment,
     base_duration: u32,
     language: LanguageType,
-    layout: ViewLayout,
+    viewport_size: (Vector2<u32>, Vector2<u32>),
     // background_video_rect: Vector4<i32>,
     // bone_selection_rect: Vector4<i32>,
     // logical_scale_cursor_positions: HashMap<CursorType, Vector4<i32>>,
@@ -544,36 +430,11 @@ impl Project {
         injector: Injector,
     ) -> Self {
         log::trace!("Start Creating new Project");
-        let layout = ViewLayout {
-            window_device_pixel_ratio: (
-                injector.window_device_pixel_ratio,
-                injector.window_device_pixel_ratio,
-            ),
-            viewport_device_pixel_ratio: (
-                injector.viewport_device_pixel_ratio,
-                injector.viewport_device_pixel_ratio,
-            ),
-            window_size: injector.window_size.into(),
-            viewport_image_size: injector.viewport_size.into(),
-            viewport_padding: Vector2::new(0, 0),
-            uniform_viewport_layout_rect: (
-                Vector4::new(0, 0, injector.viewport_size[0], injector.viewport_size[1]),
-                Vector4::new(0, 0, injector.viewport_size[0], injector.viewport_size[1]),
-            ),
-            uniform_viewport_image_size: (
-                injector.viewport_size.into(),
-                injector.viewport_size.into(),
-            ),
-        };
+        let viewport_size = Vector2::new(injector.viewport_size[0], injector.viewport_size[1]);
 
         let viewport_primary_pass = Pass::new(
             Self::VIEWPORT_PRIMARY_NAME,
-            Vector2::new(
-                layout.uniform_viewport_image_size.1.x
-                    * layout.viewport_device_pixel_ratio.1 as u32,
-                layout.uniform_viewport_image_size.1.y
-                    * layout.viewport_device_pixel_ratio.1 as u32,
-            ),
+            viewport_size,
             injector.texture_format(),
             1,
             &device,
@@ -581,12 +442,7 @@ impl Project {
 
         let viewport_secondary_pass = Pass::new(
             Self::VIEWPORT_SECONDARY_NAME,
-            Vector2::new(
-                layout.uniform_viewport_image_size.1.x
-                    * layout.viewport_device_pixel_ratio.1 as u32,
-                layout.uniform_viewport_image_size.1.y
-                    * layout.viewport_device_pixel_ratio.1 as u32,
-            ),
+            viewport_size,
             injector.texture_format(),
             1,
             &device,
@@ -599,11 +455,7 @@ impl Project {
 
         let mut camera = PerspectiveCamera::new();
 
-        camera.update(
-            layout.viewport_image_size,
-            &layout.logical_scale_uniformed_viewport_image_rect(),
-            camera.look_at(None),
-        );
+        camera.update(viewport_size, camera.look_at(None));
         camera.set_dirty(false);
         let mut shadow_camera = ShadowCamera::new(&device);
         if adapter.get_info().backend == wgpu::Backend::Gl {
@@ -633,7 +485,7 @@ impl Project {
             base_duration: Self::MINIMUM_BASE_DURATION,
             preferred_motion_fps: FpsUnit::new(60u32),
             time_step_factor: 1f32,
-            layout,
+            viewport_size: (viewport_size, viewport_size),
             active_model_pair: (None, None),
             grid: Box::new(Grid::new(device)),
             camera_motion,
@@ -831,18 +683,6 @@ impl Project {
         self.model_to_motion.get(&model)
     }
 
-    pub fn resolve_logical_cursor_position_in_viewport(
-        &self,
-        value: &Vector2<i32>,
-    ) -> Vector2<i32> {
-        self.layout
-            .resolve_logical_cursor_position_in_viewport(value)
-    }
-
-    pub fn logical_scale_uniformed_viewport_image_size(&self) -> Vector2<u32> {
-        self.layout.logical_scale_uniformed_viewport_image_size()
-    }
-
     pub fn physics_simulation_time_step(&self) -> f32 {
         self.inverted_preferred_motion_fps()
             * self.preferred_motion_fps.scale_factor
@@ -879,16 +719,15 @@ impl Project {
         // TODO: render background video
     }
 
+    pub fn reset_all_passes(&mut self) -> bool {
+        return false;
+    }
+
     pub fn update_global_camera(&mut self) {
         let bound_look_at = self.global_camera().bound_look_at(self);
-        let viewport_image_size = self.layout.viewport_image_size;
-        let logical_scale_uniformed_viewport_image_rect =
-            self.layout.logical_scale_uniformed_viewport_image_rect();
-        self.global_camera_mut().update(
-            viewport_image_size,
-            &logical_scale_uniformed_viewport_image_rect,
-            bound_look_at,
-        );
+        let viewport_image_size = self.viewport_size.0;
+        self.global_camera_mut()
+            .update(viewport_image_size, bound_look_at);
     }
 
     pub fn seek(&mut self, frame_index: u32, force_seek: bool) {
@@ -1046,8 +885,7 @@ impl Project {
         self.camera.interpolation = camera0.interpolation;
         let bound_look_at = self.camera.bound_look_at(self);
         self.camera.update(
-            self.layout.viewport_image_size,
-            &self.layout.logical_scale_uniformed_viewport_image_rect(),
+            self.viewport_size.0,
             bound_look_at,
         );
         self.camera.set_dirty(false);

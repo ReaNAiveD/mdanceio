@@ -2,9 +2,6 @@
 pub struct Injector {
     // TODO
     pub pixel_format: wgpu::TextureFormat,
-    pub window_device_pixel_ratio: f32,
-    pub viewport_device_pixel_ratio: f32,
-    pub window_size: [u32; 2],
     pub viewport_size: [u32; 2],
 }
 

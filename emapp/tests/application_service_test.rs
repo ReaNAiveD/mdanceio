@@ -88,9 +88,6 @@ async fn create_png(
 async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let injector = Injector {
         pixel_format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        window_device_pixel_ratio: 1f32,
-        viewport_device_pixel_ratio: 1f32,
-        window_size: [1920, 1080],
         viewport_size: [1920, 1080],
     };
     let instance = wgpu::Instance::new(wgpu::Backends::all());

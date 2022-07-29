@@ -127,12 +127,7 @@ impl PerspectiveCamera {
         self.interpolation = CameraKeyframeInterpolation::default();
     }
 
-    pub fn update(
-        &mut self,
-        viewport_image_size: Vector2<u32>,
-        logical_scale_uniformed_viewport_image_rect: &Vector4<f32>,
-        bound_look_at: Vector3<f32>,
-    ) {
+    pub fn update(&mut self, viewport_image_size: Vector2<u32>, bound_look_at: Vector3<f32>) {
         let angle = self.angle.mul_element_wise(Self::ANGLE_SCALE_FACTOR);
         let x = Quaternion::from_angle_x(Rad(angle.x));
         let y = Quaternion::from_angle_y(Rad(angle.y));
@@ -148,16 +143,17 @@ impl PerspectiveCamera {
             self.direction = (position - bound_look_at).normalize();
         }
         self.position = position;
+        let viewport_image_size: Vector2<f32> =
+            viewport_image_size.cast().unwrap().map(|v: f32| v.max(1f32));
         if self.perspective {
             self.fov.1 = (Rad::from(Deg(1.0f32)).0).max(self.fov.1);
             self.projection_matrix = infinite_perspective(
                 Rad(self.fov.1),
-                self.aspect_ratio(logical_scale_uniformed_viewport_image_rect),
+                viewport_image_size.x / viewport_image_size.y,
                 0.5,
             )
             .into();
         } else {
-            let viewport_image_size: Vector2<f32> = viewport_image_size.cast().unwrap();
             let inverse_distance = 1.0 / self.distance;
             let mut projection_matrix: Matrix4<f32> = Matrix4::identity();
             projection_matrix[0][0] = 2.0f32
@@ -234,13 +230,16 @@ impl PerspectiveCamera {
                         interval,
                         coef,
                     ));
-                    self.set_fov_radians(self.lerp_value_interpolation(
-                        &next_frame.interpolation.fov,
-                        prev_frame.fov as f32,
-                        next_frame.fov as f32,
-                        interval,
-                        coef,
-                    ).to_radians());
+                    self.set_fov_radians(
+                        self.lerp_value_interpolation(
+                            &next_frame.interpolation.fov,
+                            prev_frame.fov as f32,
+                            next_frame.fov as f32,
+                            interval,
+                            coef,
+                        )
+                        .to_radians(),
+                    );
                     self.set_distance(self.lerp_value_interpolation(
                         &next_frame.interpolation.distance,
                         prev_frame.distance * DISTANCE_FACTOR,
@@ -350,13 +349,13 @@ impl PerspectiveCamera {
     pub fn un_projected(
         &self,
         value: &Vector3<f32>,
-        logical_scale_uniformed_viewport_image_size: Vector2<u32>,
+        viewport_size: Vector2<u32>,
     ) -> Vector3<f32> {
         let viewport = Vector4::new(
             0f32,
             0f32,
-            logical_scale_uniformed_viewport_image_size.x as f32,
-            logical_scale_uniformed_viewport_image_size.y as f32,
+            viewport_size.x as f32,
+            viewport_size.y as f32,
         );
         un_project(value, &self.view_matrix, &self.projection_matrix, &viewport).unwrap()
     }
@@ -410,15 +409,14 @@ impl PerspectiveCamera {
     }
 
     // TODO: padding, rect, size used in project can be extracted
-    pub fn create_ray(&self, value: &Vector2<i32>, project: &Project) -> Ray {
-        let coord = project.resolve_logical_cursor_position_in_viewport(value);
+    pub fn create_ray(&self, value: Vector2<i32>, viewport_size: Vector2<u32>) -> Ray {
         let from = self.un_projected(
             &value.extend(0).cast().unwrap(),
-            project.logical_scale_uniformed_viewport_image_size(),
+            viewport_size,
         );
         let to = self.un_projected(
             &value.cast().unwrap().extend(1f32 - f32::EPSILON),
-            project.logical_scale_uniformed_viewport_image_size(),
+            viewport_size,
         );
         Ray {
             from,
@@ -431,8 +429,8 @@ impl PerspectiveCamera {
         }
     }
 
-    pub fn cast_ray(&self, position: &Vector2<i32>, project: &Project) -> Option<Vector3<f32>> {
-        let ray = self.create_ray(position, project);
+    pub fn cast_ray(&self, position: Vector2<i32>, viewport_size: Vector2<u32>) -> Option<Vector3<f32>> {
+        let ray = self.create_ray(position, viewport_size);
         intersect_ray_plane(
             &ray.from,
             &ray.direction,
@@ -560,20 +558,10 @@ impl PerspectiveCamera {
         &mut self,
         value: FollowingType,
         viewport_image_size: Vector2<u32>,
-        logical_scale_uniformed_viewport_image_rect: &Vector4<f32>,
         bound_look_at: Vector3<f32>,
     ) {
         self.following_type = value;
-        self.update(
-            viewport_image_size,
-            logical_scale_uniformed_viewport_image_rect,
-            bound_look_at,
-        );
-    }
-
-    pub fn aspect_ratio(&self, logical_scale_uniformed_viewport_image_rect: &Vector4<f32>) -> f32 {
-        let viewport = logical_scale_uniformed_viewport_image_rect.map(|v| v.max(1f32));
-        viewport.z / viewport.w
+        self.update(viewport_image_size, bound_look_at);
     }
 
     pub fn zfar(&self) -> f32 {
