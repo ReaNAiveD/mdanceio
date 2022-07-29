@@ -42,7 +42,7 @@ pub struct ShadowCamera {
     fallback_color_texture: wgpu::Texture,
     shadow_depth_texture: wgpu::Texture,
     fallback_depth_texture: wgpu::Texture,
-    texture_size: Vector2<u16>,
+    texture_size: Vector2<u32>,
     coverage_mode: CoverageMode,
     distance: f32,
     enabled: bool,
@@ -56,7 +56,7 @@ impl ShadowCamera {
     pub const MAXIMUM_DISTANCE: f32 = 10000f32;
     pub const MINIMUM_DISTANCE: f32 = 0f32;
     pub const INITIAL_DISTANCE: f32 = 8875f32;
-    pub const INITIAL_TEXTURE_SIZE: u16 = 2048;
+    pub const INITIAL_TEXTURE_SIZE: u32 = 2048;
 
     pub fn new(device: &wgpu::Device) -> Self {
         let color_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -175,9 +175,9 @@ impl ShadowCamera {
         queue.submit(Some(encoder.finish()));
     }
 
-    pub fn resize(&mut self, size: Vector2<u16>, device: &wgpu::Device) {
+    pub fn resize(&mut self, size: Vector2<u32>, device: &wgpu::Device) {
         if size != self.texture_size {
-            self.texture_size = size.map(|s| s.max(256u16));
+            self.texture_size = size.map(|s| s.max(256u32));
             self.update(device)
         }
     }
@@ -345,7 +345,7 @@ impl ShadowCamera {
             * Matrix4::from_nonuniform_scale(0.5f32, -0.5f32, 0.5f32)
     }
 
-    pub fn image_size(&self) -> Vector2<u16> {
+    pub fn image_size(&self) -> Vector2<u32> {
         self.texture_size
     }
 

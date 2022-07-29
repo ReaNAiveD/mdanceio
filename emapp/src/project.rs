@@ -130,7 +130,7 @@ struct Pass {
 impl Pass {
     pub fn new(
         name: &str,
-        size: Vector2<u16>,
+        size: Vector2<u32>,
         color_texture_format: wgpu::TextureFormat,
         sample_count: u32,
         device: &wgpu::Device,
@@ -154,7 +154,7 @@ impl Pass {
         }
     }
 
-    pub fn update(&mut self, size: Vector2<u16>, device: &wgpu::Device, project: &Project) {
+    pub fn update(&mut self, size: Vector2<u32>, device: &wgpu::Device, project: &Project) {
         let (color_texture, depth_texture, sampler) = Self::_update(
             self.name.as_str(),
             size,
@@ -171,7 +171,7 @@ impl Pass {
 
     fn _update(
         name: &str,
-        size: Vector2<u16>,
+        size: Vector2<u32>,
         color_texture_format: wgpu::TextureFormat,
         depth_texture_format: wgpu::TextureFormat,
         sample_count: u32,
@@ -248,13 +248,13 @@ struct OffscreenRenderTargetCondition {}
 
 #[derive(Debug, Clone)]
 struct ViewLayout {
-    window_device_pixel_ratio: (f32, f32),
-    viewport_device_pixel_ratio: (f32, f32),
-    window_size: Vector2<u16>,
-    viewport_image_size: Vector2<u16>,
-    viewport_padding: Vector2<u16>,
-    uniform_viewport_layout_rect: (Vector4<u16>, Vector4<u16>),
-    uniform_viewport_image_size: (Vector2<u16>, Vector2<u16>),
+    pub window_device_pixel_ratio: (f32, f32),
+    pub viewport_device_pixel_ratio: (f32, f32),
+    pub window_size: Vector2<u32>,
+    pub viewport_image_size: Vector2<u32>,
+    pub viewport_padding: Vector2<u32>,
+    pub uniform_viewport_layout_rect: (Vector4<u32>, Vector4<u32>),
+    pub uniform_viewport_image_size: (Vector2<u32>, Vector2<u32>),
 }
 
 impl ViewLayout {
@@ -266,27 +266,27 @@ impl ViewLayout {
         self.window_device_pixel_ratio.0
     }
 
-    pub fn logical_scale_uniformed_viewport_layout_rect(&self) -> Vector4<u16> {
+    pub fn logical_scale_uniformed_viewport_layout_rect(&self) -> Vector4<u32> {
         self.uniform_viewport_layout_rect.0
     }
 
-    pub fn logical_scale_uniformed_viewport_image_size(&self) -> Vector2<u16> {
+    pub fn logical_scale_uniformed_viewport_image_size(&self) -> Vector2<u32> {
         self.uniform_viewport_image_size.0
     }
 
-    pub fn device_scale_uniformed_viewport_layout_rect(&self) -> Vector4<u16> {
+    pub fn device_scale_uniformed_viewport_layout_rect(&self) -> Vector4<u32> {
         // TODO: Origin Likes below. s * dpr has any meaning?
         // const nanoem_f32_t dpr = viewportDevicePixelRatio(), s = windowDevicePixelRatio() / dpr;
         // return Vector4(logicalScaleUniformedViewportLayoutRect()) * dpr * s;
         let window_device_pixel_ratio = self.window_device_pixel_ratio();
         self.logical_scale_uniformed_viewport_layout_rect()
-            .map(|v| ((v as f32) * window_device_pixel_ratio) as u16)
+            .map(|v| ((v as f32) * window_device_pixel_ratio) as u32)
     }
 
-    pub fn device_scale_uniformed_viewport_image_size(&self) -> Vector2<u16> {
+    pub fn device_scale_uniformed_viewport_image_size(&self) -> Vector2<u32> {
         let window_device_pixel_ratio = self.window_device_pixel_ratio();
         self.logical_scale_uniformed_viewport_image_size()
-            .map(|v| ((v as f32) * window_device_pixel_ratio) as u16)
+            .map(|v| ((v as f32) * window_device_pixel_ratio) as u32)
     }
 
     fn adjust_viewport_image_rect(
@@ -345,6 +345,18 @@ impl ViewLayout {
             value.x - offset.x as i32,
             size.y as i32 - (value.y - offset.y as i32),
         )
+    }
+
+    pub fn uniformed_viewport_image_size(
+        viewport_layout_size: Vector2<f32>,
+        viewport_image_size: Vector2<f32>,
+    ) -> Vector2<f32> {
+        let viewport_layout_base_ratio = if viewport_image_size.x >= viewport_image_size.y {
+            viewport_layout_size.x / viewport_image_size.x
+        } else {
+            viewport_layout_size.y / viewport_image_size.y
+        };
+        return viewport_image_size * viewport_layout_base_ratio;
     }
 }
 
@@ -480,7 +492,7 @@ pub struct Project {
     viewport_primary_pass: Pass,
     viewport_secondary_pass: Pass,
     // context_2d_pass: Pass,
-    // background_image: (Texture, Vector2<u16>),
+    // background_image: (Texture, Vector2<u32>),
     preferred_motion_fps: FpsUnit,
     // editing_fps: u32,
     // bone_interpolation_type: i32,
@@ -515,7 +527,7 @@ impl Project {
     pub const MAXIMUM_BASE_DURATION: u32 = i32::MAX as u32;
     pub const DEFAULT_CIRCLE_RADIUS_SIZE: f32 = 7.5f32;
 
-    pub const DEFAULT_VIEWPORT_IMAGE_SIZE: [u16; 2] = [640, 360];
+    pub const DEFAULT_VIEWPORT_IMAGE_SIZE: [u32; 2] = [640, 360];
     pub const TIME_BASED_AUDIO_SOURCE_DEFAULT_SAMPLE_RATE: u32 = 1440;
 
     pub const REDO_LOG_FILE_EXTENSION: &'static str = "redo";
@@ -558,9 +570,9 @@ impl Project {
             Self::VIEWPORT_PRIMARY_NAME,
             Vector2::new(
                 layout.uniform_viewport_image_size.1.x
-                    * layout.viewport_device_pixel_ratio.1 as u16,
+                    * layout.viewport_device_pixel_ratio.1 as u32,
                 layout.uniform_viewport_image_size.1.y
-                    * layout.viewport_device_pixel_ratio.1 as u16,
+                    * layout.viewport_device_pixel_ratio.1 as u32,
             ),
             injector.texture_format(),
             1,
@@ -571,9 +583,9 @@ impl Project {
             Self::VIEWPORT_SECONDARY_NAME,
             Vector2::new(
                 layout.uniform_viewport_image_size.1.x
-                    * layout.viewport_device_pixel_ratio.1 as u16,
+                    * layout.viewport_device_pixel_ratio.1 as u32,
                 layout.uniform_viewport_image_size.1.y
-                    * layout.viewport_device_pixel_ratio.1 as u16,
+                    * layout.viewport_device_pixel_ratio.1 as u32,
             ),
             injector.texture_format(),
             1,
@@ -827,7 +839,7 @@ impl Project {
             .resolve_logical_cursor_position_in_viewport(value)
     }
 
-    pub fn logical_scale_uniformed_viewport_image_size(&self) -> Vector2<u16> {
+    pub fn logical_scale_uniformed_viewport_image_size(&self) -> Vector2<u32> {
         self.layout.logical_scale_uniformed_viewport_image_size()
     }
 
@@ -1216,7 +1228,10 @@ impl Project {
     }
 
     pub fn add_model_motion(&mut self, mut motion: Motion, model: ModelHandle) -> Option<Motion> {
-        let last_model_motion = self.model_to_motion.get(&model).map(|motion| motion.clone());
+        let last_model_motion = self
+            .model_to_motion
+            .get(&model)
+            .map(|motion| motion.clone());
         if let Some(last_model_motion) = last_model_motion.as_ref() {
             if self.state_flags.enable_motion_merge {
                 motion.merge_all_keyframes(last_model_motion);
@@ -1474,12 +1489,7 @@ impl Project {
         queue.submit(Some(encoder.finish()));
     }
 
-    pub fn draw_grid(
-        &self,
-        view: &wgpu::TextureView,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
+    pub fn draw_grid(&self, view: &wgpu::TextureView, device: &wgpu::Device, queue: &wgpu::Queue) {
         self.grid.draw(
             view,
             Some(&self.viewport_primary_depth_view()),

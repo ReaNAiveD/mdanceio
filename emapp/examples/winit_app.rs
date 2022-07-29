@@ -67,8 +67,8 @@ impl State {
                 pixel_format: wgpu::TextureFormat::Bgra8UnormSrgb,
                 window_device_pixel_ratio: 1f32,
                 viewport_device_pixel_ratio: 1f32,
-                window_size: [size.width as u16, size.height as u16],
-                viewport_size: [size.width as u16, size.height as u16],
+                window_size: [size.width, size.height],
+                viewport_size: [size.width, size.height],
             },
         );
         Self {

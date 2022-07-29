@@ -129,7 +129,7 @@ impl PerspectiveCamera {
 
     pub fn update(
         &mut self,
-        viewport_image_size: Vector2<u16>,
+        viewport_image_size: Vector2<u32>,
         logical_scale_uniformed_viewport_image_rect: &Vector4<f32>,
         bound_look_at: Vector3<f32>,
     ) {
@@ -350,13 +350,13 @@ impl PerspectiveCamera {
     pub fn un_projected(
         &self,
         value: &Vector3<f32>,
-        logical_scale_uniformed_viewport_image_size: Vector2<u16>,
+        logical_scale_uniformed_viewport_image_size: Vector2<u32>,
     ) -> Vector3<f32> {
         let viewport = Vector4::new(
             0f32,
             0f32,
-            logical_scale_uniformed_viewport_image_size.x.into(),
-            logical_scale_uniformed_viewport_image_size.y.into(),
+            logical_scale_uniformed_viewport_image_size.x as f32,
+            logical_scale_uniformed_viewport_image_size.y as f32,
         );
         un_project(value, &self.view_matrix, &self.projection_matrix, &viewport).unwrap()
     }
@@ -364,7 +364,7 @@ impl PerspectiveCamera {
     pub fn to_device_screen_coordinate_in_viewport(
         &self,
         value: &Vector3<f32>,
-        device_scale_uniformed_viewport_layout_rect: &Vector4<u16>,
+        device_scale_uniformed_viewport_layout_rect: &Vector4<u32>,
         device_scale_uniformed_viewport_image_size: &Vector2<f32>,
     ) -> Vector2<i32> {
         let viewport_rect = Vector4::new(
@@ -394,7 +394,7 @@ impl PerspectiveCamera {
     pub fn to_device_screen_coordinate_in_window(
         &self,
         value: &Vector3<f32>,
-        device_scale_uniformed_viewport_layout_rect: &Vector4<u16>,
+        device_scale_uniformed_viewport_layout_rect: &Vector4<u32>,
         device_scale_uniformed_viewport_image_size: &Vector2<f32>,
     ) -> Vector2<i32> {
         let layout_rect = Vector2::new(
@@ -559,7 +559,7 @@ impl PerspectiveCamera {
     pub fn set_following_type(
         &mut self,
         value: FollowingType,
-        viewport_image_size: Vector2<u16>,
+        viewport_image_size: Vector2<u32>,
         logical_scale_uniformed_viewport_image_rect: &Vector4<f32>,
         bound_look_at: Vector3<f32>,
     ) {
