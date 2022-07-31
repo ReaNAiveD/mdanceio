@@ -17,10 +17,10 @@ name = "winit_app"
 [dependencies]
 wgpu = { version = "0.13.1" , features = ["trace"]}
 log = "0.4"
-bytemuck = { version = "1.9.1", features = ["derive"] }
+bytemuck = { version = "1.11.0", features = ["derive"] }
 cgmath = "0.18.0"
 rapier3d = { version = "0.14.0", features = ["simd-stable"] }
-nalgebra = { version = "0.31.0" }
+nalgebra = { version = "0.31.1" }
 
 [dependencies.image]
 version = "0.24"
@@ -32,15 +32,15 @@ path = "../nanoem"
 version = "0.1.0"
 
 [dev-dependencies]
-tokio = { version = "1.20.0", features = ["full"] }
-winit = "0.26.1"
+tokio = { version = "1.20.1", features = ["full"] }
+winit = "0.27.1"
 png = "0.17.5"
 env_logger = "0.9.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.80"
-wasm-bindgen-futures = "0.4.30"
-web-sys = { version = "0.3.58", features = [
+wasm-bindgen = "0.2.81"
+wasm-bindgen-futures = "0.4.31"
+web-sys = { version = "=0.3.58", features = [
     "Document",
     "Navigator",
     "Node",
@@ -48,6 +48,7 @@ web-sys = { version = "0.3.58", features = [
     "Gpu",
     "GpuAdapter",
     "GpuAddressMode",
+    "GpuAutoLayoutMode",
     "GpuBindGroup",
     "GpuBindGroupDescriptor",
     "GpuBindGroupEntry",
@@ -63,12 +64,10 @@ web-sys = { version = "0.3.58", features = [
     "GpuBufferBindingLayout",
     "GpuBufferBindingType",
     "GpuBufferDescriptor",
-    # "GpuBufferUsage",
     "GpuCanvasContext",
     "GpuCanvasConfiguration",
     "GpuColorDict",
     "GpuColorTargetState",
-    # "GpuColorWrite",
     "GpuCommandBuffer",
     "GpuCommandBufferDescriptor",
     "GpuCommandEncoder",
@@ -87,6 +86,7 @@ web-sys = { version = "0.3.58", features = [
     "GpuDeviceDescriptor",
     "GpuDeviceLostInfo",
     "GpuDeviceLostReason",
+    "GpuError",
     "GpuErrorFilter",
     "GpuExtent3dDict",
     "GpuFeatureName",
@@ -98,7 +98,8 @@ web-sys = { version = "0.3.58", features = [
     "GpuImageDataLayout",
     "GpuIndexFormat",
     "GpuLoadOp",
-    # "GpuMapMode",
+    "gpu_map_mode",
+    "GpuMipmapFilterMode",
     "GpuMultisampleState",
     "GpuObjectDescriptorBase",
     "GpuOrigin2dDict",
@@ -107,7 +108,6 @@ web-sys = { version = "0.3.58", features = [
     "GpuPipelineDescriptorBase",
     "GpuPipelineLayout",
     "GpuPipelineLayoutDescriptor",
-    # "GpuPipelineStatisticName",
     "GpuPowerPreference",
     "GpuPrimitiveState",
     "GpuPrimitiveTopology",
@@ -133,7 +133,6 @@ web-sys = { version = "0.3.58", features = [
     "GpuSamplerDescriptor",
     "GpuShaderModule",
     "GpuShaderModuleDescriptor",
-    # "GpuShaderStage",
     "GpuStencilFaceState",
     "GpuStencilOperation",
     "GpuStorageTextureAccess",
@@ -148,7 +147,6 @@ web-sys = { version = "0.3.58", features = [
     "GpuTextureDimension",
     "GpuTextureFormat",
     "GpuTextureSampleType",
-    # "GpuTextureUsage",
     "GpuTextureView",
     "GpuTextureViewDescriptor",
     "GpuTextureViewDimension",
@@ -161,8 +159,9 @@ web-sys = { version = "0.3.58", features = [
     "GpuVertexState",
     "GpuVertexStepMode",
     "HtmlCanvasElement",
-    "Location",
     "OffscreenCanvas",
+    "ImageBitmap",
+    "ImageBitmapRenderingContext",
     "Window",
 ] }
 js-sys = { version = "0.3.58" }

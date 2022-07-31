@@ -67,6 +67,7 @@ impl PhysicsEngine {
     }
 
     pub fn step(&mut self, delta: f32) {
+        self.integration_parameters.dt = delta;
         self.physics_pipeline.step(
             &self.gravity,
             &self.integration_parameters,
@@ -81,5 +82,8 @@ impl PhysicsEngine {
             &(),
             &(),
         )
+    }
+
+    pub fn reset(&mut self) {
     }
 }

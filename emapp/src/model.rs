@@ -241,7 +241,7 @@ struct ModelStates {
 }
 
 pub struct Model {
-    // camera: Rc<RefCell<dyn Camera>>,
+    camera: Box<PerspectiveCamera>,
     // selection: Rc<RefCell<dyn ModelObjectSelection>>,
     // drawer: Box<LinearDrawer>,
     skin_deformer: Deformer,
@@ -333,7 +333,7 @@ impl Model {
         language_type: nanoem::common::LanguageType,
         fallback_texture: &wgpu::Texture,
         physics_engine: &mut PhysicsEngine,
-        camera: &dyn Camera,
+        global_camera: &PerspectiveCamera,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<Self, Error> {
@@ -658,7 +658,7 @@ impl Model {
                     vertex_buffer_data.push(vertex.simd.clone().into());
                 }
                 log::trace!("Len(vertex_buffer): {}", vertex_buffer_data.len());
-                let edge_size = Self::internal_edge_size(&bones, camera, edge_size_scale_factor);
+                let edge_size = Self::internal_edge_size(&bones, global_camera, edge_size_scale_factor);
                 let skin_deformer = Deformer::new(
                     &vertex_buffer_data,
                     &vertices,
@@ -698,7 +698,15 @@ impl Model {
                 skin_deformer.execute(&vertex_buffers[stage_vertex_buffer_index], device, queue);
                 stage_vertex_buffer_index = 1 - stage_vertex_buffer_index;
 
+                let mut camera = Box::new(PerspectiveCamera::new());
+                camera.set_angle(global_camera.angle());
+                camera.set_distance(global_camera.distance());
+                camera.set_fov(global_camera.fov());
+                camera.set_look_at(global_camera.look_at(None));
+                // camera.update(viewport_image_size, bound_look_at)
+
                 Ok(Self {
+                    camera,
                     opaque,
                     skin_deformer,
                     bone_index_hash_map,

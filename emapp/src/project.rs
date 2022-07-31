@@ -76,7 +76,38 @@ pub trait SkinDeformerFactory {
     fn end(&self);
 }
 
-pub struct SaveState {}
+#[derive(Debug, Clone, Copy)]
+struct SaveState {
+    active_model: Option<ModelHandle>,
+    camera_angle: Vector3<f32>,
+    camera_look_at: Vector3<f32>,
+    camera_distance: f32,
+    camera_fov: i32,
+    light_color: Vector3<f32>,
+    light_direction: Vector3<f32>,
+    physics_simulation_mode: SimulationMode,
+    local_frame_index: u32,
+    state_flags: ProjectStates,
+    visible_grid: bool,
+}
+
+impl SaveState {
+    pub fn new(project: &Project) -> Self {
+        Self {
+            active_model: project.active_model_pair.0,
+            camera_angle: project.camera.angle(),
+            camera_look_at: project.camera.look_at(project.active_model()),
+            camera_distance: project.camera.distance(),
+            camera_fov: project.camera.fov(),
+            light_color: project.light.color(),
+            light_direction: project.light.direction(),
+            physics_simulation_mode: project.physics_engine.simulation_mode,
+            local_frame_index: project.local_frame_index.0,
+            state_flags: project.state_flags,
+            visible_grid: project.grid.visible(),
+        }
+    }
+}
 
 pub struct DrawQueue {}
 
@@ -154,17 +185,23 @@ impl Pass {
         }
     }
 
-    pub fn update(&mut self, size: Vector2<u32>, device: &wgpu::Device, project: &Project) {
+    pub fn update(
+        &mut self,
+        size: Vector2<u32>,
+        color_texture_format: wgpu::TextureFormat,
+        sample_count: u32,
+        device: &wgpu::Device,
+    ) {
         let (color_texture, depth_texture, sampler) = Self::_update(
             self.name.as_str(),
             size,
-            project.viewport_texture_format(),
+            color_texture_format,
             self.depth_texture_format,
-            project.sample_count(),
+            sample_count,
             device,
         );
         self.color_texture = color_texture;
-        self.color_texture_format = project.viewport_texture_format();
+        self.color_texture_format = color_texture_format;
         self.depth_texture = depth_texture;
         self.sampler = sampler;
     }
@@ -326,7 +363,7 @@ pub struct Project {
     model_to_motion: HashMap<ModelHandle, Motion>,
     // all_traces: Vec<Rc<RefCell<dyn Track>>>,
     // selected_track: Option<Rc<RefCell<dyn Track>>>,
-    // last_save_state: Option<SaveState>,
+    last_save_state: Option<SaveState>,
     // draw_queue: Box<DrawQueue>,
     // batch_draw_queue: Box<BatchDrawQueue>,
     // serial_draw_queue: Box<SerialDrawQueue>,
@@ -352,8 +389,8 @@ pub struct Project {
     // shared_render_target_image_containers: HashMap<String, SharedRenderTargetImageContainer>,
     editing_mode: EditingMode,
     // file_path_mode: FilePathMode,
-    // playing_segment: TimeLineSegment,
-    // selection_segment: TimeLineSegment,
+    playing_segment: TimeLineSegment,
+    selection_segment: TimeLineSegment,
     base_duration: u32,
     language: LanguageType,
     viewport_size: (Vector2<u32>, Vector2<u32>),
@@ -481,6 +518,8 @@ impl Project {
 
         Self {
             editing_mode: EditingMode::None,
+            playing_segment: TimeLineSegment::default(),
+            selection_segment: TimeLineSegment::default(),
             language: LanguageType::English,
             base_duration: Self::MINIMUM_BASE_DURATION,
             preferred_motion_fps: FpsUnit::new(60u32),
@@ -525,6 +564,7 @@ impl Project {
                 ..Default::default()
             },
             confirm_seek_flags: ConfirmSeekFlags::default(),
+            last_save_state: None,
         }
         // TODO: may need to publish set fps event
     }
@@ -631,7 +671,23 @@ impl Project {
             .clamp(Self::MINIMUM_BASE_DURATION, Self::MAXIMUM_BASE_DURATION)
             .max(self.base_duration);
         let new_duration = self.duration(value);
-        // TODO: Update playing segment and selection segment
+        self.playing_segment.to = self.playing_segment.to.max(new_duration);
+        self.selection_segment.to = self.selection_segment.to.max(new_duration);
+    }
+
+    pub fn set_playing_segment(&mut self, value: &TimeLineSegment) {
+        self.playing_segment = value.normalized(self.project_duration());
+    }
+
+    pub fn set_selection_segment(&mut self, value: &TimeLineSegment) {
+        self.selection_segment = value.normalized(self.project_duration());
+    }
+
+    pub fn set_physics_simulation_mode(&mut self, value: SimulationMode) {
+        if self.physics_engine.simulation_mode != value {
+            self.physics_engine.simulation_mode = value;
+            self.reset_physics_simulation();
+        }
     }
 
     pub fn active_model(&self) -> Option<&Model> {
@@ -706,11 +762,63 @@ impl Project {
         // TODO: project playing state
         false
     }
+
+    fn continue_playing(&mut self) -> bool {
+        if self.current_frame_index() >= self.playing_segment.frame_index_to(self.project_duration()) {
+            self.stop();
+            if self.state_flags.enable_loop {
+                self.internal_seek(0);
+                self.play();
+            } else {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    pub fn play(&mut self) {
+        if !self.state_flags.enable_model_editing {
+            let duration_at = self.project_duration();
+            let local_frame_index_at = self.current_frame_index();
+            self.prepare_playing();
+            self.synchronize_all_motions(self.playing_segment.from, 0f32, SimulationTiming::Before);
+            self.reset_physics_simulation();
+        }
+    }
+
+    pub fn stop(&mut self) {
+        let last_duration = self.project_duration();
+        let last_local_frame_index = self.current_frame_index();
+        self.prepare_stopping(false);
+        self.synchronize_all_motions(0, 0f32, SimulationTiming::Before);
+        self.reset_physics_simulation();
+        self.synchronize_all_motions(0, 0f32, SimulationTiming::After);
+        self.mark_all_models_dirty();
+        self.local_frame_index = (0, 0);
+    }
+
+    fn prepare_playing(&mut self) {
+        self.state_flags.input_text_focus = false;
+        self.last_save_state = Some(SaveState::new(self));
+        self.set_active_model(None);
+    }
+
+    fn prepare_stopping(&mut self, force_seek: bool) {
+        if let Some(state) = self.last_save_state {
+            self.restore_state(&state, force_seek);
+        }
+        self.last_save_state = None;
+    }
 }
 
 impl Project {
     pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         // TODO: seek if playing
+        if self.continue_playing() {
+            let fps = self.preferred_motion_fps.value;
+            let base = FpsUnit::HALF_BASE_FPS;
+            let fps_rate = fps / base;
+        }
         // TODO: simulate if simulation anytime
         for (_, model) in &mut self.model_handle_map {
             model.update_staging_vertex_buffer(&self.camera, device, queue)
@@ -719,8 +827,48 @@ impl Project {
         // TODO: render background video
     }
 
-    pub fn reset_all_passes(&mut self) -> bool {
-        return false;
+    fn restore_state(&mut self, state: &SaveState, force_seek: bool) {
+        self.set_active_model(state.active_model);
+        self.camera.set_angle(state.camera_angle);
+        self.camera.set_look_at(state.camera_look_at);
+        self.camera.set_distance(state.camera_distance);
+        self.camera.set_fov(state.camera_fov);
+        let bound_look_at = self.camera.bound_look_at(self);
+        self.camera.update(self.viewport_size.0, bound_look_at);
+        self.light.set_color(state.light_color);
+        self.light.set_direction(state.light_direction);
+        if force_seek {
+            self.internal_seek(state.local_frame_index);
+        }
+        self.state_flags = state.state_flags;
+        self.set_physics_simulation_mode(state.physics_simulation_mode);
+    }
+
+    pub fn reset_all_passes(&mut self, device: &wgpu::Device) -> bool {
+        if !self.state_flags.reset_all_passes
+            || self.viewport_size.1.x == 0
+            || self.viewport_size.1.y == 0
+        {
+            return false;
+        }
+        self.viewport_size.0 = self.viewport_size.1;
+        self.sample_level.0 = self.sample_level.1;
+        self.viewport_primary_pass.update(
+            self.viewport_size.0,
+            self.viewport_texture_format(),
+            self.sample_count(),
+            device,
+        );
+        self.viewport_secondary_pass.update(
+            self.viewport_size.0,
+            self.viewport_texture_format(),
+            self.sample_count(),
+            device,
+        );
+        let bound_look_at = self.camera.bound_look_at(self);
+        self.camera.update(self.viewport_size.0, bound_look_at);
+        self.state_flags.reset_all_passes = false;
+        return true;
     }
 
     pub fn update_global_camera(&mut self) {
@@ -791,6 +939,20 @@ impl Project {
         // FIXME?: there's nothing to ensure local_frame <= frame_index
         self.local_frame_index.1 = frame_index - self.local_frame_index.0;
         self.local_frame_index.0 = frame_index;
+    }
+
+    pub fn reset_physics_simulation(&mut self) {
+        self.physics_engine.reset();
+        for (handle, model) in &mut self.model_handle_map {
+            model.initialize_all_rigid_bodies_transform_feedback(&mut self.physics_engine);
+            model.synchronize_all_rigid_bodies_transform_feedback_from_simulation(
+                RigidBodyFollowBone::Perform,
+                &mut self.physics_engine,
+            );
+            model.mark_staging_vertex_buffer_dirty();
+        }
+        self.physics_engine.step(0f32);
+        self.restart(self.current_frame_index());
     }
 
     pub fn reset_all_model_edges(
@@ -884,10 +1046,7 @@ impl Project {
         self.camera.set_perspective(camera0.is_perspective());
         self.camera.interpolation = camera0.interpolation;
         let bound_look_at = self.camera.bound_look_at(self);
-        self.camera.update(
-            self.viewport_size.0,
-            bound_look_at,
-        );
+        self.camera.update(self.viewport_size.0, bound_look_at);
         self.camera.set_dirty(false);
     }
 

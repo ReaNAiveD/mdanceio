@@ -752,7 +752,7 @@ impl CommonPass {
                         }),
                         stencil_ops: None,
                     }
-                }), // TODO: there should be depth view
+                }),
             });
             // m_lastDrawnRenderPass = handle;
             rpass.set_pipeline(&pipeline);
@@ -760,7 +760,6 @@ impl CommonPass {
             rpass.set_bind_group(1, &uniform_bind_group, &[]);
             rpass.set_vertex_buffer(0, buffer.vertex_buffer.slice(..));
             rpass.set_index_buffer(buffer.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            // rpass.draw(buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32, 0..1);
             rpass.draw_indexed(
                 buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32,
                 0,
