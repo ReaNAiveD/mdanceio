@@ -9,12 +9,12 @@ use cgmath::{ElementWise, Vector2, Vector3, Vector4, VectorSpace};
 use crate::{
     accessory::Accessory,
     accessory_program_bundle::AccessoryProgramBundle,
-    audio_player::AudioPlayer,
+    audio_player::{AudioPlayer, ClockAudioPlayer},
     background_video_renderer::BackgroundVideoRenderer,
     camera::{Camera, PerspectiveCamera},
     clear_pass::ClearPass,
     debug_capture::DebugCapture,
-    drawable::{DrawType, Drawable},
+    drawable::{DrawType, Drawable, DrawContext},
     effect::{self, common::RenderPassScope, global_uniform::GlobalUniform, Effect, ScriptOrder},
     error::Error,
     event_publisher::EventPublisher,
@@ -27,7 +27,7 @@ use crate::{
     injector::Injector,
     internal::{BlitPass, DebugDrawer},
     light::{DirectionalLight, Light},
-    model::{BindPose, Bone, Model, SkinDeformer, VisualizationClause},
+    model::{BindPose, Bone, Model, VisualizationClause},
     model_program_bundle::ModelProgramBundle,
     motion::Motion,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
@@ -68,12 +68,6 @@ pub trait SharedResourceFactory {
     fn effect_global_uniform(&self) -> &GlobalUniform;
     fn toon_image(&self, value: i32) -> &dyn ImageView;
     fn toon_color(&self, value: i32) -> Vector4<f32>;
-}
-
-pub trait SkinDeformerFactory {
-    fn create(&self, model: Rc<Ref<Model>>) -> Rc<dyn SkinDeformer>;
-    fn begin(&self);
-    fn end(&self);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -346,7 +340,7 @@ pub struct Project {
     transform_model_order_list: Vec<ModelHandle>,
     active_model_pair: (Option<ModelHandle>, Option<ModelHandle>),
     // active_accessory: Option<Rc<RefCell<Accessory>>>,
-    // audio_player: Option<Box<dyn AudioPlayer>>,
+    audio_player: Box<dyn AudioPlayer>,
     physics_engine: Box<PhysicsEngine>,
     camera: PerspectiveCamera,
     light: DirectionalLight,
@@ -364,6 +358,7 @@ pub struct Project {
     // all_traces: Vec<Rc<RefCell<dyn Track>>>,
     // selected_track: Option<Rc<RefCell<dyn Track>>>,
     last_save_state: Option<SaveState>,
+    model_program_bundle: Box<ModelProgramBundle>,
     // draw_queue: Box<DrawQueue>,
     // batch_draw_queue: Box<BatchDrawQueue>,
     // serial_draw_queue: Box<SerialDrawQueue>,
@@ -517,6 +512,7 @@ impl Project {
         // TODO: build tracks
 
         Self {
+            audio_player: Box::new(ClockAudioPlayer::default()),
             editing_mode: EditingMode::None,
             playing_segment: TimeLineSegment::default(),
             selection_segment: TimeLineSegment::default(),
@@ -531,6 +527,7 @@ impl Project {
             light_motion,
             self_shadow_motion,
             model_to_motion: HashMap::new(),
+            model_program_bundle: Box::new(ModelProgramBundle::new(device)),
             draw_type: DrawType::Color,
             depends_on_script_external: vec![],
             clear_pass: Box::new(ClearPass::new(device)),
@@ -764,7 +761,9 @@ impl Project {
     }
 
     fn continue_playing(&mut self) -> bool {
-        if self.current_frame_index() >= self.playing_segment.frame_index_to(self.project_duration()) {
+        if self.current_frame_index()
+            >= self.playing_segment.frame_index_to(self.project_duration())
+        {
             self.stop();
             if self.state_flags.enable_loop {
                 self.internal_seek(0);
@@ -783,12 +782,15 @@ impl Project {
             self.prepare_playing();
             self.synchronize_all_motions(self.playing_segment.from, 0f32, SimulationTiming::Before);
             self.reset_physics_simulation();
+            self.audio_player.play();
         }
     }
 
     pub fn stop(&mut self) {
         let last_duration = self.project_duration();
         let last_local_frame_index = self.current_frame_index();
+        self.audio_player.stop();
+        self.audio_player.update();
         self.prepare_stopping(false);
         self.synchronize_all_motions(0, 0f32, SimulationTiming::Before);
         self.reset_physics_simulation();
@@ -815,9 +817,28 @@ impl Project {
     pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         // TODO: seek if playing
         if self.continue_playing() {
+            self.audio_player.update();
             let fps = self.preferred_motion_fps.value;
             let base = FpsUnit::HALF_BASE_FPS;
             let fps_rate = fps / base;
+            let frame_index =
+                (self.audio_player.current_rational().subdivide() * (fps as f64)) as u32;
+            let last_frame_index = self
+                .audio_player
+                .last_rational()
+                .map(|rational| (rational.subdivide() * (fps as f64)) as u32);
+            let inverted_fpx_rate = 1f32 / fps_rate as f32;
+            let amount = (frame_index % fps_rate) as f32 * inverted_fpx_rate;
+            let delta = last_frame_index.map_or(0f32, |last_frame_index| {
+                if frame_index > last_frame_index {
+                    (frame_index - last_frame_index).min(0xffff) as f32
+                        * inverted_fpx_rate
+                        * self.physics_simulation_time_step()
+                } else {
+                    0f32
+                }
+            });
+            self.internal_seek_precisely((frame_index as f32 * inverted_fpx_rate) as u32, amount, delta);
         }
         // TODO: simulate if simulation anytime
         for (_, model) in &mut self.model_handle_map {
@@ -1404,7 +1425,7 @@ impl Project {
     }
 
     fn draw_all_effects_depends_on_script_external(
-        &self,
+        &mut self,
         view: &wgpu::TextureView,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -1425,7 +1446,16 @@ impl Project {
                     view,
                     Some(&self.viewport_primary_depth_view()),
                     DrawType::ScriptExternalColor,
-                    self,
+                    DrawContext {
+                        camera: &self.camera,
+                        shadow: &self.shadow_camera,
+                        light: &self.light,
+                        shared_fallback_texture: &self.fallback_texture,
+                        viewport_texture_format: self.viewport_texture_format(),
+                        is_render_pass_viewport: self.is_render_pass_viewport(),
+                        all_models: &self.model_handle_map.values(),
+                        effect: &mut self.model_program_bundle,
+                    },
                     device,
                     queue,
                 );
@@ -1498,7 +1528,7 @@ impl Project {
 
     pub fn draw_shadow_map(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if self.shadow_camera.is_enabled() {
-            let (light_view, light_projection) = self.shadow_camera.get_view_projection(self);
+            let (light_view, light_projection) = self.shadow_camera.get_view_projection(&self.camera, &self.light);
             self.shadow_camera.clear(&self.clear_pass, device, queue);
             // if self.editing_mode != EditingMode::Select {
             // scope(m_currentOffscreenRenderPass, pass), scope2(m_originOffscreenRenderPass, pass)
@@ -1510,7 +1540,16 @@ impl Project {
                     &color_view,
                     Some(&depth_view),
                     DrawType::ShadowMap,
-                    self,
+                    DrawContext {
+                        camera: &self.camera,
+                        shadow: &self.shadow_camera,
+                        light: &self.light,
+                        shared_fallback_texture: &self.fallback_texture,
+                        viewport_texture_format: self.viewport_texture_format(),
+                        is_render_pass_viewport: self.is_render_pass_viewport(),
+                        all_models: &self.model_handle_map.values(),
+                        effect: &mut self.model_program_bundle,
+                    },
                     device,
                     queue,
                 )
@@ -1542,10 +1581,14 @@ impl Project {
         self.local_frame_index.1 = 0;
         encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
+        log::info!("Submit new viewport task");
+        queue.on_submitted_work_done(|| {
+            log::info!("Submission finished");
+        })
     }
 
     fn _draw_viewport(
-        &self,
+        &mut self,
         order: ScriptOrder,
         typ: DrawType,
         view: &wgpu::TextureView,
@@ -1557,7 +1600,16 @@ impl Project {
                 view,
                 Some(&self.viewport_primary_depth_view()),
                 typ,
-                self,
+                DrawContext {
+                    camera: &self.camera,
+                    shadow: &self.shadow_camera,
+                    light: &self.light,
+                    shared_fallback_texture: &self.fallback_texture,
+                    viewport_texture_format: self.viewport_texture_format(),
+                    is_render_pass_viewport: self.is_render_pass_viewport(),
+                    all_models: &self.model_handle_map.values(),
+                    effect: &mut self.model_program_bundle,
+                },
                 device,
                 queue,
             );

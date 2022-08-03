@@ -1,4 +1,4 @@
-use crate::project::Project;
+use crate::{project::Project, camera::PerspectiveCamera, shadow_camera::ShadowCamera, light::DirectionalLight, model::Model, model_program_bundle::ModelProgramBundle};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DrawType {
@@ -10,6 +10,17 @@ pub enum DrawType {
     ScriptExternalColor,
 }
 
+pub struct DrawContext<'a> {
+    pub effect: &'a mut ModelProgramBundle,
+    pub camera: &'a PerspectiveCamera,
+    pub shadow: &'a ShadowCamera,
+    pub light: &'a DirectionalLight,
+    pub shared_fallback_texture: &'a wgpu::Texture,
+    pub viewport_texture_format: wgpu::TextureFormat,
+    pub is_render_pass_viewport: bool,
+    pub all_models: &'a (dyn Iterator<Item = &'a Model>),
+}
+
 pub trait Drawable {
     // TODO
     fn draw(
@@ -17,7 +28,7 @@ pub trait Drawable {
         color_view: &wgpu::TextureView,
         depth_view: Option<&wgpu::TextureView>,
         typ: DrawType,
-        project: &Project,
+        context: DrawContext,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     );

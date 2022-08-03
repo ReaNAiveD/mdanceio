@@ -3,7 +3,7 @@ use cgmath::{
     VectorSpace,
 };
 
-use crate::{camera::Camera, clear_pass::ClearPass, project::Project, utils::lerp_f32};
+use crate::{camera::{Camera, PerspectiveCamera}, clear_pass::ClearPass, project::Project, utils::lerp_f32, light::{DirectionalLight, Light}};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoverageMode {
@@ -216,9 +216,7 @@ impl ShadowCamera {
         }
     }
 
-    fn get_view_matrix(&self, project: &Project) -> Matrix4<f32> {
-        let camera = project.global_camera();
-        let light = project.global_light();
+    fn get_view_matrix(&self, camera: &PerspectiveCamera, light: &DirectionalLight) -> Matrix4<f32> {
         let camera_direction = camera.direction();
         let light_direction = light.direction().normalize();
         let raw_light_view_x = camera_direction.cross(light_direction);
@@ -239,9 +237,7 @@ impl ShadowCamera {
         light_view_matrix4 * Matrix4::from_translation(-light_view_origin)
     }
 
-    fn get_projection_matrix(&self, project: &Project) -> Matrix4<f32> {
-        let camera = project.global_camera();
-        let light = project.global_light();
+    fn get_projection_matrix(&self, camera: &PerspectiveCamera, light: &DirectionalLight) -> Matrix4<f32> {
         let camera_direction = camera.direction();
         let light_direction = light.direction().normalize();
         let distance = (10000f32 - self.distance) / 100000f32;
@@ -333,10 +329,10 @@ impl ShadowCamera {
         projection
     }
 
-    pub fn get_view_projection(&self, project: &Project) -> (Matrix4<f32>, Matrix4<f32>) {
+    pub fn get_view_projection(&self, camera: &PerspectiveCamera, light: &DirectionalLight) -> (Matrix4<f32>, Matrix4<f32>) {
         (
-            self.get_view_matrix(project),
-            self.get_projection_matrix(project),
+            self.get_view_matrix(camera, light),
+            self.get_projection_matrix(camera, light),
         )
     }
 

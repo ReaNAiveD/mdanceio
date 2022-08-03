@@ -1,6 +1,8 @@
 use std::{cell::RefCell, collections::HashMap, iter, mem, ops::Deref, rc::Rc};
 
-use crate::{model::Material, technique::Technique};
+use crate::{
+    camera::PerspectiveCamera, light::DirectionalLight, model::Material, technique::Technique,
+};
 use bytemuck::Zeroable;
 use cgmath::{Matrix4, Vector4};
 use wgpu::util::DeviceExt;
@@ -74,6 +76,13 @@ struct CommonPassCacheKey {
     is_add_blend: bool,
     is_depth_enabled: bool,
     is_offscreen_render_pass_active: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PassExecuteConfiguration {
+    pub technique_type: TechniqueType,
+    pub viewport_texture_format: wgpu::TextureFormat,
+    pub is_render_pass_viewport: bool,
 }
 
 pub struct CommonPass {
@@ -190,7 +199,7 @@ impl CommonPass {
 }
 
 impl CommonPass {
-    pub fn set_global_parameters(&mut self, _drawable: &impl Drawable, _project: &Project) {}
+    pub fn set_global_parameters(&mut self, _drawable: &impl Drawable) {}
 
     pub fn set_camera_parameters(
         &mut self,
@@ -211,7 +220,11 @@ impl CommonPass {
         self.uniform_buffer.light_direction = light.direction().extend(0f32).into();
     }
 
-    pub fn set_all_model_parameters(&mut self, model: &Model, _project: &Project) {
+    pub fn set_all_model_parameters(
+        &mut self,
+        model: &Model,
+        models: &dyn Iterator<Item = &Model>,
+    ) {
         self.opacity = model.opacity();
     }
 
@@ -311,7 +324,7 @@ impl CommonPass {
                 }
             }
             TechniqueType::Edge => Some(wgpu::Face::Front),
-            TechniqueType::GroundShadow => None,
+            TechniqueType::Shadow => None,
         }
     }
 
@@ -369,11 +382,12 @@ impl CommonPass {
         &mut self,
         shadow_camera: &ShadowCamera,
         world: &Matrix4<f32>,
-        project: &Project,
+        camera: &PerspectiveCamera,
+        light: &DirectionalLight,
         technique_type: TechniqueType,
         fallback: &wgpu::Texture,
     ) {
-        let (view, projection) = shadow_camera.get_view_projection(project);
+        let (view, projection) = shadow_camera.get_view_projection(camera, light);
         let crop = shadow_camera.get_crop_matrix();
         let shadow_map_matrix = projection * view * world;
         self.uniform_buffer.light_view_projection_matrix = (crop * shadow_map_matrix).into();
@@ -544,18 +558,17 @@ impl CommonPass {
         buffer: &pass::Buffer,
         color_attachment_view: &wgpu::TextureView,
         depth_stencil_attachment_view: Option<&wgpu::TextureView>,
-        technique_type: TechniqueType,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         model: &Model,
-        project: &Project,
+        config: &PassExecuteConfiguration,
     ) {
         let is_add_blend = model.is_add_blend_enabled();
         let is_depth_enabled = buffer.is_depth_enabled();
         let key = CommonPassCacheKey {
             cull_mode: self.cull_mode,
             primitive_type: self.primitive_type,
-            technique_type,
+            technique_type: config.technique_type,
             is_add_blend,
             is_depth_enabled,
             is_offscreen_render_pass_active: false,
@@ -563,10 +576,10 @@ impl CommonPass {
         let mut cache = self.pipeline_cache.borrow_mut();
         let pipeline = cache.entry(key).or_insert_with(|| {
             let vertex_size = mem::size_of::<crate::model::VertexUnit>();
-            let texture_format = if technique_type == TechniqueType::Zplot {
+            let texture_format = if config.technique_type == TechniqueType::Zplot {
                 wgpu::TextureFormat::R32Float
             } else {
-                project.viewport_texture_format()
+                config.viewport_texture_format
             };
 
             let render_pipeline_layout =
@@ -632,19 +645,20 @@ impl CommonPass {
             } else {
                 self.get_alpha_blend_state()
             };
-            if project.is_render_pass_viewport() {
+            if config.is_render_pass_viewport {
                 write_mask = wgpu::ColorWrites::ALL
             };
             let color_target_state = wgpu::ColorTargetState {
                 format: texture_format,
-                blend: if technique_type == TechniqueType::Zplot {
+                blend: if config.technique_type == TechniqueType::Zplot {
                     None
                 } else {
                     Some(blend_state)
                 },
                 write_mask,
             };
-            let depth_state = if technique_type == TechniqueType::GroundShadow && is_depth_enabled {
+            let depth_state = if config.technique_type == TechniqueType::Shadow && is_depth_enabled
+            {
                 wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth24PlusStencil8,
                     depth_write_enabled: true,
@@ -788,15 +802,87 @@ impl CommonPass {
 }
 
 pub struct ModelProgramBundle {
-    // TODO
+    object_technique: Box<ObjectTechnique>,
+    object_technique_point_draw: Box<ObjectTechnique>,
+    edge_technique: Box<EdgeTechnique>,
+    ground_shadow_technique: Box<GroundShadowTechnique>,
+    zplot_technique: Box<ZplotTechnique>,
+}
+
+impl ModelProgramBundle {
+    pub fn new(device: &wgpu::Device) -> Self {
+        Self {
+            object_technique: Box::new(ObjectTechnique::new(device, false)),
+            object_technique_point_draw: Box::new(ObjectTechnique::new(device, true)),
+            edge_technique: Box::new(EdgeTechnique::new(device)),
+            ground_shadow_technique: Box::new(GroundShadowTechnique::new(device)),
+            zplot_technique: Box::new(ZplotTechnique::new(device)),
+        }
+    }
+
+    pub fn find_technique(
+        &mut self,
+        technique_type: &str,
+        material: &Material,
+        material_index: usize,
+        num_material: usize,
+        model_name: &str,
+    ) -> Option<&mut (dyn Technique)> {
+        TechniqueType::from_str(technique_type).map(|typ| match typ {
+            TechniqueType::Color => {
+                if material.is_point_draw_enabled() {
+                    self.object_technique_point_draw.base.executed = false;
+                    self.object_technique_point_draw.as_mut() as &mut (dyn Technique)
+                } else {
+                    self.object_technique.base.executed = false;
+                    self.object_technique.as_mut() as &mut (dyn Technique)
+                }
+            }
+            TechniqueType::Edge => {
+                self.edge_technique.base.executed = false;
+                self.edge_technique.as_mut() as &mut (dyn Technique)
+            }
+            TechniqueType::Shadow => {
+                self.ground_shadow_technique.base.executed = false;
+                self.ground_shadow_technique.as_mut() as &mut (dyn Technique)
+            }
+            TechniqueType::Zplot => {
+                self.zplot_technique.base.executed = false;
+                self.zplot_technique.as_mut() as &mut (dyn Technique)
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TechniqueType {
     Color,
     Edge,
-    GroundShadow,
+    Shadow,
     Zplot,
+}
+
+impl From<TechniqueType> for String {
+    fn from(v: TechniqueType) -> Self {
+        match v {
+            TechniqueType::Color => "object".to_owned(),
+            TechniqueType::Edge => "edge".to_owned(),
+            TechniqueType::Shadow => "shadow".to_owned(),
+            TechniqueType::Zplot => "zplot".to_owned(),
+        }
+    }
+}
+
+impl TechniqueType {
+    pub fn from_str(v: &str) -> Option<Self> {
+        match v {
+            "object" => Some(Self::Color),
+            "edge" => Some(Self::Edge),
+            "shadow" => Some(Self::Shadow),
+            "zplot" => Some(Self::Zplot),
+            _ => None,
+        }
+    }
 }
 
 pub struct BaseTechnique {
@@ -966,7 +1052,7 @@ impl GroundShadowTechnique {
         log::trace!("Finish Load model_ground_shader.wgsl");
         Self {
             base: BaseTechnique {
-                technique_type: TechniqueType::GroundShadow,
+                technique_type: TechniqueType::Shadow,
                 executed: false,
                 pass: CommonPass::new(device, shader),
             },

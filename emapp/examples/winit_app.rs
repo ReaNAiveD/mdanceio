@@ -1,4 +1,7 @@
+use std::io::Write;
 use emapp::base_application_service::BaseApplicationService;
+use log4rs::append::file::FileAppender;
+use log4rs::encode::pattern::PatternEncoder;
 use winit::window::Window;
 use winit::{
     event::*,
@@ -90,7 +93,8 @@ impl State {
 
     fn load_sample_data(&mut self) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let model_data = std::fs::read("emapp/tests/example/Alicia/MMD/Alicia_solid.pmx")?;
-        self.application.load_model(&model_data, &self.device, &self.queue);
+        self.application
+            .load_model(&model_data, &self.device, &self.queue);
         drop(model_data);
         self.application.enable_model_shadow_map(true);
         let texture_dir = std::fs::read_dir("emapp/tests/example/Alicia/FBX/").unwrap();
@@ -107,8 +111,9 @@ impl State {
         self.application.update_bind_texture();
         let motion_data = std::fs::read("emapp/tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
         self.application.load_model_motion(&motion_data);
-        self.application.seek(20);
-        self.application.update_current_project(&self.device, &self.queue);
+        // self.application.seek(20);
+        // self.application.update_current_project(&self.device, &self.queue);
+        self.application.play();
         drop(motion_data);
         Ok(())
     }
@@ -133,7 +138,31 @@ impl State {
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
-    env_logger::init();
+    // env_logger::Builder::new()
+    //     .format(|buf, record| {
+    //         writeln!(
+    //             buf,
+    //             "{}:{} [{}] {} - {}",
+    //             record.file().unwrap_or("unknown"),
+    //             record.line().unwrap_or(0),
+    //             record.level(),
+    //             chrono::Local::now().format("%H:%M:%S.%6f"),
+    //             record.args()
+    //         )
+    //     })
+    //     .filter(None, log::LevelFilter::Info)
+    //     .init();
+    let logfile = FileAppender::builder()
+        .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S.%6f)} [{level}] - {m} [{file}:{line}]{n}")))
+        .build("target/log/output.log")?;
+
+    let config = log4rs::config::Config::builder()
+        .appender(log4rs::config::Appender::builder().build("logfile", Box::new(logfile)))
+        .build(log4rs::config::Root::builder()
+                   .appender("logfile")
+                   .build(log::LevelFilter::Info))?;
+
+    log4rs::init_config(config)?;
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
@@ -186,7 +215,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         Event::MainEventsCleared => {
             // RedrawRequested will only trigger once, unless we manually
             // request it.
-            // window.request_redraw();
+            window.request_redraw();
         }
         _ => {}
     });

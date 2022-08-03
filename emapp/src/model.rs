@@ -21,19 +21,22 @@ use crate::{
     bounding_box::BoundingBox,
     camera::{Camera, PerspectiveCamera},
     deformer::Deformer,
-    drawable::{DrawType, Drawable},
+    drawable::{DrawContext, DrawType, Drawable},
     effect::{Effect, IEffect},
     error::Error,
     forward::LineVertexUnit,
     internal::LinearDrawer,
+    light::{DirectionalLight, Light},
     model_object_selection::ModelObjectSelection,
     model_program_bundle::{
-        EdgeTechnique, GroundShadowTechnique, ModelProgramBundle, ObjectTechnique, ZplotTechnique,
+        EdgeTechnique, GroundShadowTechnique, ModelProgramBundle, ObjectTechnique,
+        PassExecuteConfiguration, TechniqueType, ZplotTechnique,
     },
     motion::{KeyframeInterpolationPoint, Motion},
     pass,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
     project::Project,
+    shadow_camera::ShadowCamera,
     technique::Technique,
     undo::UndoStack,
     uri::Uri,
@@ -63,10 +66,6 @@ pub type LabelIndex = usize;
 pub type RigidBodyIndex = usize;
 pub type JointIndex = usize;
 pub type SoftBodyIndex = usize;
-
-pub trait SkinDeformer {
-    // TODO
-}
 
 pub struct BindPose {
     // TODO
@@ -658,7 +657,8 @@ impl Model {
                     vertex_buffer_data.push(vertex.simd.clone().into());
                 }
                 log::trace!("Len(vertex_buffer): {}", vertex_buffer_data.len());
-                let edge_size = Self::internal_edge_size(&bones, global_camera, edge_size_scale_factor);
+                let edge_size =
+                    Self::internal_edge_size(&bones, global_camera, edge_size_scale_factor);
                 let skin_deformer = Deformer::new(
                     &vertex_buffer_data,
                     &vertices,
@@ -1880,23 +1880,28 @@ impl Drawable for Model {
         color_view: &wgpu::TextureView,
         depth_view: Option<&wgpu::TextureView>,
         typ: DrawType,
-        project: &Project,
+        context: DrawContext,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
         if self.is_visible() {
             match typ {
-                DrawType::Color | DrawType::ScriptExternalColor => {
-                    self.draw_color(color_view, depth_view, project, device, queue)
-                }
+                DrawType::Color | DrawType::ScriptExternalColor => self.draw_color(
+                    typ == DrawType::ScriptExternalColor,
+                    color_view,
+                    depth_view,
+                    context,
+                    device,
+                    queue,
+                ),
                 DrawType::Edge => {
-                    let edge_size_scale_factor = self.edge_size(project.active_camera());
+                    let edge_size_scale_factor = self.edge_size(context.camera);
                     if edge_size_scale_factor > 0f32 {
                         self.draw_edge(
                             edge_size_scale_factor,
                             color_view,
                             depth_view,
-                            project,
+                            context,
                             device,
                             queue,
                         );
@@ -1904,12 +1909,12 @@ impl Drawable for Model {
                 }
                 DrawType::GroundShadow => {
                     if self.states.enable_ground_shadow {
-                        self.draw_ground_shadow(color_view, depth_view, project, device, queue)
+                        self.draw_ground_shadow(color_view, depth_view, context, device, queue)
                     }
                 }
                 DrawType::ShadowMap => {
                     if self.states.enable_shadow_map {
-                        self.draw_shadow_map(color_view, depth_view, project, device, queue)
+                        self.draw_shadow_map(color_view, depth_view, context, device, queue)
                     }
                 }
             }
@@ -1948,14 +1953,16 @@ impl Model {
 
     fn draw_color(
         &self,
+        script_external_color: bool,
         color_view: &wgpu::TextureView,
         depth_view: Option<&wgpu::TextureView>,
-        project: &Project,
+        context: DrawContext,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
         let mut index_offset = 0usize;
-        for material in &self.materials {
+        let num_material = self.materials.len();
+        for (idx, material) in self.materials.iter().enumerate() {
             let num_indices = material.origin.num_vertex_indices;
             log::trace!(
                 "Render next Material, Index count: {}; Offset: {}",
@@ -1971,45 +1978,61 @@ impl Model {
             );
             if material.is_visible() {
                 // TODO: get technique by discovery
-                let mut technique =
-                    ObjectTechnique::new(device, material.origin.flags.is_point_draw_enabled);
-                let technique_type = technique.technique_type();
-                while let Some(pass) = technique.execute(device) {
-                    pass.set_global_parameters(self, project);
-                    pass.set_camera_parameters(
-                        project.active_camera(),
-                        &Self::INITIAL_WORLD_MATRIX,
-                        self,
-                    );
-                    pass.set_light_parameters(project.global_light(), false);
-                    pass.set_all_model_parameters(self, project);
-                    pass.set_material_parameters(
-                        &material,
-                        technique_type,
-                        project.shared_fallback_image(),
-                    );
-                    pass.set_shadow_map_parameters(
-                        project.shadow_camera(),
-                        &Self::INITIAL_WORLD_MATRIX,
-                        project,
-                        technique_type,
-                        project.shared_fallback_image(),
-                    );
-                    pass.execute(
-                        &buffer,
-                        color_view,
-                        depth_view,
-                        technique_type,
-                        device,
-                        queue,
-                        self,
-                        project,
+                if let Some(technique) = context.effect.find_technique(
+                    &String::from(TechniqueType::Color),
+                    material,
+                    idx,
+                    num_material,
+                    &self.canonical_name,
+                ) {
+                    let technique_type = TechniqueType::Color;
+                    while let Some(pass) = technique.execute(device) {
+                        pass.set_global_parameters(self);
+                        pass.set_camera_parameters(
+                            context.camera,
+                            &Self::INITIAL_WORLD_MATRIX,
+                            self,
+                        );
+                        pass.set_light_parameters(context.light, false);
+                        pass.set_all_model_parameters(self, context.all_models);
+                        pass.set_material_parameters(
+                            &material,
+                            technique_type,
+                            context.shared_fallback_texture,
+                        );
+                        pass.set_shadow_map_parameters(
+                            context.shadow,
+                            &Self::INITIAL_WORLD_MATRIX,
+                            context.camera,
+                            context.light,
+                            technique_type,
+                            context.shared_fallback_texture,
+                        );
+                        pass.execute(
+                            &buffer,
+                            color_view,
+                            depth_view,
+                            device,
+                            queue,
+                            self,
+                            &PassExecuteConfiguration {
+                                technique_type,
+                                viewport_texture_format: context.viewport_texture_format,
+                                is_render_pass_viewport: context.is_render_pass_viewport,
+                            },
+                        );
+                    }
+                    if !technique.has_next_script_command() && !script_external_color {
+                        technique.reset_script_command_state();
+                        technique.reset_script_external_color();
+                    }
+                } else {
+                    log::error!(
+                        "No Suitable Technique found for num {} material of model {}",
+                        idx,
+                        self.canonical_name
                     );
                 }
-                // if (!technique->hasNextScriptCommand() && !scriptExternalColor) {
-                // technique->resetScriptCommandState();
-                // technique->resetScriptExternalColor();
-                // }
             }
             index_offset += num_indices;
         }
@@ -2020,12 +2043,13 @@ impl Model {
         edge_size_scale_factor: f32,
         color_view: &wgpu::TextureView,
         depth_view: Option<&wgpu::TextureView>,
-        project: &Project,
+        context: DrawContext,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
         let mut index_offset = 0usize;
-        for material in &self.materials {
+        let num_material = self.materials.len();
+        for (idx, material) in self.materials.iter().enumerate() {
             let num_indices = material.origin.num_vertex_indices;
             if material.origin.flags.is_edge_enabled
                 && !material.origin.flags.is_line_draw_enabled
@@ -2039,41 +2063,57 @@ impl Model {
                     true,
                 );
                 if material.is_visible() {
-                    let mut technique = EdgeTechnique::new(device);
-                    let technique_type = technique.technique_type();
-                    while let Some(pass) = technique.execute(device) {
-                        pass.set_global_parameters(self, project);
-                        pass.set_camera_parameters(
-                            project.active_camera(),
-                            &Self::INITIAL_WORLD_MATRIX,
-                            self,
-                        );
-                        pass.set_light_parameters(project.global_light(), false);
-                        pass.set_all_model_parameters(self, project);
-                        pass.set_material_parameters(
-                            material,
-                            technique_type,
-                            project.shared_fallback_image(),
-                        );
-                        pass.set_edge_parameters(
-                            material,
-                            edge_size_scale_factor,
-                            project.shared_fallback_image(),
-                        );
-                        pass.execute(
-                            &buffer,
-                            color_view,
-                            depth_view,
-                            technique_type,
-                            device,
-                            queue,
-                            self,
-                            project,
+                    if let Some(technique) = context.effect.find_technique(
+                        &String::from(TechniqueType::Edge),
+                        material,
+                        idx,
+                        num_material,
+                        &self.canonical_name,
+                    ) {
+                        let technique_type = TechniqueType::Edge;
+                        while let Some(pass) = technique.execute(device) {
+                            pass.set_global_parameters(self);
+                            pass.set_camera_parameters(
+                                context.camera,
+                                &Self::INITIAL_WORLD_MATRIX,
+                                self,
+                            );
+                            pass.set_light_parameters(context.light, false);
+                            pass.set_all_model_parameters(self, context.all_models);
+                            pass.set_material_parameters(
+                                material,
+                                technique_type,
+                                context.shared_fallback_texture,
+                            );
+                            pass.set_edge_parameters(
+                                material,
+                                edge_size_scale_factor,
+                                context.shared_fallback_texture,
+                            );
+                            pass.execute(
+                                &buffer,
+                                color_view,
+                                depth_view,
+                                device,
+                                queue,
+                                self,
+                                &PassExecuteConfiguration {
+                                    technique_type,
+                                    viewport_texture_format: context.viewport_texture_format,
+                                    is_render_pass_viewport: context.is_render_pass_viewport,
+                                },
+                            );
+                        }
+                        if !technique.has_next_script_command() {
+                            technique.reset_script_command_state();
+                        }
+                    } else {
+                        log::error!(
+                            "No Suitable Technique found for num {} material of model {}",
+                            idx,
+                            self.canonical_name
                         );
                     }
-                    // if (!technique->hasNextScriptCommand()) {
-                    // technique->resetScriptCommandState();
-                    // }
                 }
             }
             index_offset += num_indices;
@@ -2084,13 +2124,14 @@ impl Model {
         &self,
         color_view: &wgpu::TextureView,
         depth_view: Option<&wgpu::TextureView>,
-        project: &Project,
+        context: DrawContext,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
         let mut index_offset = 0usize;
-        let world = project.global_light().get_shadow_transform();
-        for material in &self.materials {
+        let world = context.light.get_shadow_transform();
+        let num_material = self.materials.len();
+        for (idx, material) in self.materials.iter().enumerate() {
             let num_indices = material.origin.num_vertex_indices;
             if material.origin.flags.is_casting_shadow_enabled
                 && !material.origin.flags.is_point_draw_enabled
@@ -2103,38 +2144,54 @@ impl Model {
                     true,
                 );
                 if material.is_visible() {
-                    let mut technique = GroundShadowTechnique::new(device);
-                    let technique_type = technique.technique_type();
-                    while let Some(pass) = technique.execute(device) {
-                        pass.set_global_parameters(self, project);
-                        pass.set_camera_parameters(project.active_camera(), &world, self);
-                        pass.set_light_parameters(project.global_light(), false);
-                        pass.set_all_model_parameters(self, project);
-                        pass.set_material_parameters(
-                            material,
-                            technique_type,
-                            project.shared_fallback_image(),
-                        );
-                        pass.set_ground_shadow_parameters(
-                            project.global_light(),
-                            project.active_camera(),
-                            &world,
-                            project.shared_fallback_image(),
-                        );
-                        pass.execute(
-                            &buffer,
-                            color_view,
-                            depth_view,
-                            technique_type,
-                            device,
-                            queue,
-                            self,
-                            project,
+                    if let Some(technique) = context.effect.find_technique(
+                        &String::from(TechniqueType::Shadow),
+                        material,
+                        idx,
+                        num_material,
+                        &self.canonical_name,
+                    ) {
+                        let technique_type = TechniqueType::Shadow;
+                        while let Some(pass) = technique.execute(device) {
+                            pass.set_global_parameters(self);
+                            pass.set_camera_parameters(context.camera, &world, self);
+                            pass.set_light_parameters(context.light, false);
+                            pass.set_all_model_parameters(self, context.all_models);
+                            pass.set_material_parameters(
+                                material,
+                                technique_type,
+                                context.shared_fallback_texture,
+                            );
+                            pass.set_ground_shadow_parameters(
+                                context.light,
+                                context.camera,
+                                &world,
+                                context.shared_fallback_texture,
+                            );
+                            pass.execute(
+                                &buffer,
+                                color_view,
+                                depth_view,
+                                device,
+                                queue,
+                                self,
+                                &PassExecuteConfiguration {
+                                    technique_type,
+                                    viewport_texture_format: context.viewport_texture_format,
+                                    is_render_pass_viewport: context.is_render_pass_viewport,
+                                },
+                            );
+                        }
+                        if !technique.has_next_script_command() {
+                            technique.reset_script_command_state();
+                        }
+                    } else {
+                        log::error!(
+                            "No Suitable Technique found for num {} material of model {}",
+                            idx,
+                            self.canonical_name
                         );
                     }
-                    // if (!technique->hasNextScriptCommand()) {
-                    // technique->resetScriptCommandState();
-                    // }
                 }
             }
             index_offset += num_indices;
@@ -2145,12 +2202,13 @@ impl Model {
         &self,
         color_view: &wgpu::TextureView,
         depth_view: Option<&wgpu::TextureView>,
-        project: &Project,
+        context: DrawContext,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
         let mut index_offset = 0usize;
-        for material in &self.materials {
+        let num_material = self.materials.len();
+        for (idx, material) in self.materials.iter().enumerate() {
             let num_indices = material.origin.num_vertex_indices;
             if material.is_casting_shadow_map_enabled() && !material.is_point_draw_enabled() {
                 let buffer = pass::Buffer::new(
@@ -2161,35 +2219,54 @@ impl Model {
                     true,
                 );
                 if material.is_visible() {
-                    let mut technique = ZplotTechnique::new(device);
-                    let technique_type = technique.technique_type();
-                    while let Some(pass) = technique.execute(device) {
-                        pass.set_global_parameters(self, project);
-                        pass.set_camera_parameters(
-                            project.active_camera(),
-                            &Self::INITIAL_WORLD_MATRIX,
-                            self,
+                    if let Some(technique) = context.effect.find_technique(
+                        &String::from(TechniqueType::Zplot),
+                        material,
+                        idx,
+                        num_material,
+                        &self.canonical_name,
+                    ) {
+                        let technique_type = TechniqueType::Zplot;
+                        while let Some(pass) = technique.execute(device) {
+                            pass.set_global_parameters(self);
+                            pass.set_camera_parameters(
+                                context.camera,
+                                &Self::INITIAL_WORLD_MATRIX,
+                                self,
+                            );
+                            pass.set_light_parameters(context.light, false);
+                            pass.set_all_model_parameters(self, context.all_models);
+                            pass.set_shadow_map_parameters(
+                                context.shadow,
+                                &Self::INITIAL_WORLD_MATRIX,
+                                context.camera,
+                                context.light,
+                                technique_type,
+                                context.shared_fallback_texture,
+                            );
+                            pass.execute(
+                                &buffer,
+                                color_view,
+                                depth_view,
+                                device,
+                                queue,
+                                self,
+                                &PassExecuteConfiguration {
+                                    technique_type,
+                                    viewport_texture_format: context.viewport_texture_format,
+                                    is_render_pass_viewport: context.is_render_pass_viewport,
+                                },
+                            );
+                        }
+                        if !technique.has_next_script_command() {
+                            technique.reset_script_command_state();
+                        }
+                    } else {
+                        log::error!(
+                            "No Suitable Technique found for num {} material of model {}",
+                            idx,
+                            self.canonical_name
                         );
-                        pass.set_light_parameters(project.global_light(), false);
-                        pass.set_all_model_parameters(self, project);
-                        pass.set_shadow_map_parameters(
-                            project.shadow_camera(),
-                            &Self::INITIAL_WORLD_MATRIX,
-                            project,
-                            technique_type,
-                            project.shared_fallback_image(),
-                        );
-                        pass.execute(
-                            &buffer,
-                            color_view,
-                            depth_view,
-                            technique_type,
-                            device,
-                            queue,
-                            self,
-                            project,
-                        );
-                        // TODO: process technique hasNextScriptCommand
                     }
                 }
             }
