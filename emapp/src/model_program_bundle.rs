@@ -88,7 +88,8 @@ pub struct PassExecuteConfiguration {
 pub struct CommonPass {
     // TODO: uncompleted
     shader: wgpu::ShaderModule,
-    uniform_buffer: ModelParametersUniform,
+    uniform_buffer_data: ModelParametersUniform,
+    uniform_buffer: wgpu::Buffer,
     bindings: HashMap<TextureSamplerStage, wgpu::TextureView>,
     cull_mode: Option<wgpu::Face>,
     primitive_type: wgpu::PrimitiveTopology,
@@ -184,9 +185,16 @@ impl CommonPass {
                     count: None,
                 }],
             });
+        let uniform_buffer_data = ModelParametersUniform::zeroed();
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("ModelProgramBundle/BindGroupBuffer/Uniform"),
+            contents: bytemuck::bytes_of(&[uniform_buffer_data]),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+        });
         Self {
             shader,
-            uniform_buffer: ModelParametersUniform::zeroed(),
+            uniform_buffer_data,
+            uniform_buffer,
             bindings: HashMap::new(),
             cull_mode: None,
             primitive_type: wgpu::PrimitiveTopology::TriangleList,
@@ -209,15 +217,15 @@ impl CommonPass {
     ) {
         let (v, p) = camera.get_view_transform();
         let w = model.world_transform(world);
-        self.uniform_buffer.model_matrix = w.into();
-        self.uniform_buffer.model_view_matrix = (v * w).into();
-        self.uniform_buffer.model_view_projection_matrix = (p * v * w).into();
-        self.uniform_buffer.camera_position = camera.position().extend(0f32).into();
+        self.uniform_buffer_data.model_matrix = w.into();
+        self.uniform_buffer_data.model_view_matrix = (v * w).into();
+        self.uniform_buffer_data.model_view_projection_matrix = (p * v * w).into();
+        self.uniform_buffer_data.camera_position = camera.position().extend(0f32).into();
     }
 
     pub fn set_light_parameters(&mut self, light: &dyn Light, _adjustment: bool) {
-        self.uniform_buffer.light_color = light.color().extend(1f32).into();
-        self.uniform_buffer.light_direction = light.direction().extend(0f32).into();
+        self.uniform_buffer_data.light_color = light.color().extend(1f32).into();
+        self.uniform_buffer_data.light_direction = light.direction().extend(0f32).into();
     }
 
     pub fn set_all_model_parameters(
@@ -235,16 +243,16 @@ impl CommonPass {
         fallback: &wgpu::Texture,
     ) {
         let color = material.color();
-        self.uniform_buffer.material_ambient = color.ambient.extend(1.0f32).into();
-        self.uniform_buffer.material_diffuse = color
+        self.uniform_buffer_data.material_ambient = color.ambient.extend(1.0f32).into();
+        self.uniform_buffer_data.material_diffuse = color
             .diffuse
             .extend(color.diffuse_opacity * self.opacity)
             .into();
-        self.uniform_buffer.material_specular = color.specular.extend(color.specular_power).into();
-        self.uniform_buffer.diffuse_texture_blend_factor =
+        self.uniform_buffer_data.material_specular = color.specular.extend(color.specular_power).into();
+        self.uniform_buffer_data.diffuse_texture_blend_factor =
             color.diffuse_texture_blend_factor.into();
-        self.uniform_buffer.sphere_texture_blend_factor = color.sphere_texture_blend_factor.into();
-        self.uniform_buffer.toon_texture_blend_factor = color.toon_texture_blend_factor.into();
+        self.uniform_buffer_data.sphere_texture_blend_factor = color.sphere_texture_blend_factor.into();
+        self.uniform_buffer_data.toon_texture_blend_factor = color.toon_texture_blend_factor.into();
         let texture_type = if material.sphere_map_image().is_some() {
             material.spheremap_texture_type()
         } else {
@@ -268,20 +276,20 @@ impl CommonPass {
             },
             0f32,
         ];
-        self.uniform_buffer.sphere_texture_type = sphere_texture_type;
+        self.uniform_buffer_data.sphere_texture_type = sphere_texture_type;
         let enable_vertex_color = if material.is_vertex_color_enabled() {
             1.0f32
         } else {
             0.0f32
         };
-        self.uniform_buffer.enable_vertex_color = Vector4::new(
+        self.uniform_buffer_data.enable_vertex_color = Vector4::new(
             enable_vertex_color,
             enable_vertex_color,
             enable_vertex_color,
             enable_vertex_color,
         )
         .into();
-        self.uniform_buffer.use_texture_sampler[0] = if self.set_image(
+        self.uniform_buffer_data.use_texture_sampler[0] = if self.set_image(
             material.diffuse_image(),
             TextureSamplerStage::DiffuseTextureSamplerStage,
             fallback,
@@ -290,7 +298,7 @@ impl CommonPass {
         } else {
             0.0f32
         };
-        self.uniform_buffer.use_texture_sampler[1] = if self.set_image(
+        self.uniform_buffer_data.use_texture_sampler[1] = if self.set_image(
             material.sphere_map_image(),
             TextureSamplerStage::SphereTextureSamplerStage,
             fallback,
@@ -299,7 +307,7 @@ impl CommonPass {
         } else {
             0.0f32
         };
-        self.uniform_buffer.use_texture_sampler[2] = if self.set_image(
+        self.uniform_buffer_data.use_texture_sampler[2] = if self.set_image(
             material.toon_image(),
             TextureSamplerStage::ToonTextureSamplerStage,
             fallback,
@@ -337,8 +345,8 @@ impl CommonPass {
         let material = material;
         let edge = material.edge();
         let edge_color = edge.color.extend(edge.opacity);
-        self.uniform_buffer.light_color = edge_color.into();
-        self.uniform_buffer.light_direction =
+        self.uniform_buffer_data.light_color = edge_color.into();
+        self.uniform_buffer_data.light_direction =
             (Vector4::new(1f32, 1f32, 1f32, 1f32) * edge.size * edge_size).into();
         self.bindings.insert(
             TextureSamplerStage::ShadowMapTextureSamplerStage0,
@@ -356,12 +364,12 @@ impl CommonPass {
         let (view_matrix, projection_matrix) = camera.get_view_transform();
         let origin_shadow_matrix = light.get_shadow_transform();
         let shadow_matrix = origin_shadow_matrix * world;
-        self.uniform_buffer.model_matrix = shadow_matrix.into();
+        self.uniform_buffer_data.model_matrix = shadow_matrix.into();
         let shadow_view_matrix = view_matrix * shadow_matrix;
-        self.uniform_buffer.model_view_matrix = shadow_view_matrix.into();
+        self.uniform_buffer_data.model_view_matrix = shadow_view_matrix.into();
         let shadow_view_projection_matrix = projection_matrix * shadow_view_matrix;
-        self.uniform_buffer.model_view_projection_matrix = shadow_view_projection_matrix.into();
-        self.uniform_buffer.light_color = light
+        self.uniform_buffer_data.model_view_projection_matrix = shadow_view_projection_matrix.into();
+        self.uniform_buffer_data.light_color = light
             .ground_shadow_color()
             .extend(
                 1.0f32
@@ -390,14 +398,14 @@ impl CommonPass {
         let (view, projection) = shadow_camera.get_view_projection(camera, light);
         let crop = shadow_camera.get_crop_matrix();
         let shadow_map_matrix = projection * view * world;
-        self.uniform_buffer.light_view_projection_matrix = (crop * shadow_map_matrix).into();
-        self.uniform_buffer.shadow_map_size = shadow_camera
+        self.uniform_buffer_data.light_view_projection_matrix = (crop * shadow_map_matrix).into();
+        self.uniform_buffer_data.shadow_map_size = shadow_camera
             .image_size()
             .map(|x| x as f32)
             .extend(0.005f32)
             .extend(u32::from(shadow_camera.coverage_mode()) as f32)
             .into();
-        self.uniform_buffer.use_texture_sampler[3] = if shadow_camera.is_enabled() {
+        self.uniform_buffer_data.use_texture_sampler[3] = if shadow_camera.is_enabled() {
             1.0f32
         } else {
             0f32
@@ -416,7 +424,7 @@ impl CommonPass {
                     TextureSamplerStage::ToonTextureSamplerStage,
                     fallback.create_view(&wgpu::TextureViewDescriptor::default()),
                 );
-                self.uniform_buffer.model_view_projection_matrix = shadow_map_matrix.into();
+                self.uniform_buffer_data.model_view_projection_matrix = shadow_map_matrix.into();
                 fallback.create_view(&wgpu::TextureViewDescriptor::default())
             }
             _ => shadow_camera
@@ -728,17 +736,13 @@ impl CommonPass {
         });
         let texture_bind_group =
             self.get_texture_bind_group(&device, &self.texture_bind_group_layout);
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("ModelProgramBundle/BindGroupBuffer/Uniform"),
-            contents: bytemuck::bytes_of(&[self.uniform_buffer]),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
-        });
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&[self.uniform_buffer_data]));
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ModelProgramBundle/BindGroup/Uniform"),
             layout: &self.uniform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
+                resource: self.uniform_buffer.as_entire_binding(),
             }],
         });
 

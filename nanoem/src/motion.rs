@@ -160,21 +160,25 @@ impl<K> MotionTrackBundle<K> {
     }
 
     fn ensure(&mut self, name: &str) {
-        self.tracks.entry(name.to_owned()).or_insert(MotionTrack {
-            id: self.allocator.next(),
-            name: name.to_string(),
-            keyframes: HashMap::new(),
-            ordered_frame_index: vec![],
-        });
+        self.tracks
+            .entry(name.to_owned())
+            .or_insert_with(|| MotionTrack {
+                id: self.allocator.next(),
+                name: name.to_string(),
+                keyframes: HashMap::new(),
+                ordered_frame_index: vec![],
+            });
     }
 
     fn get_by_name_or_new(&mut self, name: &str) -> &MotionTrack<K> {
-        self.tracks.entry(name.to_owned()).or_insert(MotionTrack {
-            id: self.allocator.next(),
-            name: name.to_string(),
-            keyframes: HashMap::new(),
-            ordered_frame_index: vec![],
-        })
+        self.tracks
+            .entry(name.to_owned())
+            .or_insert_with(|| MotionTrack {
+                id: self.allocator.next(),
+                name: name.to_string(),
+                keyframes: HashMap::new(),
+                ordered_frame_index: vec![],
+            })
     }
 
     fn get_mut_by_name(&mut self, name: &str) -> Option<&mut MotionTrack<K>> {
@@ -201,7 +205,7 @@ impl<K> MotionTrackBundle<K> {
     fn resolve_name_or_new(&mut self, name: &str) -> i32 {
         self.tracks
             .entry(name.to_owned())
-            .or_insert(MotionTrack {
+            .or_insert_with(|| MotionTrack {
                 id: self.allocator.next(),
                 name: name.to_string(),
                 keyframes: HashMap::new(),
@@ -283,7 +287,7 @@ where
         let track = self
             .tracks
             .entry(track_name.to_owned())
-            .or_insert(MotionTrack {
+            .or_insert_with(|| MotionTrack {
                 id: self.allocator.next(),
                 name: track_name.to_string(),
                 keyframes: HashMap::new(),
@@ -296,7 +300,7 @@ where
         let track = self
             .tracks
             .entry(track_name.to_owned())
-            .or_insert(MotionTrack {
+            .or_insert_with(|| MotionTrack {
                 id: self.allocator.next(),
                 name: track_name.to_string(),
                 keyframes: HashMap::new(),

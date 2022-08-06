@@ -114,11 +114,7 @@ impl ClearPass {
         self.pipelines
             .borrow_mut()
             .entry(key.clone())
-            .or_insert(Rc::new(Self::build_pipeline(
-                color_formats,
-                depth_format,
-                device,
-            )));
+            .or_insert_with(|| Rc::new(Self::build_pipeline(color_formats, depth_format, device)));
         self.pipelines.borrow().get(&key).unwrap().clone()
     }
 }

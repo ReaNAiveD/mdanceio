@@ -3,8 +3,8 @@ use image::GenericImageView;
 
 use crate::{
     injector::Injector,
+    physics_engine::SimulationMode,
     project::{ModelHandle, Project},
-    state_controller::StateController,
 };
 use std::{collections::HashMap, io::Cursor};
 
@@ -70,6 +70,11 @@ impl BaseApplicationService {
         if let Some(model) = self.project.active_model_mut() {
             model.set_shadow_map_enabled(value);
         }
+    }
+
+    pub fn disable_physics_simulation(&mut self) {
+        self.project
+            .set_physics_simulation_mode(SimulationMode::Disable)
     }
 
     pub fn set_camera_angle(&mut self, value: Vector3<f32>) {

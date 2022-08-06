@@ -111,8 +111,7 @@ impl State {
         self.application.update_bind_texture();
         let motion_data = std::fs::read("emapp/tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
         self.application.load_model_motion(&motion_data);
-        // self.application.seek(20);
-        // self.application.update_current_project(&self.device, &self.queue);
+        self.application.disable_physics_simulation();
         self.application.play();
         drop(motion_data);
         Ok(())
@@ -125,6 +124,7 @@ impl State {
     fn update(&mut self) {}
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        log::info!("Start rendering");
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture
@@ -138,20 +138,6 @@ impl State {
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
-    // env_logger::Builder::new()
-    //     .format(|buf, record| {
-    //         writeln!(
-    //             buf,
-    //             "{}:{} [{}] {} - {}",
-    //             record.file().unwrap_or("unknown"),
-    //             record.line().unwrap_or(0),
-    //             record.level(),
-    //             chrono::Local::now().format("%H:%M:%S.%6f"),
-    //             record.args()
-    //         )
-    //     })
-    //     .filter(None, log::LevelFilter::Info)
-    //     .init();
     let logfile = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S.%6f)} [{level}] - {m} [{file}:{line}]{n}")))
         .build("target/log/output.log")?;
@@ -166,8 +152,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
-    // let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-    // let mut state = rt.block_on(async {State::new(&window).await});
     let mut state = State::new(&window).await;
 
     state.load_sample_data()?;

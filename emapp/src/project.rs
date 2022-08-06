@@ -14,7 +14,7 @@ use crate::{
     camera::{Camera, PerspectiveCamera},
     clear_pass::ClearPass,
     debug_capture::DebugCapture,
-    drawable::{DrawType, Drawable, DrawContext},
+    drawable::{DrawContext, DrawType, Drawable},
     effect::{self, common::RenderPassScope, global_uniform::GlobalUniform, Effect, ScriptOrder},
     error::Error,
     event_publisher::EventPublisher,
@@ -756,12 +756,11 @@ impl Project {
     }
 
     pub fn is_playing(&self) -> bool {
-        // TODO: project playing state
-        false
+        self.audio_player.is_playing()
     }
 
     fn continue_playing(&mut self) -> bool {
-        if self.current_frame_index()
+        if self.audio_player.is_finished() || self.current_frame_index()
             >= self.playing_segment.frame_index_to(self.project_duration())
         {
             self.stop();
@@ -816,7 +815,7 @@ impl Project {
 impl Project {
     pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         // TODO: seek if playing
-        if self.continue_playing() {
+        if self.is_playing() && self.continue_playing() {
             self.audio_player.update();
             let fps = self.preferred_motion_fps.value;
             let base = FpsUnit::HALF_BASE_FPS;
@@ -838,7 +837,11 @@ impl Project {
                     0f32
                 }
             });
-            self.internal_seek_precisely((frame_index as f32 * inverted_fpx_rate) as u32, amount, delta);
+            self.internal_seek_precisely(
+                (frame_index as f32 * inverted_fpx_rate) as u32,
+                amount,
+                delta,
+            );
         }
         // TODO: simulate if simulation anytime
         for (_, model) in &mut self.model_handle_map {
@@ -941,6 +944,8 @@ impl Project {
     }
 
     fn internal_seek_precisely(&mut self, frame_index: u32, amount: f32, delta: f32) {
+        log::info!("Before Internal seek: {:?}", self.local_frame_index);
+        log::info!("Seek to {:?}", frame_index);
         if self.transform_performed_at.0 != Motion::MAX_KEYFRAME_INDEX
             && frame_index != self.transform_performed_at.0
         {
@@ -1336,15 +1341,17 @@ impl Project {
         let texture = self
             .tmp_texture_map
             .entry(key.to_owned())
-            .or_insert(Rc::new(device.create_texture(&wgpu::TextureDescriptor {
-                label: Some(format!("Texture/{}", key).as_str()),
-                size: texture_size,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            })));
+            .or_insert_with(|| {
+                Rc::new(device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(format!("Texture/{}", key).as_str()),
+                    size: texture_size,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                }))
+            });
         // TODO: may have different size when different image with same name
         queue.write_texture(
             wgpu::ImageCopyTexture {
@@ -1528,7 +1535,9 @@ impl Project {
 
     pub fn draw_shadow_map(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if self.shadow_camera.is_enabled() {
-            let (light_view, light_projection) = self.shadow_camera.get_view_projection(&self.camera, &self.light);
+            let (light_view, light_projection) = self
+                .shadow_camera
+                .get_view_projection(&self.camera, &self.light);
             self.shadow_camera.clear(&self.clear_pass, device, queue);
             // if self.editing_mode != EditingMode::Select {
             // scope(m_currentOffscreenRenderPass, pass), scope2(m_originOffscreenRenderPass, pass)

@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 use crate::{forward::LineVertexUnit, camera::Camera};
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
+#[derive(Debug, Clone, Copy, Default, bytemuck::Zeroable, bytemuck::Pod)]
 struct Uniform {
     view_project: [[f32; 4]; 4],
     color: [f32; 4],
@@ -20,6 +20,7 @@ struct LineDrawerCacheKey {
 pub struct LineDrawer {
     shader: wgpu::ShaderModule,
     uniform_bind_group_layout: wgpu::BindGroupLayout,
+    uniform_buffer: wgpu::Buffer,
     pipeline_layout: wgpu::PipelineLayout,
     primitive_type: wgpu::PrimitiveTopology,
     index_type: Option<wgpu::IndexFormat>, // None to disable indexed render
@@ -51,9 +52,15 @@ impl LineDrawer {
             bind_group_layouts: &[&uniform_bind_group_layout],
             push_constant_ranges: &[],
         });
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("LineDrawer/UniformBuffer"),
+            contents: bytemuck::bytes_of(&[Uniform::default()]),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+        });
         Self {
             shader,
             uniform_bind_group_layout,
+            uniform_buffer,
             pipeline_layout,
             primitive_type: wgpu::PrimitiveTopology::LineList,
             index_type: None,
@@ -162,17 +169,13 @@ impl LineDrawer {
             view_project: (projection * view).into(),
             color: [1.0f32, 1.0f32, 1.0f32, 1.0f32],
         };
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("LineDrawer/UniformBuffer"),
-            contents: bytemuck::bytes_of(&[uniform]),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
-        });
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&[uniform]));
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("LineDrawer/UniformBindGroup"),
             layout: &self.uniform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
+                resource: self.uniform_buffer.as_entire_binding(),
             }],
         });
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {

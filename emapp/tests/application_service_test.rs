@@ -86,6 +86,21 @@ async fn create_png(
 
 #[tokio::test]
 async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let stdout = log4rs::append::console::ConsoleAppender::builder()
+        .encoder(Box::new(log4rs::encode::pattern::PatternEncoder::new(
+            "{d(%Y-%m-%d %H:%M:%S.%6f)} [{level}] - {m} [{file}:{line}]{n}",
+        )))
+        .build();
+    let config = log4rs::config::Config::builder()
+        .appender(log4rs::config::Appender::builder().build("stdout", Box::new(stdout)))
+        .build(
+            log4rs::config::Root::builder()
+                .appender("stdout")
+                .build(log::LevelFilter::Info),
+        )?;
+
+    log4rs::init_config(config)?;
+
     let injector = Injector {
         pixel_format: wgpu::TextureFormat::Rgba8UnormSrgb,
         viewport_size: [1920, 1080],
@@ -102,7 +117,9 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let (device, queue) = adapter
         .request_device(
             &Default::default(),
-            Some(std::path::Path::new("target/wgpu-trace/application-service-test")),
+            Some(std::path::Path::new(
+                "target/wgpu-trace/application-service-test",
+            )),
         )
         .await
         .unwrap();
@@ -159,6 +176,9 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let motion_data = std::fs::read("tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
     application.load_model_motion(&motion_data);
     drop(motion_data);
+    application.disable_physics_simulation();
+    application.seek(20);
+    application.update_current_project(&device, &queue);
     application.draw_default_pass(&texture_view, &device, &queue);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("ReadBufferEncoder"),
@@ -181,7 +201,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let submission_index = queue.submit(Some(encoder.finish()));
 
     create_png(
-        "target/image/1.png",
+        "../target/image/1.png",
         &device,
         &output_buffer,
         &buffer_dimensions,
