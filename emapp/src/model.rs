@@ -2,8 +2,9 @@ use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
     f32::consts::PI,
+    iter,
     rc::{Rc, Weak},
-    time::Instant, iter,
+    time::Instant,
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -364,9 +365,7 @@ impl Model {
                 let materials = opaque
                     .materials
                     .iter()
-                    .map(|material| {
-                        Material::from_nanoem(material, language_type)
-                    })
+                    .map(|material| Material::from_nanoem(material, language_type))
                     .collect::<Vec<_>>();
                 let mut index_offset = 0;
                 for nanoem_material in &opaque.materials {
@@ -2004,6 +2003,9 @@ impl Model {
         log::info!("Model Start Drawing Color");
         let mut index_offset = 0usize;
         let num_material = self.materials.len();
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Model Draw Color Encoder"),
+        });
         for (idx, material) in self.materials.iter().enumerate() {
             let num_indices = material.origin.num_vertex_indices;
             log::trace!(
@@ -2035,10 +2037,9 @@ impl Model {
                 ) {
                     log::info!("Technique has been found");
                     let technique_type = TechniqueType::Color;
-                    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                        label: Some("Model Draw Color Encoder"),
-                    });
-                    while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
+                    while let Some(mut pass) =
+                        technique.execute(context.shared_fallback_texture, device)
+                    {
                         let time_1 = Instant::now();
                         pass.set_global_parameters(self);
                         log::info!("Setting Camera Parameter");
@@ -2080,7 +2081,6 @@ impl Model {
                         );
                         log::info!("Execute Pass use {:?}", Instant::now() - time_1);
                     }
-                    queue.submit(iter::once(encoder.finish()));
                     if !technique.has_next_script_command() && !script_external_color {
                         technique.reset_script_command_state();
                         technique.reset_script_external_color();
@@ -2095,6 +2095,7 @@ impl Model {
             }
             index_offset += num_indices;
         }
+        queue.submit(iter::once(encoder.finish()));
         log::info!("Model Finish Drawing Color");
     }
 
@@ -2131,10 +2132,13 @@ impl Model {
                         &self.canonical_name,
                     ) {
                         let technique_type = TechniqueType::Edge;
-                        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                            label: Some("Model Draw Edge Encoder"),
-                        });
-                        while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
+                        let mut encoder =
+                            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                label: Some("Model Draw Edge Encoder"),
+                            });
+                        while let Some(mut pass) =
+                            technique.execute(context.shared_fallback_texture, device)
+                        {
                             pass.set_global_parameters(self);
                             pass.set_camera_parameters(
                                 context.camera,
@@ -2217,10 +2221,13 @@ impl Model {
                         &self.canonical_name,
                     ) {
                         let technique_type = TechniqueType::Shadow;
-                        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                            label: Some("Model Draw Ground Shadow Encoder"),
-                        });
-                        while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
+                        let mut encoder =
+                            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                label: Some("Model Draw Ground Shadow Encoder"),
+                            });
+                        while let Some(mut pass) =
+                            technique.execute(context.shared_fallback_texture, device)
+                        {
                             pass.set_global_parameters(self);
                             pass.set_camera_parameters(context.camera, &world, self);
                             pass.set_light_parameters(context.light, false);
@@ -2297,10 +2304,13 @@ impl Model {
                         &self.canonical_name,
                     ) {
                         let technique_type = TechniqueType::Zplot;
-                        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                            label: Some("Model Draw Shadow Map Encoder"),
-                        });
-                        while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
+                        let mut encoder =
+                            device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                                label: Some("Model Draw Shadow Map Encoder"),
+                            });
+                        while let Some(mut pass) =
+                            technique.execute(context.shared_fallback_texture, device)
+                        {
                             pass.set_global_parameters(self);
                             pass.set_camera_parameters(
                                 context.camera,
