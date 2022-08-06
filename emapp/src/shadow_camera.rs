@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use cgmath::{
     InnerSpace, Matrix, Matrix3, Matrix4, SquareMatrix, Vector1, Vector2, Vector3, Vector4,
     VectorSpace,
@@ -33,14 +35,9 @@ impl From<CoverageMode> for u32 {
 }
 
 pub struct ShadowCamera {
-    // Project *m_project;
-    // sg_pass m_shadowPass;
-    // sg_pass_desc m_shadowPassDesc;
-    // sg_pass m_fallbackPass;
-    // sg_pass_desc m_fallbackPassDesc;
-    shadow_color_texture: wgpu::Texture,
+    shadow_color_texture: wgpu::TextureView,
     fallback_color_texture: wgpu::Texture,
-    shadow_depth_texture: wgpu::Texture,
+    shadow_depth_texture: wgpu::TextureView,
     fallback_depth_texture: wgpu::Texture,
     texture_size: Vector2<u32>,
     coverage_mode: CoverageMode,
@@ -112,9 +109,9 @@ impl ShadowCamera {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
         Self {
-            shadow_color_texture: color_texture,
+            shadow_color_texture: color_texture.create_view(&wgpu::TextureViewDescriptor::default()),
             fallback_color_texture,
-            shadow_depth_texture: depth_texture,
+            shadow_depth_texture: depth_texture.create_view(&wgpu::TextureViewDescriptor::default()),
             fallback_depth_texture,
             texture_size: Vector2::new(Self::INITIAL_TEXTURE_SIZE, Self::INITIAL_TEXTURE_SIZE),
             coverage_mode: CoverageMode::Type1,
@@ -134,16 +131,10 @@ impl ShadowCamera {
         );
         encoder.push_debug_group("ShadowCamera::clear");
         {
-            let color_texture_view = self
-                .shadow_color_texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-            let depth_texture_view = self
-                .shadow_depth_texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
             let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ShadowCamera/Clear/Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &color_texture_view,
+                    view: &self.shadow_color_texture,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -156,7 +147,7 @@ impl ShadowCamera {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &depth_texture_view,
+                    view: &self.shadow_depth_texture,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1f32),
                         store: true,
@@ -357,22 +348,12 @@ impl ShadowCamera {
         self.enabled
     }
 
-    pub fn color_image(&self) -> &wgpu::Texture {
+    pub fn color_image(&self) -> &wgpu::TextureView {
         &self.shadow_color_texture
     }
 
-    pub fn color_texture_view(&self) -> wgpu::TextureView {
-        self.shadow_color_texture
-            .create_view(&wgpu::TextureViewDescriptor::default())
-    }
-
-    pub fn depth_image(&self) -> &wgpu::Texture {
+    pub fn depth_image(&self) -> &wgpu::TextureView {
         &self.shadow_depth_texture
-    }
-
-    pub fn depth_texture_view(&self) -> wgpu::TextureView {
-        self.shadow_depth_texture
-            .create_view(&wgpu::TextureViewDescriptor::default())
     }
 
     pub fn set_distance(&mut self, value: f32) {

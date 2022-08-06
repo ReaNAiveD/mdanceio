@@ -3,6 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     f32::consts::PI,
     rc::{Rc, Weak},
+    time::Instant,
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -330,7 +331,6 @@ impl Model {
     pub fn new_from_bytes(
         bytes: &[u8],
         language_type: nanoem::common::LanguageType,
-        fallback_texture: &wgpu::Texture,
         physics_engine: &mut PhysicsEngine,
         global_camera: &PerspectiveCamera,
         device: &wgpu::Device,
@@ -365,7 +365,7 @@ impl Model {
                     .materials
                     .iter()
                     .map(|material| {
-                        Material::from_nanoem(material, fallback_texture, language_type)
+                        Material::from_nanoem(material, language_type)
                     })
                     .collect::<Vec<_>>();
                 let mut index_offset = 0;
@@ -851,21 +851,33 @@ impl Model {
             material.diffuse_image = material
                 .origin
                 .get_diffuse_texture_object(&self.opaque.textures)
-                .map(|texture_object| texture_lut.get(&texture_object.path))
-                .flatten()
-                .map(|rc| rc.clone());
+                .and_then(|texture_object| texture_lut.get(&texture_object.path))
+                .map(|rc| {
+                    (
+                        rc.clone(),
+                        rc.create_view(&wgpu::TextureViewDescriptor::default()),
+                    )
+                });
             material.sphere_map_image = material
                 .origin
                 .get_sphere_map_texture_object(&self.opaque.textures)
-                .map(|texture_object| texture_lut.get(&texture_object.path))
-                .flatten()
-                .map(|rc| rc.clone());
+                .and_then(|texture_object| texture_lut.get(&texture_object.path))
+                .map(|rc| {
+                    (
+                        rc.clone(),
+                        rc.create_view(&wgpu::TextureViewDescriptor::default()),
+                    )
+                });
             material.toon_image = material
                 .origin
                 .get_toon_texture_object(&self.opaque.textures)
-                .map(|texture_object| texture_lut.get(&texture_object.path))
-                .flatten()
-                .map(|rc| rc.clone());
+                .and_then(|texture_object| texture_lut.get(&texture_object.path))
+                .map(|rc| {
+                    (
+                        rc.clone(),
+                        rc.create_view(&wgpu::TextureViewDescriptor::default()),
+                    )
+                });
         }
     }
 
@@ -1961,8 +1973,14 @@ impl Model {
         queue: &wgpu::Queue,
     ) {
         if self.states.dirty_staging_buffer {
+            let time_0 = Instant::now();
             self.skin_deformer
                 .update_buffer(self, camera, device, queue);
+            log::info!(
+                "Update Skin Deformer Buffer use {:?}",
+                Instant::now() - time_0
+            );
+            let time_1 = Instant::now();
             self.skin_deformer.execute(
                 &self.vertex_buffers[self.stage_vertex_buffer_index],
                 device,
@@ -1983,6 +2001,7 @@ impl Model {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
+        log::info!("Model Start Drawing Color");
         let mut index_offset = 0usize;
         let num_material = self.materials.len();
         for (idx, material) in self.materials.iter().enumerate() {
@@ -1992,12 +2011,18 @@ impl Model {
                 num_indices,
                 index_offset
             );
+            let time_0 = Instant::now();
             let buffer = pass::Buffer::new(
                 num_indices,
                 index_offset,
                 &self.vertex_buffers[1 - self.stage_vertex_buffer_index as usize],
                 &self.index_buffer,
                 true,
+            );
+            log::info!(
+                "Material {:?} Buffer Creation use {:?}",
+                idx,
+                Instant::now() - time_0
             );
             if material.is_visible() {
                 // TODO: get technique by discovery
@@ -2008,29 +2033,39 @@ impl Model {
                     num_material,
                     &self.canonical_name,
                 ) {
+                    log::info!("Technique has been found");
                     let technique_type = TechniqueType::Color;
-                    while let Some(pass) = technique.execute(device) {
+                    while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
+                        let time_1 = Instant::now();
+                        log::info!("Setting Global Parameter");
                         pass.set_global_parameters(self);
+                        log::info!("Setting Camera Parameter");
                         pass.set_camera_parameters(
                             context.camera,
                             &Self::INITIAL_WORLD_MATRIX,
                             self,
                         );
+                        log::info!("Setting Light Parameter");
                         pass.set_light_parameters(context.light, false);
+                        log::info!("Setting all model Parameter");
                         pass.set_all_model_parameters(self, context.all_models);
+                        log::info!("Setting Material Parameter");
                         pass.set_material_parameters(
                             &material,
                             technique_type,
-                            context.shared_fallback_texture,
+                            &context.shared_fallback_texture,
                         );
+                        log::info!("Setting Shadow Map Parameter");
                         pass.set_shadow_map_parameters(
                             context.shadow,
                             &Self::INITIAL_WORLD_MATRIX,
                             context.camera,
                             context.light,
                             technique_type,
-                            context.shared_fallback_texture,
+                            &context.shared_fallback_texture,
                         );
+                        log::info!("Pass Set Parameter use {:?}", Instant::now() - time_1);
+                        let time_2 = Instant::now();
                         pass.execute(
                             &buffer,
                             color_view,
@@ -2044,6 +2079,7 @@ impl Model {
                                 is_render_pass_viewport: context.is_render_pass_viewport,
                             },
                         );
+                        log::info!("Execute Pass use {:?}", Instant::now() - time_1);
                     }
                     if !technique.has_next_script_command() && !script_external_color {
                         technique.reset_script_command_state();
@@ -2059,6 +2095,7 @@ impl Model {
             }
             index_offset += num_indices;
         }
+        log::info!("Model Finish Drawing Color");
     }
 
     fn draw_edge(
@@ -2094,7 +2131,7 @@ impl Model {
                         &self.canonical_name,
                     ) {
                         let technique_type = TechniqueType::Edge;
-                        while let Some(pass) = technique.execute(device) {
+                        while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
                             pass.set_global_parameters(self);
                             pass.set_camera_parameters(
                                 context.camera,
@@ -2106,12 +2143,12 @@ impl Model {
                             pass.set_material_parameters(
                                 material,
                                 technique_type,
-                                context.shared_fallback_texture,
+                                &context.shared_fallback_texture,
                             );
                             pass.set_edge_parameters(
                                 material,
                                 edge_size_scale_factor,
-                                context.shared_fallback_texture,
+                                &context.shared_fallback_texture,
                             );
                             pass.execute(
                                 &buffer,
@@ -2175,7 +2212,7 @@ impl Model {
                         &self.canonical_name,
                     ) {
                         let technique_type = TechniqueType::Shadow;
-                        while let Some(pass) = technique.execute(device) {
+                        while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
                             pass.set_global_parameters(self);
                             pass.set_camera_parameters(context.camera, &world, self);
                             pass.set_light_parameters(context.light, false);
@@ -2183,13 +2220,13 @@ impl Model {
                             pass.set_material_parameters(
                                 material,
                                 technique_type,
-                                context.shared_fallback_texture,
+                                &context.shared_fallback_texture,
                             );
                             pass.set_ground_shadow_parameters(
                                 context.light,
                                 context.camera,
                                 &world,
-                                context.shared_fallback_texture,
+                                &context.shared_fallback_texture,
                             );
                             pass.execute(
                                 &buffer,
@@ -2250,7 +2287,7 @@ impl Model {
                         &self.canonical_name,
                     ) {
                         let technique_type = TechniqueType::Zplot;
-                        while let Some(pass) = technique.execute(device) {
+                        while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
                             pass.set_global_parameters(self);
                             pass.set_camera_parameters(
                                 context.camera,
@@ -2265,7 +2302,7 @@ impl Model {
                                 context.camera,
                                 context.light,
                                 technique_type,
-                                context.shared_fallback_texture,
+                                &context.shared_fallback_texture,
                             );
                             pass.execute(
                                 &buffer,
@@ -3317,12 +3354,11 @@ pub struct Material {
     color: MaterialBlendColor,
     edge: MaterialBlendEdge,
     effect: Option<Effect>,
-    diffuse_image: Option<Rc<wgpu::Texture>>,
-    sphere_map_image: Option<Rc<wgpu::Texture>>,
-    toon_image: Option<Rc<wgpu::Texture>>,
+    diffuse_image: Option<(Rc<wgpu::Texture>, wgpu::TextureView)>,
+    sphere_map_image: Option<(Rc<wgpu::Texture>, wgpu::TextureView)>,
+    toon_image: Option<(Rc<wgpu::Texture>, wgpu::TextureView)>,
     name: String,
     canonical_name: String,
-    fallback_image: wgpu::TextureView,
     index_hash: HashMap<u32, u32>,
     toon_color: Vector4<f32>,
     states: MaterialStates,
@@ -3340,7 +3376,6 @@ impl Material {
 
     pub fn from_nanoem(
         material: &NanoemMaterial,
-        fallback: &wgpu::Texture,
         language_type: nanoem::common::LanguageType,
     ) -> Self {
         let mut name = material.get_name(language_type).to_owned();
@@ -3383,7 +3418,6 @@ impl Material {
             toon_image: None,
             name,
             canonical_name,
-            fallback_image: fallback.create_view(&wgpu::TextureViewDescriptor::default()),
             index_hash: HashMap::new(),
             toon_color: Vector4::new(1f32, 1f32, 1f32, 1f32),
             states: MaterialStates {
@@ -3585,15 +3619,27 @@ impl Material {
     }
 
     pub fn diffuse_image(&self) -> Option<&wgpu::Texture> {
-        self.diffuse_image.as_ref().map(|rc| rc.as_ref())
+        self.diffuse_image.as_ref().map(|rc| rc.0.as_ref())
     }
 
     pub fn sphere_map_image(&self) -> Option<&wgpu::Texture> {
-        self.sphere_map_image.as_ref().map(|rc| rc.as_ref())
+        self.sphere_map_image.as_ref().map(|rc| rc.0.as_ref())
     }
 
     pub fn toon_image(&self) -> Option<&wgpu::Texture> {
-        self.toon_image.as_ref().map(|rc| rc.as_ref())
+        self.toon_image.as_ref().map(|rc| rc.0.as_ref())
+    }
+
+    pub fn diffuse_view(&self) -> Option<&wgpu::TextureView> {
+        self.diffuse_image.as_ref().map(|rc| &rc.1)
+    }
+
+    pub fn sphere_map_view(&self) -> Option<&wgpu::TextureView> {
+        self.sphere_map_image.as_ref().map(|rc| &rc.1)
+    }
+
+    pub fn toon_view(&self) -> Option<&wgpu::TextureView> {
+        self.toon_image.as_ref().map(|rc| &rc.1)
     }
 
     pub fn spheremap_texture_type(&self) -> nanoem::model::ModelMaterialSphereMapTextureType {

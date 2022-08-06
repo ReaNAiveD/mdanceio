@@ -1,7 +1,11 @@
 use crate::model_program_bundle::CommonPass;
 
 pub trait Technique {
-    fn execute(&mut self, device: &wgpu::Device) -> Option<&mut CommonPass>;
+    fn execute<'a, 'b: 'a>(
+        &'b mut self,
+        fallback_texture: &'b wgpu::TextureView,
+        device: &wgpu::Device,
+    ) -> Option<CommonPass<'a>>;
 
     fn reset_script_command_state(&self);
 

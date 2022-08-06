@@ -1,7 +1,7 @@
 use std::{
     cell::{Ref, RefCell},
     collections::{HashMap, HashSet},
-    rc::Rc,
+    rc::Rc, time::Instant,
 };
 
 use cgmath::{ElementWise, Vector2, Vector3, Vector4, VectorSpace};
@@ -396,7 +396,7 @@ pub struct Project {
     // scroll_delta: Vector2<i32>,
     viewport_background_color: Vector4<f32>,
     // all_offscreen_render_targets: HashMap<Rc<RefCell<Effect>>, HashMap<String, Vec<OffscreenRenderTargetCondition>>>,
-    fallback_texture: wgpu::Texture,
+    fallback_texture: Rc<wgpu::TextureView>,
     // // TODO: bx::HandleAlloc *m_objectHandleAllocator;
     object_handler_allocator: HandleAllocator,
     // accessory_handle_map: HashMap<u16, Rc<RefCell<Accessory>>>,
@@ -481,7 +481,7 @@ impl Project {
         );
         log::trace!("Finish Primary and Secondary Pass");
 
-        let fallback_texture = Self::create_white_fallback_image(&device, &queue);
+        let fallback_texture = Rc::new(Self::create_white_fallback_image(&device, &queue).create_view(&wgpu::TextureViewDescriptor::default()));
 
         log::trace!("Finish Fallback texture");
 
@@ -613,7 +613,7 @@ impl Project {
         &mut self.light
     }
 
-    pub fn shared_fallback_image(&self) -> &wgpu::Texture {
+    pub fn shared_fallback_image(&self) -> &Rc<wgpu::TextureView> {
         &self.fallback_texture
     }
 
@@ -815,6 +815,7 @@ impl Project {
 impl Project {
     pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         // TODO: seek if playing
+        let start = Instant::now();
         if self.is_playing() && self.continue_playing() {
             self.audio_player.update();
             let fps = self.preferred_motion_fps.value;
@@ -837,18 +838,22 @@ impl Project {
                     0f32
                 }
             });
+            let seek_start = Instant::now();
             self.internal_seek_precisely(
                 (frame_index as f32 * inverted_fpx_rate) as u32,
                 amount,
                 delta,
             );
+            log::info!("Internal Seek Use {:?}", Instant::now() - seek_start);
         }
         // TODO: simulate if simulation anytime
         for (_, model) in &mut self.model_handle_map {
-            model.update_staging_vertex_buffer(&self.camera, device, queue)
+            model.update_staging_vertex_buffer(&self.camera, device, queue);
         }
         // TODO: mark all animated images updatable
         // TODO: render background video
+        log::info!("Full Update Use {:?}", Instant::now() - start);
+
     }
 
     fn restore_state(&mut self, state: &SaveState, force_seek: bool) {
@@ -1162,7 +1167,6 @@ impl Project {
         if let Ok(model) = Model::new_from_bytes(
             model_data,
             self.parse_language(),
-            &self.fallback_texture,
             &mut self.physics_engine,
             &self.camera,
             device,
@@ -1543,11 +1547,11 @@ impl Project {
             // scope(m_currentOffscreenRenderPass, pass), scope2(m_originOffscreenRenderPass, pass)
             for (handle, drawable) in &self.model_handle_map {
                 // TODO: judge effect script class
-                let color_view = self.shadow_camera.color_texture_view();
-                let depth_view = self.shadow_camera.depth_texture_view();
+                let color_view = self.shadow_camera.color_image();
+                let depth_view = self.shadow_camera.depth_image();
                 drawable.draw(
-                    &color_view,
-                    Some(&depth_view),
+                    color_view,
+                    Some(depth_view),
                     DrawType::ShadowMap,
                     DrawContext {
                         camera: &self.camera,
@@ -1573,6 +1577,7 @@ impl Project {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
+        log::info!("Start drawing viewport");
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.push_debug_group("Project::draw_viewport");
@@ -1604,6 +1609,7 @@ impl Project {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
+        log::info!("Start internal drawing viewport");
         for (handle, drawable) in &self.model_handle_map {
             drawable.draw(
                 view,

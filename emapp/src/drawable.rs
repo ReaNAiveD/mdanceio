@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::{project::Project, camera::PerspectiveCamera, shadow_camera::ShadowCamera, light::DirectionalLight, model::Model, model_program_bundle::ModelProgramBundle};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -15,7 +17,7 @@ pub struct DrawContext<'a> {
     pub camera: &'a PerspectiveCamera,
     pub shadow: &'a ShadowCamera,
     pub light: &'a DirectionalLight,
-    pub shared_fallback_texture: &'a wgpu::Texture,
+    pub shared_fallback_texture: &'a wgpu::TextureView,
     pub viewport_texture_format: wgpu::TextureFormat,
     pub is_render_pass_viewport: bool,
     pub all_models: &'a (dyn Iterator<Item = &'a Model>),
