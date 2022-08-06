@@ -89,6 +89,7 @@ pub struct CommonPassCache {
     // TODO: uncompleted
     shader: wgpu::ShaderModule,
     uniform_buffer: wgpu::Buffer,
+    uniform_bind_group: wgpu::BindGroup,
     shadow_sampler: wgpu::Sampler,
     sampler: wgpu::Sampler,
     pipeline_cache: RefCell<HashMap<CommonPassCacheKey, wgpu::RenderPipeline>>,
@@ -188,6 +189,14 @@ impl CommonPassCache {
             contents: bytemuck::bytes_of(&[uniform_buffer_data]),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ModelProgramBundle/BindGroup/Uniform"),
+            layout: &uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
         let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -209,6 +218,7 @@ impl CommonPassCache {
         Self {
             shader,
             uniform_buffer,
+            uniform_bind_group,
             pipeline_cache: RefCell::new(HashMap::new()),
             texture_bind_group_layout,
             uniform_bind_group_layout,
@@ -551,6 +561,7 @@ impl<'a> CommonPass<'a> {
         depth_stencil_attachment_view: Option<&wgpu::TextureView>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        encoder: &mut wgpu::CommandEncoder,
         model: &Model,
         config: &PassExecuteConfiguration,
     ) {
@@ -728,18 +739,10 @@ impl<'a> CommonPass<'a> {
             0,
             bytemuck::bytes_of(&[self.uniform_buffer_data]),
         );
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ModelProgramBundle/BindGroup/Uniform"),
-            layout: &self.cache.uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: self.cache.uniform_buffer.as_entire_binding(),
-            }],
-        });
 
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Model Pass Executor Encoder"),
-        });
+        // let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        //     label: Some("Model Pass Executor Encoder"),
+        // });
         encoder.push_debug_group("ModelProgramBundle::execute");
         {
             log::info!("Begin Render Pass");
@@ -769,7 +772,7 @@ impl<'a> CommonPass<'a> {
             rpass.set_pipeline(&pipeline);
             log::info!("Setting Bind Group");
             rpass.set_bind_group(0, &texture_bind_group, &[]);
-            rpass.set_bind_group(1, &uniform_bind_group, &[]);
+            rpass.set_bind_group(1, &self.cache.uniform_bind_group, &[]);
             log::info!("Setting Vertex Buffer");
             rpass.set_vertex_buffer(0, buffer.vertex_buffer.slice(..));
             log::info!("Setting Index Buffer");
@@ -782,8 +785,8 @@ impl<'a> CommonPass<'a> {
             );
         }
         encoder.pop_debug_group();
-        log::info!("Submit");
-        queue.submit(iter::once(encoder.finish()));
+        // log::info!("Submit");
+        // queue.submit(iter::once(encoder.finish()));
     }
 }
 

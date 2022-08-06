@@ -3,7 +3,7 @@ use std::{
     collections::{HashMap, HashSet},
     f32::consts::PI,
     rc::{Rc, Weak},
-    time::Instant,
+    time::Instant, iter,
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -2035,9 +2035,11 @@ impl Model {
                 ) {
                     log::info!("Technique has been found");
                     let technique_type = TechniqueType::Color;
+                    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("Model Draw Color Encoder"),
+                    });
                     while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
                         let time_1 = Instant::now();
-                        log::info!("Setting Global Parameter");
                         pass.set_global_parameters(self);
                         log::info!("Setting Camera Parameter");
                         pass.set_camera_parameters(
@@ -2045,17 +2047,13 @@ impl Model {
                             &Self::INITIAL_WORLD_MATRIX,
                             self,
                         );
-                        log::info!("Setting Light Parameter");
                         pass.set_light_parameters(context.light, false);
-                        log::info!("Setting all model Parameter");
                         pass.set_all_model_parameters(self, context.all_models);
-                        log::info!("Setting Material Parameter");
                         pass.set_material_parameters(
                             &material,
                             technique_type,
                             &context.shared_fallback_texture,
                         );
-                        log::info!("Setting Shadow Map Parameter");
                         pass.set_shadow_map_parameters(
                             context.shadow,
                             &Self::INITIAL_WORLD_MATRIX,
@@ -2072,6 +2070,7 @@ impl Model {
                             depth_view,
                             device,
                             queue,
+                            &mut encoder,
                             self,
                             &PassExecuteConfiguration {
                                 technique_type,
@@ -2081,6 +2080,7 @@ impl Model {
                         );
                         log::info!("Execute Pass use {:?}", Instant::now() - time_1);
                     }
+                    queue.submit(iter::once(encoder.finish()));
                     if !technique.has_next_script_command() && !script_external_color {
                         technique.reset_script_command_state();
                         technique.reset_script_external_color();
@@ -2131,6 +2131,9 @@ impl Model {
                         &self.canonical_name,
                     ) {
                         let technique_type = TechniqueType::Edge;
+                        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("Model Draw Edge Encoder"),
+                        });
                         while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
                             pass.set_global_parameters(self);
                             pass.set_camera_parameters(
@@ -2156,6 +2159,7 @@ impl Model {
                                 depth_view,
                                 device,
                                 queue,
+                                &mut encoder,
                                 self,
                                 &PassExecuteConfiguration {
                                     technique_type,
@@ -2164,6 +2168,7 @@ impl Model {
                                 },
                             );
                         }
+                        queue.submit(iter::once(encoder.finish()));
                         if !technique.has_next_script_command() {
                             technique.reset_script_command_state();
                         }
@@ -2212,6 +2217,9 @@ impl Model {
                         &self.canonical_name,
                     ) {
                         let technique_type = TechniqueType::Shadow;
+                        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("Model Draw Ground Shadow Encoder"),
+                        });
                         while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
                             pass.set_global_parameters(self);
                             pass.set_camera_parameters(context.camera, &world, self);
@@ -2234,6 +2242,7 @@ impl Model {
                                 depth_view,
                                 device,
                                 queue,
+                                &mut encoder,
                                 self,
                                 &PassExecuteConfiguration {
                                     technique_type,
@@ -2242,6 +2251,7 @@ impl Model {
                                 },
                             );
                         }
+                        queue.submit(iter::once(encoder.finish()));
                         if !technique.has_next_script_command() {
                             technique.reset_script_command_state();
                         }
@@ -2287,6 +2297,9 @@ impl Model {
                         &self.canonical_name,
                     ) {
                         let technique_type = TechniqueType::Zplot;
+                        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                            label: Some("Model Draw Shadow Map Encoder"),
+                        });
                         while let Some(mut pass) = technique.execute(context.shared_fallback_texture, device) {
                             pass.set_global_parameters(self);
                             pass.set_camera_parameters(
@@ -2310,6 +2323,7 @@ impl Model {
                                 depth_view,
                                 device,
                                 queue,
+                                &mut encoder,
                                 self,
                                 &PassExecuteConfiguration {
                                     technique_type,
@@ -2318,6 +2332,7 @@ impl Model {
                                 },
                             );
                         }
+                        queue.submit(iter::once(encoder.finish()));
                         if !technique.has_next_script_command() {
                             technique.reset_script_command_state();
                         }
