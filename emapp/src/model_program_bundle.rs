@@ -1,4 +1,7 @@
-use std::{cell::RefCell, collections::HashMap, iter, mem, ops::Deref, rc::Rc, time::Instant};
+use std::{
+    cell::RefCell, collections::HashMap, iter, mem, num::NonZeroU64, ops::Deref, rc::Rc,
+    time::Instant,
+};
 
 use crate::{
     camera::PerspectiveCamera, light::DirectionalLight, model::Material, technique::Technique,
@@ -17,26 +20,6 @@ use crate::{
     project::Project,
     shadow_camera::ShadowCamera,
 };
-
-// enum UniformBuffer {
-//     ModelMatrix = 0,
-//     ModelViewMatrix = 4,
-//     ModelViewProjectionMatrix = 8,
-//     LightViewProjectionMatrix = 12,
-//     LightColor = 16,
-//     LightDirection,
-//     CameraPosition,
-//     MaterialAmbient,
-//     MaterialDiffuse,
-//     MaterialSpecular,
-//     EnableVertexColor,
-//     DiffuseTextureBlendFactor,
-//     SphereTextureBlendFactor,
-//     ToonTextureBlendFactor,
-//     UseTextureSampler,
-//     SphereTextureType,
-//     ShadowMapSize,
-// }
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -58,7 +41,10 @@ struct ModelParametersUniform {
     use_texture_sampler: [f32; 4],
     sphere_texture_type: [f32; 4],
     shadow_map_size: [f32; 4],
+    padding: [f32; 12],
 }
+
+impl ModelParametersUniform {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TextureSamplerStage {
@@ -78,97 +64,27 @@ struct CommonPassCacheKey {
     is_offscreen_render_pass_active: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PassExecuteConfiguration {
+#[derive(Debug, Clone)]
+pub struct PassExecuteConfiguration<'a> {
     pub technique_type: TechniqueType,
     pub viewport_texture_format: wgpu::TextureFormat,
     pub is_render_pass_viewport: bool,
+    pub texture_bind_layout: &'a wgpu::BindGroupLayout,
+    pub shadow_bind_layout: &'a wgpu::BindGroupLayout,
 }
 
-pub struct CommonPassCache {
-    // TODO: uncompleted
-    shader: wgpu::ShaderModule,
-    uniform_buffer: wgpu::Buffer,
-    uniform_bind_group: wgpu::BindGroup,
-    shadow_sampler: wgpu::Sampler,
-    sampler: wgpu::Sampler,
-    pipeline_cache: RefCell<HashMap<CommonPassCacheKey, wgpu::RenderPipeline>>,
-    texture_bind_group_layout: wgpu::BindGroupLayout,
-    uniform_bind_group_layout: wgpu::BindGroupLayout,
+#[derive(Debug)]
+pub struct UniformBindCache {
+    data: Vec<ModelParametersUniform>,
+    buffer: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    bind_layout: wgpu::BindGroupLayout,
+    /// If dirty, data is not synchronized with buffer.
+    dirty: bool,
 }
 
-impl CommonPassCache {
-    pub fn new(device: &wgpu::Device, shader: wgpu::ShaderModule) -> Self {
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("ModelProgramBundle/BindGroupLayout/Texture"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 5,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 6,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 7,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
+impl UniformBindCache {
+    pub fn new(device: &wgpu::Device) -> Self {
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("ModelProgramBundle/BindGroupLayout/Uniform"),
@@ -177,16 +93,19 @@ impl CommonPassCache {
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                        has_dynamic_offset: true,
+                        min_binding_size: Some(
+                            NonZeroU64::new(std::mem::size_of::<ModelParametersUniform>() as u64)
+                                .unwrap(),
+                        ),
                     },
                     count: None,
                 }],
             });
-        let uniform_buffer_data = ModelParametersUniform::zeroed();
+        let uniform_buffer_data = vec![ModelParametersUniform::zeroed(); 25];
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("ModelProgramBundle/BindGroupBuffer/Uniform"),
-            contents: bytemuck::bytes_of(&[uniform_buffer_data]),
+            contents: bytemuck::cast_slice(&uniform_buffer_data[..]),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -194,67 +113,133 @@ impl CommonPassCache {
             layout: &uniform_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &uniform_buffer,
+                    offset: 0,
+                    size: Some(
+                        NonZeroU64::new(std::mem::size_of::<ModelParametersUniform>() as u64)
+                            .unwrap(),
+                    ),
+                }),
             }],
         });
-        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
+        Self {
+            data: uniform_buffer_data,
+            buffer: uniform_buffer,
+            bind_group: uniform_bind_group,
+            bind_layout: uniform_bind_group_layout,
+            dirty: false,
+        }
+    }
+
+    pub fn resize(&mut self, new_size: usize, device: &wgpu::Device) {
+        if new_size <= self.data.len() {
+            return;
+        }
+        let mut extended_size = self.data.len() * 3 / 2 + 1;
+        if new_size > extended_size {
+            extended_size = new_size;
+        }
+        self.data
+            .extend(vec![ModelParametersUniform::zeroed(); extended_size - self.data.len()].iter());
+        self.buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("ModelProgramBundle/BindGroupBuffer/Uniform"),
+            contents: bytemuck::cast_slice(&self.data[..]),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
+        self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ModelProgramBundle/BindGroup/Uniform"),
+            layout: &self.bind_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: self.buffer.as_entire_binding(),
+            }],
         });
+        self.dirty = false;
+    }
+
+    pub fn update(&mut self, queue: &wgpu::Queue) {
+        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(&self.data[..]));
+        self.dirty = false;
+    }
+
+    pub fn get_uniform_mut(
+        &mut self,
+        index: usize,
+        device: &wgpu::Device,
+    ) -> &mut ModelParametersUniform {
+        if index >= self.data.len() {
+            self.resize(index + 1, device);
+        }
+        self.dirty = true;
+        self.data.get_mut(index).unwrap()
+    }
+
+    pub fn bind_group(&mut self, queue: &wgpu::Queue) -> &wgpu::BindGroup {
+        if self.dirty {
+            self.update(queue);
+        }
+        &self.bind_group
+    }
+
+    pub fn bind_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.bind_layout
+    }
+}
+
+pub struct CommonPassCache {
+    // TODO: uncompleted
+    shader: wgpu::ShaderModule,
+    uniform_cache: RefCell<UniformBindCache>,
+    // shadow_sampler: wgpu::Sampler,
+    // sampler: wgpu::Sampler,
+    pipeline_cache: RefCell<HashMap<CommonPassCacheKey, wgpu::RenderPipeline>>,
+    // uniform_bind_group_layout: wgpu::BindGroupLayout,
+}
+
+impl CommonPassCache {
+    pub fn new(device: &wgpu::Device, shader: wgpu::ShaderModule) -> Self {
         Self {
             shader,
-            uniform_buffer,
-            uniform_bind_group,
+            uniform_cache: RefCell::new(UniformBindCache::new(device)),
             pipeline_cache: RefCell::new(HashMap::new()),
-            texture_bind_group_layout,
-            uniform_bind_group_layout,
-            shadow_sampler,
-            sampler,
+            // texture_bind_group_layout,
+            // uniform_bind_group_layout,
+            // shadow_sampler,
+            // sampler,
         }
     }
 }
 
 pub struct CommonPass<'a> {
     cache: &'a CommonPassCache,
+    material_index: usize,
     cull_mode: Option<wgpu::Face>,
     primitive_type: wgpu::PrimitiveTopology,
     opacity: f32,
-    uniform_buffer_data: ModelParametersUniform,
-    shadow_map: &'a wgpu::TextureView,
-    diffuse: &'a wgpu::TextureView,
-    sphere: &'a wgpu::TextureView,
-    toon: &'a wgpu::TextureView,
+    shadow_bind: &'a wgpu::BindGroup,
+    texture_bind: &'a wgpu::BindGroup,
+    fallback_shadow_bind: &'a wgpu::BindGroup,
+    fallback_texture_bind: &'a wgpu::BindGroup,
 }
 
 impl<'a> CommonPass<'a> {
     pub fn new<'b: 'a, 'c: 'a>(
         cache: &'b CommonPassCache,
-        fallback: &'c wgpu::TextureView,
+        material_index: usize,
+        fallback_shadow_bind: &'a wgpu::BindGroup,
+        fallback_texture_bind: &'a wgpu::BindGroup,
     ) -> Self {
         Self {
             cache,
+            material_index,
             cull_mode: None,
             primitive_type: wgpu::PrimitiveTopology::TriangleList,
             opacity: 1.0f32,
-            uniform_buffer_data: ModelParametersUniform::zeroed(),
-            shadow_map: fallback,
-            diffuse: fallback,
-            sphere: fallback,
-            toon: fallback,
+            shadow_bind: fallback_shadow_bind,
+            texture_bind: fallback_texture_bind,
+            fallback_shadow_bind,
+            fallback_texture_bind,
         }
     }
 
@@ -265,18 +250,28 @@ impl<'a> CommonPass<'a> {
         camera: &dyn Camera,
         world: &Matrix4<f32>,
         model: &Model,
+        device: &wgpu::Device,
     ) {
         let (v, p) = camera.get_view_transform();
         let w = model.world_transform(world);
-        self.uniform_buffer_data.model_matrix = w.into();
-        self.uniform_buffer_data.model_view_matrix = (v * w).into();
-        self.uniform_buffer_data.model_view_projection_matrix = (p * v * w).into();
-        self.uniform_buffer_data.camera_position = camera.position().extend(0f32).into();
+        let mut uniform_bind = self.cache.uniform_cache.borrow_mut();
+        let uniform_buffer_data = uniform_bind.get_uniform_mut(self.material_index, device);
+        uniform_buffer_data.model_matrix = w.into();
+        uniform_buffer_data.model_view_matrix = (v * w).into();
+        uniform_buffer_data.model_view_projection_matrix = (p * v * w).into();
+        uniform_buffer_data.camera_position = camera.position().extend(0f32).into();
     }
 
-    pub fn set_light_parameters(&mut self, light: &dyn Light, _adjustment: bool) {
-        self.uniform_buffer_data.light_color = light.color().extend(1f32).into();
-        self.uniform_buffer_data.light_direction = light.direction().extend(0f32).into();
+    pub fn set_light_parameters(
+        &mut self,
+        light: &dyn Light,
+        _adjustment: bool,
+        device: &wgpu::Device,
+    ) {
+        let mut uniform_bind = self.cache.uniform_cache.borrow_mut();
+        let uniform_buffer_data = uniform_bind.get_uniform_mut(self.material_index, device);
+        uniform_buffer_data.light_color = light.color().extend(1f32).into();
+        uniform_buffer_data.light_direction = light.direction().extend(0f32).into();
     }
 
     pub fn set_all_model_parameters(
@@ -291,23 +286,23 @@ impl<'a> CommonPass<'a> {
         &mut self,
         material: &'b Material,
         technique_type: TechniqueType,
-        fallback: &'b wgpu::TextureView,
+        device: &wgpu::Device,
     ) {
+        let mut uniform_bind = self.cache.uniform_cache.borrow_mut();
+        let uniform_buffer_data = uniform_bind.get_uniform_mut(self.material_index, device);
         let color = material.color();
-        self.uniform_buffer_data.material_ambient = color.ambient.extend(1.0f32).into();
-        self.uniform_buffer_data.material_diffuse = color
+        uniform_buffer_data.material_ambient = color.ambient.extend(1.0f32).into();
+        uniform_buffer_data.material_diffuse = color
             .diffuse
             .extend(color.diffuse_opacity * self.opacity)
             .into();
-        self.uniform_buffer_data.material_specular =
-            color.specular.extend(color.specular_power).into();
-        self.uniform_buffer_data.diffuse_texture_blend_factor =
+        uniform_buffer_data.material_specular = color.specular.extend(color.specular_power).into();
+        uniform_buffer_data.diffuse_texture_blend_factor =
             color.diffuse_texture_blend_factor.into();
-        self.uniform_buffer_data.sphere_texture_blend_factor =
-            color.sphere_texture_blend_factor.into();
-        self.uniform_buffer_data.toon_texture_blend_factor = color.toon_texture_blend_factor.into();
+        uniform_buffer_data.sphere_texture_blend_factor = color.sphere_texture_blend_factor.into();
+        uniform_buffer_data.toon_texture_blend_factor = color.toon_texture_blend_factor.into();
         let texture_type = if material.sphere_map_image().is_some() {
-            material.spheremap_texture_type()
+            material.sphere_map_texture_type()
         } else {
             nanoem::model::ModelMaterialSphereMapTextureType::TypeNone
         };
@@ -329,43 +324,34 @@ impl<'a> CommonPass<'a> {
             },
             0f32,
         ];
-        self.uniform_buffer_data.sphere_texture_type = sphere_texture_type;
+        uniform_buffer_data.sphere_texture_type = sphere_texture_type;
         let enable_vertex_color = if material.is_vertex_color_enabled() {
             1.0f32
         } else {
             0.0f32
         };
-        self.uniform_buffer_data.enable_vertex_color = Vector4::new(
+        uniform_buffer_data.enable_vertex_color = Vector4::new(
             enable_vertex_color,
             enable_vertex_color,
             enable_vertex_color,
             enable_vertex_color,
         )
         .into();
-        self.uniform_buffer_data.use_texture_sampler[0] =
-            if let Some(texture_view) = material.diffuse_view() {
-                self.diffuse = texture_view;
-                1f32
-            } else {
-                self.diffuse = fallback;
-                0f32
-            };
-        self.uniform_buffer_data.use_texture_sampler[1] =
-            if let Some(texture_view) = material.sphere_map_view() {
-                self.sphere = texture_view;
-                1f32
-            } else {
-                self.sphere = fallback;
-                0f32
-            };
-        self.uniform_buffer_data.use_texture_sampler[2] =
-            if let Some(texture_view) = material.toon_view() {
-                self.toon = texture_view;
-                1f32
-            } else {
-                self.toon = fallback;
-                0f32
-            };
+        uniform_buffer_data.use_texture_sampler[0] = if let Some(_) = material.diffuse_view() {
+            1f32
+        } else {
+            0f32
+        };
+        uniform_buffer_data.use_texture_sampler[1] = if let Some(_) = material.sphere_map_view() {
+            1f32
+        } else {
+            0f32
+        };
+        uniform_buffer_data.use_texture_sampler[2] = if let Some(_) = material.toon_view() {
+            1f32
+        } else {
+            0f32
+        };
         if material.is_line_draw_enabled() {
             self.primitive_type = wgpu::PrimitiveTopology::LineList;
         } else if material.is_point_draw_enabled() {
@@ -386,19 +372,24 @@ impl<'a> CommonPass<'a> {
         }
     }
 
+    pub fn set_material_texture<'b: 'a>(&mut self, material: &'b Material) {
+        self.texture_bind = material.bind_group();
+    }
+
     pub fn set_edge_parameters<'b: 'a>(
         &mut self,
         material: &'b Material,
         edge_size: f32,
-        fallback: &'b wgpu::TextureView,
+        device: &wgpu::Device,
     ) {
         let material = material;
         let edge = material.edge();
         let edge_color = edge.color.extend(edge.opacity);
-        self.uniform_buffer_data.light_color = edge_color.into();
-        self.uniform_buffer_data.light_direction =
+        let mut uniform_bind = self.cache.uniform_cache.borrow_mut();
+        let uniform_buffer_data = uniform_bind.get_uniform_mut(self.material_index, device);
+        uniform_buffer_data.light_color = edge_color.into();
+        uniform_buffer_data.light_direction =
             (Vector4::new(1f32, 1f32, 1f32, 1f32) * edge.size * edge_size).into();
-        self.shadow_map = fallback;
     }
 
     pub fn set_ground_shadow_parameters<'b: 'a>(
@@ -406,18 +397,19 @@ impl<'a> CommonPass<'a> {
         light: &dyn Light,
         camera: &dyn Camera,
         world: &Matrix4<f32>,
-        fallback: &'b wgpu::TextureView,
+        device: &wgpu::Device,
     ) {
+        let mut uniform_bind = self.cache.uniform_cache.borrow_mut();
+        let uniform_buffer_data = uniform_bind.get_uniform_mut(self.material_index, device);
         let (view_matrix, projection_matrix) = camera.get_view_transform();
         let origin_shadow_matrix = light.get_shadow_transform();
         let shadow_matrix = origin_shadow_matrix * world;
-        self.uniform_buffer_data.model_matrix = shadow_matrix.into();
+        uniform_buffer_data.model_matrix = shadow_matrix.into();
         let shadow_view_matrix = view_matrix * shadow_matrix;
-        self.uniform_buffer_data.model_view_matrix = shadow_view_matrix.into();
+        uniform_buffer_data.model_view_matrix = shadow_view_matrix.into();
         let shadow_view_projection_matrix = projection_matrix * shadow_view_matrix;
-        self.uniform_buffer_data.model_view_projection_matrix =
-            shadow_view_projection_matrix.into();
-        self.uniform_buffer_data.light_color = light
+        uniform_buffer_data.model_view_projection_matrix = shadow_view_projection_matrix.into();
+        uniform_buffer_data.light_color = light
             .ground_shadow_color()
             .extend(
                 1.0f32
@@ -428,7 +420,6 @@ impl<'a> CommonPass<'a> {
                     },
             )
             .into();
-        self.shadow_map = fallback;
     }
 
     pub fn set_shadow_map_parameters<'b: 'a>(
@@ -438,34 +429,46 @@ impl<'a> CommonPass<'a> {
         camera: &PerspectiveCamera,
         light: &DirectionalLight,
         technique_type: TechniqueType,
-        fallback: &'b wgpu::TextureView,
+        device: &wgpu::Device,
     ) {
         let (view, projection) = shadow_camera.get_view_projection(camera, light);
         let crop = shadow_camera.get_crop_matrix();
         let shadow_map_matrix = projection * view * world;
-        self.uniform_buffer_data.light_view_projection_matrix = (crop * shadow_map_matrix).into();
-        self.uniform_buffer_data.shadow_map_size = shadow_camera
+        let mut uniform_bind = self.cache.uniform_cache.borrow_mut();
+        let uniform_buffer_data = uniform_bind.get_uniform_mut(self.material_index, device);
+        uniform_buffer_data.light_view_projection_matrix = (crop * shadow_map_matrix).into();
+        uniform_buffer_data.shadow_map_size = shadow_camera
             .image_size()
             .map(|x| x as f32)
             .extend(0.005f32)
             .extend(u32::from(shadow_camera.coverage_mode()) as f32)
             .into();
-        self.uniform_buffer_data.use_texture_sampler[3] = if shadow_camera.is_enabled() {
+        uniform_buffer_data.use_texture_sampler[3] = if shadow_camera.is_enabled() {
             1f32
         } else {
             0f32
         };
+        match technique_type {
+            TechniqueType::Zplot => {
+                uniform_buffer_data.model_view_projection_matrix = shadow_map_matrix.into();
+            }
+            _ => {}
+        };
+    }
+
+    pub fn set_shadow_map_texture<'b: 'a>(
+        &mut self,
+        shadow_camera: &'b ShadowCamera,
+        technique_type: TechniqueType,
+    ) {
         let color_image = match technique_type {
             TechniqueType::Zplot => {
-                self.diffuse = fallback;
-                self.sphere = fallback;
-                self.toon = fallback;
-                self.uniform_buffer_data.model_view_projection_matrix = shadow_map_matrix.into();
-                fallback
+                self.texture_bind = self.fallback_texture_bind;
+                self.fallback_shadow_bind
             }
-            _ => shadow_camera.color_image(),
+            _ => shadow_camera.bind_group(),
         };
-        self.shadow_map = color_image;
+        self.shadow_bind = color_image;
     }
 
     // TODO: process with feature
@@ -508,54 +511,9 @@ impl<'a> CommonPass<'a> {
         )
     }
 
-    fn get_texture_bind_group(
-        &self,
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-    ) -> wgpu::BindGroup {
-        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ModelProgramBundle/BindGroup/Texture"),
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.shadow_map),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.cache.shadow_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&self.diffuse),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&self.cache.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&self.sphere),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::Sampler(&self.cache.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&self.toon),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: wgpu::BindingResource::Sampler(&self.cache.sampler),
-                },
-            ],
-        });
-        return texture_bind_group;
-    }
-
     pub fn execute(
         &mut self,
+        material_idx: usize,
         buffer: &pass::Buffer,
         color_attachment_view: &wgpu::TextureView,
         depth_stencil_attachment_view: Option<&wgpu::TextureView>,
@@ -590,8 +548,9 @@ impl<'a> CommonPass<'a> {
                 device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("ModelProgramBundle/PipelineLayout"),
                     bind_group_layouts: &[
-                        &self.cache.texture_bind_group_layout,
-                        &self.cache.uniform_bind_group_layout,
+                        config.texture_bind_layout,
+                        &self.cache.uniform_cache.borrow().bind_layout(),
+                        config.shadow_bind_layout,
                     ],
                     push_constant_ranges: &[],
                 });
@@ -730,20 +689,13 @@ impl<'a> CommonPass<'a> {
                 multiview: None,
             })
         });
-        log::info!("Creating Texture Bind Group");
-        let texture_bind_group =
-            self.get_texture_bind_group(&device, &self.cache.texture_bind_group_layout);
-        log::info!("Creating Uniform Bind Group");
-        queue.write_buffer(
-            &self.cache.uniform_buffer,
-            0,
-            bytemuck::bytes_of(&[self.uniform_buffer_data]),
-        );
 
         // let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         //     label: Some("Model Pass Executor Encoder"),
         // });
         encoder.push_debug_group("ModelProgramBundle::execute");
+        let mut uniform_bind = self.cache.uniform_cache.borrow_mut();
+        let uniform_bind_group = uniform_bind.bind_group(queue);
         {
             log::info!("Begin Render Pass");
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -771,8 +723,14 @@ impl<'a> CommonPass<'a> {
             log::info!("Setting Pipeline");
             rpass.set_pipeline(&pipeline);
             log::info!("Setting Bind Group");
-            rpass.set_bind_group(0, &texture_bind_group, &[]);
-            rpass.set_bind_group(1, &self.cache.uniform_bind_group, &[]);
+            rpass.set_bind_group(0, self.texture_bind, &[]);
+
+            rpass.set_bind_group(
+                1,
+                uniform_bind_group,
+                &[(material_idx * std::mem::size_of::<ModelParametersUniform>()) as u32],
+            );
+            rpass.set_bind_group(2, self.shadow_bind, &[]);
             log::info!("Setting Vertex Buffer");
             rpass.set_vertex_buffer(0, buffer.vertex_buffer.slice(..));
             log::info!("Setting Index Buffer");
@@ -785,8 +743,6 @@ impl<'a> CommonPass<'a> {
             );
         }
         encoder.pop_debug_group();
-        // log::info!("Submit");
-        // queue.submit(iter::once(encoder.finish()));
     }
 }
 
@@ -883,8 +839,9 @@ pub struct BaseTechnique {
 impl Technique for BaseTechnique {
     fn execute<'a, 'b: 'a>(
         &'b mut self,
-        fallback_texture: &'b wgpu::TextureView,
-        device: &wgpu::Device,
+        material_index: usize,
+        fallback_shadow_bind: &'a wgpu::BindGroup,
+        fallback_texture_bind: &'a wgpu::BindGroup,
     ) -> Option<CommonPass<'a>> {
         None
     }
@@ -940,12 +897,18 @@ impl ObjectTechnique {
 impl Technique for ObjectTechnique {
     fn execute<'a, 'b: 'a>(
         &'b mut self,
-        fallback_texture: &'b wgpu::TextureView,
-        device: &wgpu::Device,
+        material_index: usize,
+        fallback_shadow_bind: &'a wgpu::BindGroup,
+        fallback_texture_bind: &'a wgpu::BindGroup,
     ) -> Option<CommonPass<'a>> {
         if !self.base.executed {
             self.base.executed = true;
-            Some(CommonPass::new(&self.pass_cache, fallback_texture))
+            Some(CommonPass::new(
+                &self.pass_cache,
+                material_index,
+                fallback_shadow_bind,
+                fallback_texture_bind,
+            ))
         } else {
             None
         }
@@ -1004,12 +967,18 @@ impl EdgeTechnique {
 impl Technique for EdgeTechnique {
     fn execute<'a, 'b: 'a>(
         &'b mut self,
-        fallback_texture: &'b wgpu::TextureView,
-        device: &wgpu::Device,
+        material_index: usize,
+        fallback_shadow_bind: &'a wgpu::BindGroup,
+        fallback_texture_bind: &'a wgpu::BindGroup,
     ) -> Option<CommonPass<'a>> {
         if !self.base.executed {
             self.base.executed = true;
-            Some(CommonPass::new(&self.pass_cache, fallback_texture))
+            Some(CommonPass::new(
+                &self.pass_cache,
+                material_index,
+                fallback_shadow_bind,
+                fallback_texture_bind,
+            ))
         } else {
             None
         }
@@ -1068,12 +1037,18 @@ impl GroundShadowTechnique {
 impl Technique for GroundShadowTechnique {
     fn execute<'a, 'b: 'a>(
         &'b mut self,
-        fallback_texture: &'b wgpu::TextureView,
-        device: &wgpu::Device,
+        material_index: usize,
+        fallback_shadow_bind: &'a wgpu::BindGroup,
+        fallback_texture_bind: &'a wgpu::BindGroup,
     ) -> Option<CommonPass<'a>> {
         if !self.base.executed {
             self.base.executed = true;
-            Some(CommonPass::new(&self.pass_cache, fallback_texture))
+            Some(CommonPass::new(
+                &self.pass_cache,
+                material_index,
+                fallback_shadow_bind,
+                fallback_texture_bind,
+            ))
         } else {
             None
         }
@@ -1132,12 +1107,18 @@ impl ZplotTechnique {
 impl Technique for ZplotTechnique {
     fn execute<'a, 'b: 'a>(
         &'b mut self,
-        fallback_texture: &'b wgpu::TextureView,
-        device: &wgpu::Device,
+        material_index: usize,
+        fallback_shadow_bind: &'a wgpu::BindGroup,
+        fallback_texture_bind: &'a wgpu::BindGroup,
     ) -> Option<CommonPass<'a>> {
         if !self.base.executed {
             self.base.executed = true;
-            Some(CommonPass::new(&self.pass_cache, fallback_texture))
+            Some(CommonPass::new(
+                &self.pass_cache,
+                material_index,
+                fallback_shadow_bind,
+                fallback_texture_bind,
+            ))
         } else {
             None
         }

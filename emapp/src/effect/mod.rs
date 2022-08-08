@@ -20,6 +20,7 @@ pub trait IEffect {
     fn has_script_external(&self) -> bool;
 }
 
+#[derive(Debug, Clone)]
 pub struct Effect {
     
 }

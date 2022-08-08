@@ -168,7 +168,7 @@ impl WasmClient {
     }
 
     pub fn update_bind_texture(&mut self) {
-        self.service.update_bind_texture();
+        self.service.update_bind_texture(&self.device);
     }
 }
 

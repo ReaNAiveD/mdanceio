@@ -5,7 +5,13 @@ use cgmath::{
     VectorSpace,
 };
 
-use crate::{camera::{Camera, PerspectiveCamera}, clear_pass::ClearPass, project::Project, utils::lerp_f32, light::{DirectionalLight, Light}};
+use crate::{
+    camera::{Camera, PerspectiveCamera},
+    clear_pass::ClearPass,
+    light::{DirectionalLight, Light},
+    project::Project,
+    utils::lerp_f32,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CoverageMode {
@@ -36,6 +42,7 @@ impl From<CoverageMode> for u32 {
 
 pub struct ShadowCamera {
     shadow_color_texture: wgpu::TextureView,
+    bind_group: wgpu::BindGroup,
     fallback_color_texture: wgpu::Texture,
     shadow_depth_texture: wgpu::TextureView,
     fallback_depth_texture: wgpu::Texture,
@@ -55,7 +62,7 @@ impl ShadowCamera {
     pub const INITIAL_DISTANCE: f32 = 8875f32;
     pub const INITIAL_TEXTURE_SIZE: u32 = 2048;
 
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new(bind_group_layout: &wgpu::BindGroupLayout, shadow_sampler: &wgpu::Sampler, device: &wgpu::Device) -> Self {
         let color_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ShadowCamera/color"),
             size: wgpu::Extent3d {
@@ -69,6 +76,7 @@ impl ShadowCamera {
             format: wgpu::TextureFormat::R32Float,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
+        let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ShadowCamera/depth"),
             size: wgpu::Extent3d {
@@ -108,10 +116,27 @@ impl ShadowCamera {
             format: wgpu::TextureFormat::Depth24PlusStencil8,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ModelProgramBundle/BindGroup/Texture"),
+            layout: bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&color_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
+                },
+            ],
+        });
         Self {
-            shadow_color_texture: color_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            shadow_color_texture: color_texture
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+            bind_group,
             fallback_color_texture,
-            shadow_depth_texture: depth_texture.create_view(&wgpu::TextureViewDescriptor::default()),
+            shadow_depth_texture: depth_texture
+                .create_view(&wgpu::TextureViewDescriptor::default()),
             fallback_depth_texture,
             texture_size: Vector2::new(Self::INITIAL_TEXTURE_SIZE, Self::INITIAL_TEXTURE_SIZE),
             coverage_mode: CoverageMode::Type1,
@@ -207,7 +232,11 @@ impl ShadowCamera {
         }
     }
 
-    fn get_view_matrix(&self, camera: &PerspectiveCamera, light: &DirectionalLight) -> Matrix4<f32> {
+    fn get_view_matrix(
+        &self,
+        camera: &PerspectiveCamera,
+        light: &DirectionalLight,
+    ) -> Matrix4<f32> {
         let camera_direction = camera.direction();
         let light_direction = light.direction().normalize();
         let raw_light_view_x = camera_direction.cross(light_direction);
@@ -228,7 +257,11 @@ impl ShadowCamera {
         light_view_matrix4 * Matrix4::from_translation(-light_view_origin)
     }
 
-    fn get_projection_matrix(&self, camera: &PerspectiveCamera, light: &DirectionalLight) -> Matrix4<f32> {
+    fn get_projection_matrix(
+        &self,
+        camera: &PerspectiveCamera,
+        light: &DirectionalLight,
+    ) -> Matrix4<f32> {
         let camera_direction = camera.direction();
         let light_direction = light.direction().normalize();
         let distance = (10000f32 - self.distance) / 100000f32;
@@ -320,7 +353,11 @@ impl ShadowCamera {
         projection
     }
 
-    pub fn get_view_projection(&self, camera: &PerspectiveCamera, light: &DirectionalLight) -> (Matrix4<f32>, Matrix4<f32>) {
+    pub fn get_view_projection(
+        &self,
+        camera: &PerspectiveCamera,
+        light: &DirectionalLight,
+    ) -> (Matrix4<f32>, Matrix4<f32>) {
         (
             self.get_view_matrix(camera, light),
             self.get_projection_matrix(camera, light),
@@ -346,6 +383,10 @@ impl ShadowCamera {
 
     pub fn is_enabled(&self) -> bool {
         self.enabled
+    }
+
+    pub fn bind_group(&self) -> &wgpu::BindGroup {
+        &self.bind_group
     }
 
     pub fn color_image(&self) -> &wgpu::TextureView {

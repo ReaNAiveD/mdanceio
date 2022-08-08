@@ -208,7 +208,7 @@ impl BaseApplicationService {
             .load_texture(key, data, dimensions, device, queue);
     }
 
-    pub fn update_bind_texture(&mut self) {
-        self.project.update_bind_texture();
+    pub fn update_bind_texture(&mut self, device: &wgpu::Device) {
+        self.project.update_bind_texture(device);
     }
 }

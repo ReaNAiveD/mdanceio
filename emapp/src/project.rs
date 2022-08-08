@@ -1,7 +1,8 @@
 use std::{
     cell::{Ref, RefCell},
     collections::{HashMap, HashSet},
-    rc::Rc, time::Instant,
+    rc::Rc,
+    time::Instant,
 };
 
 use cgmath::{ElementWise, Vector2, Vector3, Vector4, VectorSpace};
@@ -397,6 +398,12 @@ pub struct Project {
     viewport_background_color: Vector4<f32>,
     // all_offscreen_render_targets: HashMap<Rc<RefCell<Effect>>, HashMap<String, Vec<OffscreenRenderTargetCondition>>>,
     fallback_texture: Rc<wgpu::TextureView>,
+    shared_sampler: wgpu::Sampler,
+    shadow_sampler: wgpu::Sampler,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
+    shadow_bind_group_layout: wgpu::BindGroupLayout,
+    texture_fallback_bind: wgpu::BindGroup,
+    shadow_fallback_bind: wgpu::BindGroup,
     // // TODO: bx::HandleAlloc *m_objectHandleAllocator;
     object_handler_allocator: HandleAllocator,
     // accessory_handle_map: HashMap<u16, Rc<RefCell<Accessory>>>,
@@ -481,15 +488,155 @@ impl Project {
         );
         log::trace!("Finish Primary and Secondary Pass");
 
-        let fallback_texture = Rc::new(Self::create_white_fallback_image(&device, &queue).create_view(&wgpu::TextureViewDescriptor::default()));
-
-        log::trace!("Finish Fallback texture");
+        let fallback_texture = Rc::new(
+            Self::create_white_fallback_image(&device, &queue)
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        );
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("BindGroupLayout/Texture"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let texture_fallback_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("BindGroup/TextureFallback"),
+            layout: &texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&fallback_texture),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&fallback_texture),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&fallback_texture),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let shadow_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("ShadowBindGroupLayout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                        count: None,
+                    },
+                ],
+            });
+        let shadow_fallback_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("BindGroup/ShadowFallbackBindGroup"),
+            layout: &shadow_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&fallback_texture),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
+                },
+            ],
+        });
 
         let mut camera = PerspectiveCamera::new();
 
         camera.update(viewport_size, camera.look_at(None));
         camera.set_dirty(false);
-        let mut shadow_camera = ShadowCamera::new(&device);
+        let mut shadow_camera =
+            ShadowCamera::new(&shadow_bind_group_layout, &shadow_sampler, &device);
         if adapter.get_info().backend == wgpu::Backend::Gl {
             // TODO: disable shadow map when gles3
             shadow_camera.set_enabled(false);
@@ -540,6 +687,12 @@ impl Project {
             shadow_camera,
             light: directional_light,
             fallback_texture,
+            shared_sampler: sampler,
+            shadow_sampler,
+            texture_bind_group_layout,
+            shadow_bind_group_layout,
+            texture_fallback_bind,
+            shadow_fallback_bind,
             object_handler_allocator,
             model_handle_map: HashMap::new(),
             transform_model_order_list: vec![],
@@ -760,8 +913,9 @@ impl Project {
     }
 
     fn continue_playing(&mut self) -> bool {
-        if self.audio_player.is_finished() || self.current_frame_index()
-            >= self.playing_segment.frame_index_to(self.project_duration())
+        if self.audio_player.is_finished()
+            || self.current_frame_index()
+                >= self.playing_segment.frame_index_to(self.project_duration())
         {
             self.stop();
             if self.state_flags.enable_loop {
@@ -853,7 +1007,6 @@ impl Project {
         // TODO: mark all animated images updatable
         // TODO: render background video
         log::info!("Full Update Use {:?}", Instant::now() - start);
-
     }
 
     fn restore_state(&mut self, state: &SaveState, force_seek: bool) {
@@ -1169,6 +1322,9 @@ impl Project {
             self.parse_language(),
             &mut self.physics_engine,
             &self.camera,
+            &self.fallback_texture,
+            &self.shared_sampler,
+            &self.texture_bind_group_layout,
             device,
             queue,
         ) {
@@ -1378,9 +1534,15 @@ impl Project {
         );
     }
 
-    pub fn update_bind_texture(&mut self) {
+    pub fn update_bind_texture(&mut self, device: &wgpu::Device) {
         for (handle, model) in &mut self.model_handle_map {
-            model.create_all_images(&self.tmp_texture_map);
+            model.create_all_images(
+                &self.tmp_texture_map,
+                &self.shared_sampler,
+                &self.texture_bind_group_layout,
+                &self.fallback_texture,
+                device,
+            );
         }
     }
 
@@ -1466,6 +1628,10 @@ impl Project {
                         is_render_pass_viewport: self.is_render_pass_viewport(),
                         all_models: &self.model_handle_map.values(),
                         effect: &mut self.model_program_bundle,
+                        texture_bind_layout: &self.texture_bind_group_layout,
+                        shadow_bind_layout: &self.shadow_bind_group_layout,
+                        texture_fallback_bind: &self.texture_fallback_bind,
+                        shadow_fallback_bind: &self.shadow_fallback_bind,
                     },
                     device,
                     queue,
@@ -1562,6 +1728,10 @@ impl Project {
                         is_render_pass_viewport: self.is_render_pass_viewport(),
                         all_models: &self.model_handle_map.values(),
                         effect: &mut self.model_program_bundle,
+                        texture_bind_layout: &self.texture_bind_group_layout,
+                        shadow_bind_layout: &self.shadow_bind_group_layout,
+                        texture_fallback_bind: &self.texture_fallback_bind,
+                        shadow_fallback_bind: &self.shadow_fallback_bind,
                     },
                     device,
                     queue,
@@ -1624,6 +1794,10 @@ impl Project {
                     is_render_pass_viewport: self.is_render_pass_viewport(),
                     all_models: &self.model_handle_map.values(),
                     effect: &mut self.model_program_bundle,
+                    texture_bind_layout: &self.texture_bind_group_layout,
+                    shadow_bind_layout: &self.shadow_bind_group_layout,
+                    texture_fallback_bind: &self.texture_fallback_bind,
+                    shadow_fallback_bind: &self.shadow_fallback_bind,
                 },
                 device,
                 queue,

@@ -21,6 +21,10 @@ pub struct DrawContext<'a> {
     pub viewport_texture_format: wgpu::TextureFormat,
     pub is_render_pass_viewport: bool,
     pub all_models: &'a (dyn Iterator<Item = &'a Model>),
+    pub texture_bind_layout: &'a wgpu::BindGroupLayout,
+    pub shadow_bind_layout: &'a wgpu::BindGroupLayout,
+    pub texture_fallback_bind: &'a wgpu::BindGroup,
+    pub shadow_fallback_bind: &'a wgpu::BindGroup,
 }
 
 pub trait Drawable {
