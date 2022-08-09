@@ -47,6 +47,7 @@ mod clear_pass;
 mod technique;
 mod line_drawer;
 mod deformer;
+pub mod offscreen_proxy;
 
 #[cfg(test)]
 mod tests {
