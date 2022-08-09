@@ -1,5 +1,5 @@
 [package]
-name = "emapp"
+name = "mdanceio"
 version = "0.1.0"
 authors = ["NAiveD <nice-die@live.com>"]
 edition = "2021"
@@ -8,7 +8,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [[test]]
-name = "emapp-tests"
+name = "mdanceio-tests"
 path = "tests/root.rs"
 
 [[example]]

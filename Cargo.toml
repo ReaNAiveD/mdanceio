@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
-    "emapp",
+    "mdanceio",
     "nanoem",
 ]
 exclude = [
     "mdance-demo",
 ]
-default-members = ["emapp", "nanoem"]
+default-members = ["mdanceio", "nanoem"]
 
 [patch.crates-io]
