@@ -341,7 +341,7 @@ pub struct Project {
     transform_model_order_list: Vec<ModelHandle>,
     active_model_pair: (Option<ModelHandle>, Option<ModelHandle>),
     // active_accessory: Option<Rc<RefCell<Accessory>>>,
-    audio_player: Box<dyn AudioPlayer>,
+    audio_player: Box<dyn AudioPlayer + Send>,
     physics_engine: Box<PhysicsEngine>,
     camera: PerspectiveCamera,
     light: DirectionalLight,
@@ -397,7 +397,7 @@ pub struct Project {
     // scroll_delta: Vector2<i32>,
     viewport_background_color: Vector4<f32>,
     // all_offscreen_render_targets: HashMap<Rc<RefCell<Effect>>, HashMap<String, Vec<OffscreenRenderTargetCondition>>>,
-    fallback_texture: Rc<wgpu::TextureView>,
+    fallback_texture: wgpu::TextureView,
     shared_sampler: wgpu::Sampler,
     shadow_sampler: wgpu::Sampler,
     texture_bind_group_layout: wgpu::BindGroupLayout,
@@ -427,7 +427,7 @@ pub struct Project {
     // effect_order_set: HashMap<effect::ScriptOrderType, HashSet<Rc<RefCell<dyn Drawable>>>>,
     // effect_references: HashMap<String, (Rc<RefCell<Effect>>, i32)>,
     // loaded_effect_set: HashSet<Rc<RefCell<Effect>>>,
-    depends_on_script_external: Vec<Box<dyn Drawable>>,
+    depends_on_script_external: Vec<Box<dyn Drawable + Send>>,
     transform_performed_at: (u32, i32),
     // indices_of_material_to_attach_effect: (u16, HashSet<usize>),
     // uptime: (f64, f64),
@@ -444,7 +444,7 @@ pub struct Project {
     // actual_fps: u32,
     // actual_sequence: u32,
     // active: bool,
-    tmp_texture_map: HashMap<String, Rc<wgpu::Texture>>,
+    tmp_texture_map: HashMap<String, wgpu::Texture>,
 }
 
 impl Project {
@@ -488,10 +488,8 @@ impl Project {
         );
         log::trace!("Finish Primary and Secondary Pass");
 
-        let fallback_texture = Rc::new(
-            Self::create_white_fallback_image(&device, &queue)
-                .create_view(&wgpu::TextureViewDescriptor::default()),
-        );
+        let fallback_texture = Self::create_white_fallback_image(&device, &queue)
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -766,7 +764,7 @@ impl Project {
         &mut self.light
     }
 
-    pub fn shared_fallback_image(&self) -> &Rc<wgpu::TextureView> {
+    pub fn shared_fallback_image(&self) -> &wgpu::TextureView {
         &self.fallback_texture
     }
 
@@ -1502,7 +1500,7 @@ impl Project {
             .tmp_texture_map
             .entry(key.to_owned())
             .or_insert_with(|| {
-                Rc::new(device.create_texture(&wgpu::TextureDescriptor {
+                device.create_texture(&wgpu::TextureDescriptor {
                     label: Some(format!("Texture/{}", key).as_str()),
                     size: texture_size,
                     mip_level_count: 1,
@@ -1510,7 +1508,7 @@ impl Project {
                     dimension: wgpu::TextureDimension::D2,
                     format: wgpu::TextureFormat::Rgba8UnormSrgb,
                     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                }))
+                })
             });
         // TODO: may have different size when different image with same name
         queue.write_texture(

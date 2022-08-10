@@ -1,4 +1,8 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    cell::{Ref, RefCell},
+    collections::HashMap,
+    rc::Rc,
+};
 
 use crate::forward::QuadVertexUnit;
 
@@ -6,7 +10,7 @@ use crate::forward::QuadVertexUnit;
 struct ClearPassCacheKey(Vec<wgpu::TextureFormat>, wgpu::TextureFormat);
 
 pub struct ClearPass {
-    pipelines: RefCell<HashMap<ClearPassCacheKey, Rc<wgpu::RenderPipeline>>>,
+    pipelines: RefCell<HashMap<ClearPassCacheKey, wgpu::RenderPipeline>>,
     pub vertex_buffer: wgpu::Buffer,
 }
 
@@ -109,12 +113,12 @@ impl ClearPass {
         color_formats: &[wgpu::TextureFormat],
         depth_format: wgpu::TextureFormat,
         device: &wgpu::Device,
-    ) -> Rc<wgpu::RenderPipeline> {
+    ) -> Ref<'_, wgpu::RenderPipeline> {
         let key = ClearPassCacheKey(color_formats.to_vec(), depth_format);
         self.pipelines
             .borrow_mut()
             .entry(key.clone())
-            .or_insert_with(|| Rc::new(Self::build_pipeline(color_formats, depth_format, device)));
-        self.pipelines.borrow().get(&key).unwrap().clone()
+            .or_insert_with(|| Self::build_pipeline(color_formats, depth_format, device));
+        Ref::map(self.pipelines.borrow(), |cache| cache.get(&key).unwrap())
     }
 }

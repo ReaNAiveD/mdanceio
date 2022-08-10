@@ -858,7 +858,7 @@ impl Model {
 
     pub fn create_all_images(
         &mut self,
-        texture_lut: &HashMap<String, Rc<wgpu::Texture>>,
+        texture_lut: &HashMap<String, wgpu::Texture>,
         sampler: &wgpu::Sampler,
         bind_group_layout: &wgpu::BindGroupLayout,
         fallback_texture: &wgpu::TextureView,
@@ -870,32 +870,17 @@ impl Model {
                 .origin
                 .get_diffuse_texture_object(&self.opaque.textures)
                 .and_then(|texture_object| texture_lut.get(&texture_object.path))
-                .map(|rc| {
-                    (
-                        rc.clone(),
-                        rc.create_view(&wgpu::TextureViewDescriptor::default()),
-                    )
-                });
+                .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
             material.sphere_map_image = material
                 .origin
                 .get_sphere_map_texture_object(&self.opaque.textures)
                 .and_then(|texture_object| texture_lut.get(&texture_object.path))
-                .map(|rc| {
-                    (
-                        rc.clone(),
-                        rc.create_view(&wgpu::TextureViewDescriptor::default()),
-                    )
-                });
+                .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
             material.toon_image = material
                 .origin
                 .get_toon_texture_object(&self.opaque.textures)
                 .and_then(|texture_object| texture_lut.get(&texture_object.path))
-                .map(|rc| {
-                    (
-                        rc.clone(),
-                        rc.create_view(&wgpu::TextureViewDescriptor::default()),
-                    )
-                });
+                .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
             material.update_bind(sampler, bind_group_layout, fallback_texture, device);
         }
     }
@@ -3486,9 +3471,9 @@ pub struct Material {
     color: MaterialBlendColor,
     edge: MaterialBlendEdge,
     effect: Option<Effect>,
-    diffuse_image: Option<(Rc<wgpu::Texture>, wgpu::TextureView)>,
-    sphere_map_image: Option<(Rc<wgpu::Texture>, wgpu::TextureView)>,
-    toon_image: Option<(Rc<wgpu::Texture>, wgpu::TextureView)>,
+    diffuse_image: Option<wgpu::TextureView>,
+    sphere_map_image: Option<wgpu::TextureView>,
+    toon_image: Option<wgpu::TextureView>,
     texture_bind: wgpu::BindGroup,
     name: String,
     canonical_name: String,
@@ -3786,28 +3771,16 @@ impl Material {
         }
     }
 
-    pub fn diffuse_image(&self) -> Option<&wgpu::Texture> {
-        self.diffuse_image.as_ref().map(|rc| rc.0.as_ref())
-    }
-
-    pub fn sphere_map_image(&self) -> Option<&wgpu::Texture> {
-        self.sphere_map_image.as_ref().map(|rc| rc.0.as_ref())
-    }
-
-    pub fn toon_image(&self) -> Option<&wgpu::Texture> {
-        self.toon_image.as_ref().map(|rc| rc.0.as_ref())
-    }
-
     pub fn diffuse_view(&self) -> Option<&wgpu::TextureView> {
-        self.diffuse_image.as_ref().map(|rc| &rc.1)
+        self.diffuse_image.as_ref()
     }
 
     pub fn sphere_map_view(&self) -> Option<&wgpu::TextureView> {
-        self.sphere_map_image.as_ref().map(|rc| &rc.1)
+        self.sphere_map_image.as_ref()
     }
 
     pub fn toon_view(&self) -> Option<&wgpu::TextureView> {
-        self.toon_image.as_ref().map(|rc| &rc.1)
+        self.toon_image.as_ref()
     }
 
     pub fn update_bind(

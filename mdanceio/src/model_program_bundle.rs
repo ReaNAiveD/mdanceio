@@ -301,7 +301,7 @@ impl<'a> CommonPass<'a> {
             color.diffuse_texture_blend_factor.into();
         uniform_buffer_data.sphere_texture_blend_factor = color.sphere_texture_blend_factor.into();
         uniform_buffer_data.toon_texture_blend_factor = color.toon_texture_blend_factor.into();
-        let texture_type = if material.sphere_map_image().is_some() {
+        let texture_type = if material.sphere_map_view().is_some() {
             material.sphere_map_texture_type()
         } else {
             nanoem::model::ModelMaterialSphereMapTextureType::TypeNone

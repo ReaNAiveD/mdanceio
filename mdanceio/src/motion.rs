@@ -126,7 +126,6 @@ pub struct Motion {
     // selection: Box<dyn MotionKeyframeSelection>,
     pub opaque: NanoemMotion,
     bezier_curves_data: RefCell<HashMap<CurveCacheKey, Box<BezierCurve>>>,
-    keyframe_bezier_curves: RefCell<HashMap<Rc<RefCell<MotionBoneKeyframe>>, BezierCurve>>,
     annotations: HashMap<String, String>,
     // file_uri: Uri,
     // format_type: MotionFormatType,
@@ -150,7 +149,6 @@ impl Motion {
             Ok(motion) => Ok(Self {
                 opaque: motion,
                 bezier_curves_data: RefCell::new(HashMap::new()),
-                keyframe_bezier_curves: RefCell::new(HashMap::new()),
                 annotations: HashMap::new(),
                 dirty: false,
             }),
@@ -163,7 +161,6 @@ impl Motion {
             // selection: (),
             opaque: NanoemMotion::empty(),
             bezier_curves_data: RefCell::new(HashMap::new()),
-            keyframe_bezier_curves: RefCell::new(HashMap::new()),
             annotations: HashMap::new(),
             // file_uri: (),
             // format_type: (),
