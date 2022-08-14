@@ -885,6 +885,68 @@ impl Model {
         }
     }
 
+    pub fn update_image(
+        &mut self,
+        texture_key: &str,
+        texture: &wgpu::Texture,
+        sampler: &wgpu::Sampler,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        fallback_texture: &wgpu::TextureView,
+        device: &wgpu::Device,
+    ) {
+        for material in &mut self.materials {
+            let mut updated = false;
+            material
+                .origin
+                .get_diffuse_texture_object(&self.opaque.textures)
+                .and_then(|texture_object| {
+                    if texture_object.path == texture_key {
+                        Some(texture)
+                    } else {
+                        None
+                    }
+                })
+                .map(|texture| {
+                    material.diffuse_image =
+                        Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+                    updated = true;
+                });
+            material
+                .origin
+                .get_sphere_map_texture_object(&self.opaque.textures)
+                .and_then(|texture_object| {
+                    if texture_object.path == texture_key {
+                        Some(texture)
+                    } else {
+                        None
+                    }
+                })
+                .map(|texture| {
+                    material.sphere_map_image =
+                        Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+                    updated = true;
+                });
+            material
+                .origin
+                .get_toon_texture_object(&self.opaque.textures)
+                .and_then(|texture_object| {
+                    if texture_object.path == texture_key {
+                        Some(texture)
+                    } else {
+                        None
+                    }
+                })
+                .map(|texture| {
+                    material.toon_image =
+                        Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+                    updated = true;
+                });
+            if updated {
+                material.update_bind(sampler, bind_group_layout, fallback_texture, device);
+            }
+        }
+    }
+
     fn create_image() {}
 
     pub fn create_all_bone_bounds_rigid_bodies(&mut self) {

@@ -181,6 +181,7 @@ impl BaseApplicationService {
         &mut self,
         key: &str,
         data: &[u8],
+        update_bind: bool,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
@@ -190,7 +191,7 @@ impl BaseApplicationService {
             let img = image::io::Reader::with_format(Cursor::new(data), format)
                 .decode()
                 .unwrap();
-            self.load_decoded_texture(key, &img.to_rgba8(), img.dimensions(), device, queue);
+            self.load_decoded_texture(key, &img.to_rgba8(), img.dimensions(), update_bind, device, queue);
         } else {
             log::warn!("Texture File {} Not supported", key);
         }
@@ -201,11 +202,12 @@ impl BaseApplicationService {
         key: &str,
         data: &[u8],
         dimensions: (u32, u32),
+        update_bind: bool,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
         self.project
-            .load_texture(key, data, dimensions, device, queue);
+            .load_texture(key, data, dimensions, update_bind, device, queue);
     }
 
     pub fn update_bind_texture(&mut self, device: &wgpu::Device) {

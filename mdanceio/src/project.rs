@@ -1488,6 +1488,7 @@ impl Project {
         key: &str,
         data: &[u8],
         dimensions: (u32, u32),
+        update_bind: bool,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
@@ -1530,6 +1531,18 @@ impl Project {
                 depth_or_array_layers: 1,
             },
         );
+        if update_bind {
+            for (handle, model) in &mut self.model_handle_map {
+                model.update_image(
+                    key,
+                    texture,
+                    &self.shared_sampler,
+                    &self.texture_bind_group_layout,
+                    &self.fallback_texture,
+                    device,
+                )
+            }
+        }
     }
 
     pub fn update_bind_texture(&mut self, device: &wgpu::Device) {

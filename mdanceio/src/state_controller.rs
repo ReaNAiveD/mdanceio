@@ -47,10 +47,11 @@ impl StateController {
         key: &str,
         data: &[u8],
         dimensions: (u32, u32),
+        update_bind: bool,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        self.project.load_texture(key, data, dimensions, device, queue);
+        self.project.load_texture(key, data, dimensions, update_bind, device, queue);
     }
 
     pub fn update_bind_texture(&mut self, device: &wgpu::Device) {

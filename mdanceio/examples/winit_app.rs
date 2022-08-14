@@ -1,7 +1,7 @@
-use std::io::Write;
-use emapp::base_application_service::BaseApplicationService;
 use log4rs::append::file::FileAppender;
 use log4rs::encode::pattern::PatternEncoder;
+use mdanceio::base_application_service::BaseApplicationService;
+use std::io::Write;
 use winit::window::Window;
 use winit::{
     event::*,
@@ -66,7 +66,7 @@ impl State {
             &adapter,
             &device,
             &queue,
-            emapp::injector::Injector {
+            mdanceio::injector::Injector {
                 pixel_format: wgpu::TextureFormat::Bgra8UnormSrgb,
                 viewport_size: [size.width, size.height],
             },
@@ -92,24 +92,25 @@ impl State {
     }
 
     fn load_sample_data(&mut self) -> Result<(), Box<dyn std::error::Error + 'static>> {
-        let model_data = std::fs::read("emapp/tests/example/Alicia/MMD/Alicia_solid.pmx")?;
+        let model_data = std::fs::read("mdanceio/tests/example/Alicia/MMD/Alicia_solid.pmx")?;
         self.application
             .load_model(&model_data, &self.device, &self.queue);
         drop(model_data);
         self.application.enable_model_shadow_map(true);
-        let texture_dir = std::fs::read_dir("emapp/tests/example/Alicia/FBX/").unwrap();
+        let texture_dir = std::fs::read_dir("mdanceio/tests/example/Alicia/FBX/").unwrap();
         for texture_file in texture_dir {
             let texture_file = texture_file.unwrap();
             let texture_data = std::fs::read(texture_file.path())?;
             self.application.load_texture(
                 texture_file.file_name().to_str().unwrap(),
                 &texture_data,
+                false,
                 &self.device,
                 &self.queue,
             );
         }
         self.application.update_bind_texture(&self.device);
-        let motion_data = std::fs::read("emapp/tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
+        let motion_data = std::fs::read("mdanceio/tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
         self.application.load_model_motion(&motion_data);
         self.application.disable_physics_simulation();
         self.application.play();
@@ -139,14 +140,18 @@ impl State {
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let logfile = FileAppender::builder()
-        .encoder(Box::new(PatternEncoder::new("{d(%Y-%m-%d %H:%M:%S.%6f)} [{level}] - {m} [{file}:{line}]{n}")))
+        .encoder(Box::new(PatternEncoder::new(
+            "{d(%Y-%m-%d %H:%M:%S.%6f)} [{level}] - {m} [{file}:{line}]{n}",
+        )))
         .build("target/log/output.log")?;
 
     let config = log4rs::config::Config::builder()
         .appender(log4rs::config::Appender::builder().build("logfile", Box::new(logfile)))
-        .build(log4rs::config::Root::builder()
-                   .appender("logfile")
-                   .build(log::LevelFilter::Info))?;
+        .build(
+            log4rs::config::Root::builder()
+                .appender("logfile")
+                .build(log::LevelFilter::Info),
+        )?;
 
     log4rs::init_config(config)?;
     let event_loop = EventLoop::new();

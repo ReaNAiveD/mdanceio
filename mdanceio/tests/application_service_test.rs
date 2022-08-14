@@ -1,8 +1,8 @@
 use std::fs::File;
 use std::io::Write;
 
-use emapp::base_application_service::BaseApplicationService;
-use emapp::injector::Injector;
+use mdanceio::base_application_service::BaseApplicationService;
+use mdanceio::injector::Injector;
 
 struct BufferDimensions {
     width: usize,
@@ -168,6 +168,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
         application.load_texture(
             texture_file.file_name().to_str().unwrap(),
             &texture_data,
+            false,
             &device,
             &queue,
         );

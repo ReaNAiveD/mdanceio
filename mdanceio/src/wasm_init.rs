@@ -148,7 +148,7 @@ impl WasmClient {
     pub fn load_model_motion(&mut self, data: &[u8]) {
         self.service.load_model_motion(data);
     }
-    
+
     pub fn load_camera_motion(&mut self, data: &[u8]) {
         self.service.load_camera_motion(data);
     }
@@ -157,14 +157,27 @@ impl WasmClient {
         self.service.load_light_motion(data);
     }
 
-    pub fn load_texture(&mut self, key: &str, data: &[u8]) {
+    pub fn load_texture(&mut self, key: &str, data: &[u8], update_bind: bool) {
         self.service
-            .load_texture(key, data, &self.device, &self.queue);
+            .load_texture(key, data, &self.device, &self.queue, update_bind);
     }
 
-    pub fn load_decoded_texture(&mut self, key: &str, data: &[u8], width: u32, height: u32) {
-        self.service
-            .load_decoded_texture(key, data, (width, height), &self.device, &self.queue);
+    pub fn load_decoded_texture(
+        &mut self,
+        key: &str,
+        data: &[u8],
+        update_bind: bool,
+        width: u32,
+        height: u32,
+    ) {
+        self.service.load_decoded_texture(
+            key,
+            data,
+            (width, height),
+            update_bind,
+            &self.device,
+            &self.queue,
+        );
     }
 
     pub fn update_bind_texture(&mut self) {

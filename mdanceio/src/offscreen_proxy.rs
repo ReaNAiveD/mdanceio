@@ -12,12 +12,12 @@ pub struct OffscreenProxy {
     device: wgpu::Device,
     queue: wgpu::Queue,
 
-    service: BaseApplicationService,
+    application: BaseApplicationService,
 }
 
 impl OffscreenProxy {
     pub async fn init(width: u32, height: u32) -> Self {
-        let texture_format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let texture_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
         let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
         let adapter = instance
@@ -86,12 +86,25 @@ impl OffscreenProxy {
             adapter_info,
             device,
             queue,
-            service,
+            application: service,
         }
     }
 
+    pub fn load_model(&mut self, data: &[u8]) {
+        self.application.load_model(data, &self.device, &self.queue);
+    }
+
+    pub fn load_texture(&mut self, key: &str, data: &[u8], update_bind: bool) {
+        self.application
+            .load_texture(key, data, update_bind, &self.device, &self.queue);
+    }
+
+    pub fn load_model_motion(&mut self, data: &[u8]) {
+        self.application.load_model_motion(data);
+    }
+
     pub fn redraw(&mut self) -> Vec<u8> {
-        self.service
+        self.application
             .draw_default_pass(&self.target, &self.device, &self.queue);
 
         let mut encoder = self
@@ -132,7 +145,21 @@ impl OffscreenProxy {
         for chunk in mapped_buffer.chunks(self.buffer_dimensions.padded_bytes_per_row as usize) {
             result.extend(&chunk[..self.buffer_dimensions.unpadded_bytes_per_row as usize]);
         }
+        drop(mapped_buffer);
+        self.target_buffer.unmap();
         return result;
+    }
+
+    pub fn disable_physics_simulation(&mut self) {
+        self.application.disable_physics_simulation();
+    }
+
+    pub fn play(&mut self) {
+        self.application.play();
+    }
+
+    pub fn viewport_size(&self) -> (u32, u32) {
+        (self.buffer_dimensions.width, self.buffer_dimensions.height)
     }
 }
 
