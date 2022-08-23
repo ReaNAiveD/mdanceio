@@ -29,6 +29,26 @@
                 "env": {
                 }
             }
+        },
+        {
+            "type": "cargo",
+            "command": "run",
+            "args": [
+                "--package",
+                "mdanceio",
+                "--target",
+                "x86_64-pc-windows-msvc",
+                "--example",
+                "winit_app",
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "label": "rust: cargo run example winit",
+            "options": {
+                "env": {
+                }
+            }
         }
     ]
 }
