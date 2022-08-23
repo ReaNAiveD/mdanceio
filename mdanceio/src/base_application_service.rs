@@ -38,6 +38,18 @@ impl BaseApplicationService {
         self.project.update(device, queue);
     }
 
+    pub fn draw_default_pass_with_depth(
+        &mut self,
+        view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        self.project.draw_shadow_map(device, queue);
+        self.project.draw_viewport_with_depth(view, depth_view, device, queue);
+        self.project.update(device, queue);
+    }
+
     pub fn update_current_project(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         self.project.update(device, queue);
     }

@@ -254,7 +254,8 @@ impl AudioPlayer for ClockAudioPlayer {
     }
 
     fn bits_per_sample(&self) -> u32 {
-        (8 / 8) * 1 * self.sample_rate
+        // (8 / 8) * 1 * self.sample_rate
+        self.sample_rate
     }
 
     fn num_channels(&self) -> u32 {

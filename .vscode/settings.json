@@ -7,7 +7,10 @@
         "Vocaloid",
         "Zplot"
     ],
-    "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
+    // "rust-analyzer.cargo.target": "aarch64-linux-android",
+    // "rust-analyzer.cargo.target": "armv7-linux-androideabi",
+    // "rust-analyzer.cargo.target": "wasm32-unknown-unknown",
+    "rust-analyzer.cargo.target": "x86_64-pc-windows-msvc",
     "rust-analyzer.debug.engine": "vadimcn.vscode-lldb",
     "rust-analyzer.checkOnSave.command": "clippy",
     "rust-analyzer.debug.openDebugPane": true

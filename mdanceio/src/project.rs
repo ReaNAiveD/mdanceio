@@ -147,7 +147,9 @@ pub struct SharedRenderTargetImageContainer {}
 struct Pass {
     name: String,
     color_texture: wgpu::Texture,
+    color_view: wgpu::TextureView,
     depth_texture: wgpu::Texture,
+    depth_view: wgpu::TextureView,
     color_texture_format: wgpu::TextureFormat,
     depth_texture_format: wgpu::TextureFormat,
     sampler: wgpu::Sampler,
@@ -162,7 +164,7 @@ impl Pass {
         device: &wgpu::Device,
     ) -> Self {
         let depth_texture_format = wgpu::TextureFormat::Depth24PlusStencil8;
-        let (color_texture, depth_texture, sampler) = Self::_update(
+        let (color_texture, color_view, depth_texture, depth_view, sampler) = Self::_update(
             name,
             size,
             color_texture_format,
@@ -173,7 +175,9 @@ impl Pass {
         Self {
             name: name.to_owned(),
             color_texture,
+            color_view,
             depth_texture,
+            depth_view,
             color_texture_format,
             depth_texture_format,
             sampler,
@@ -187,7 +191,7 @@ impl Pass {
         sample_count: u32,
         device: &wgpu::Device,
     ) {
-        let (color_texture, depth_texture, sampler) = Self::_update(
+        let (color_texture, color_view, depth_texture, depth_view, sampler) = Self::_update(
             self.name.as_str(),
             size,
             color_texture_format,
@@ -196,8 +200,10 @@ impl Pass {
             device,
         );
         self.color_texture = color_texture;
+        self.color_view = color_view;
         self.color_texture_format = color_texture_format;
         self.depth_texture = depth_texture;
+        self.depth_view = depth_view;
         self.sampler = sampler;
     }
 
@@ -208,7 +214,13 @@ impl Pass {
         depth_texture_format: wgpu::TextureFormat,
         sample_count: u32,
         device: &wgpu::Device,
-    ) -> (wgpu::Texture, wgpu::Texture, wgpu::Sampler) {
+    ) -> (
+        wgpu::Texture,
+        wgpu::TextureView,
+        wgpu::Texture,
+        wgpu::TextureView,
+        wgpu::Sampler,
+    ) {
         // TODO: Feature Query For msaa?
         let color_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(format!("{}/ColorTexture", name).as_str()),
@@ -223,6 +235,7 @@ impl Pass {
             format: color_texture_format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
+        let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(format!("{}/DepthTexture", name).as_str()),
             size: wgpu::Extent3d {
@@ -236,6 +249,7 @@ impl Pass {
             format: wgpu::TextureFormat::Depth24PlusStencil8,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
+        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let common_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some(format!("{}/Sampler", name).as_str()),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -246,7 +260,13 @@ impl Pass {
             mipmap_filter: wgpu::FilterMode::default(),
             ..Default::default()
         });
-        (color_texture, depth_texture, common_sampler)
+        (
+            color_texture,
+            color_view,
+            depth_texture,
+            depth_view,
+            common_sampler,
+        )
     }
 }
 
@@ -772,10 +792,8 @@ impl Project {
         self.viewport_texture_format.0
     }
 
-    pub fn viewport_primary_depth_view(&self) -> wgpu::TextureView {
-        self.viewport_primary_pass
-            .depth_texture
-            .create_view(&wgpu::TextureViewDescriptor::default())
+    pub fn viewport_primary_depth_view(&self) -> &wgpu::TextureView {
+        &self.viewport_primary_pass.depth_view
     }
 
     pub fn is_render_pass_viewport(&self) -> bool {
@@ -1628,7 +1646,7 @@ impl Project {
             for drawable in &self.depends_on_script_external {
                 drawable.draw(
                     view,
-                    Some(&self.viewport_primary_depth_view()),
+                    Some(&self.viewport_primary_pass.depth_view),
                     DrawType::ScriptExternalColor,
                     DrawContext {
                         camera: &self.camera,
@@ -1661,7 +1679,7 @@ impl Project {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.push_debug_group("Project::clearViewportPass");
-        let depth_stencil_attachment_view = &self.viewport_primary_depth_view();
+        let depth_stencil_attachment_view = &self.viewport_primary_pass.depth_view;
         {
             let pipeline = self.clear_pass.get_pipeline(
                 &[self.viewport_primary_pass.color_texture_format],
@@ -1782,6 +1800,44 @@ impl Project {
         })
     }
 
+    pub fn draw_viewport_with_depth(
+        &mut self,
+        view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        log::info!("Start drawing viewport");
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.push_debug_group("Project::draw_viewport");
+        let is_drawing_color_type = self.draw_type == DrawType::Color;
+        let (view_matrix, projection_matrix) = self.active_camera().get_view_transform();
+        self.draw_all_effects_depends_on_script_external(view, device, queue);
+        self.clear_view_port_primary_pass(view, device, queue);
+        if is_drawing_color_type {
+            self.draw_grid(view, device, queue);
+        }
+        self._draw_viewport_with_depth(
+            ScriptOrder::Standard,
+            self.draw_type,
+            view,
+            depth_view,
+            device,
+            queue,
+        );
+        if is_drawing_color_type {
+            // TODO: 渲染前边部分
+        }
+        self.local_frame_index.1 = 0;
+        encoder.pop_debug_group();
+        queue.submit(Some(encoder.finish()));
+        log::info!("Submit new viewport task");
+        queue.on_submitted_work_done(|| {
+            log::info!("Submission finished");
+        })
+    }
+
     fn _draw_viewport(
         &mut self,
         order: ScriptOrder,
@@ -1794,7 +1850,42 @@ impl Project {
         for (handle, drawable) in &self.model_handle_map {
             drawable.draw(
                 view,
-                Some(&self.viewport_primary_depth_view()),
+                Some(&self.viewport_primary_pass.depth_view),
+                typ,
+                DrawContext {
+                    camera: &self.camera,
+                    shadow: &self.shadow_camera,
+                    light: &self.light,
+                    shared_fallback_texture: &self.fallback_texture,
+                    viewport_texture_format: self.viewport_texture_format(),
+                    is_render_pass_viewport: self.is_render_pass_viewport(),
+                    all_models: &self.model_handle_map.values(),
+                    effect: &mut self.model_program_bundle,
+                    texture_bind_layout: &self.texture_bind_group_layout,
+                    shadow_bind_layout: &self.shadow_bind_group_layout,
+                    texture_fallback_bind: &self.texture_fallback_bind,
+                    shadow_fallback_bind: &self.shadow_fallback_bind,
+                },
+                device,
+                queue,
+            );
+        }
+    }
+
+    fn _draw_viewport_with_depth(
+        &mut self,
+        order: ScriptOrder,
+        typ: DrawType,
+        view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        log::info!("Start internal drawing viewport");
+        for (handle, drawable) in &self.model_handle_map {
+            drawable.draw(
+                view,
+                Some(depth_view),
                 typ,
                 DrawContext {
                     camera: &self.camera,

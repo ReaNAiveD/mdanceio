@@ -12,6 +12,23 @@
                 "env": {
                 }
             }
+        },
+        {
+            "type": "cargo",
+            "command": "build",
+            "args": [
+                "--target",
+                // "aarch64-linux-android",
+                "armv7-linux-androideabi",
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "label": "rust: cargo build-android",
+            "options": {
+                "env": {
+                }
+            }
         }
     ]
 }
