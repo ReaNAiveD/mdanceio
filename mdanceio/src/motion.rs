@@ -1,17 +1,15 @@
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
-    rc::Rc,
 };
 
-use cgmath::{BaseNum, Quaternion, Vector1, Vector2, Vector3, Vector4, VectorSpace};
+use cgmath::{Quaternion, Vector1, Vector2, Vector4, VectorSpace};
 use nanoem::{
     common::Status,
     motion::{
         MotionAccessoryKeyframe, MotionBoneKeyframe, MotionBoneKeyframeInterpolation,
-        MotionCameraKeyframe, MotionFormatType, MotionKeyframeBase, MotionLightKeyframe,
-        MotionModelKeyframe, MotionModelKeyframeConstraintState, MotionMorphKeyframe,
-        MotionSelfShadowKeyframe, MotionTrackBundle,
+        MotionCameraKeyframe, MotionKeyframeBase, MotionLightKeyframe, MotionModelKeyframe,
+        MotionModelKeyframeConstraintState, MotionMorphKeyframe, MotionSelfShadowKeyframe,
     },
 };
 
@@ -20,12 +18,10 @@ use crate::{
     camera::PerspectiveCamera,
     error::Error,
     light::{DirectionalLight, Light},
-    model::{Bone, BoneKeyframeInterpolation, Model},
-    motion_keyframe_selection::MotionKeyframeSelection,
+    model::{Bone, Model},
     project::Project,
     shadow_camera::ShadowCamera,
-    uri::Uri,
-    utils::{f128_to_quat, f128_to_vec4},
+    utils::{f128_to_quat, f128_to_vec4}, motion_keyframe_selection::MotionKeyframeSelection,
 };
 
 pub type NanoemMotion = nanoem::motion::Motion;
@@ -226,7 +222,7 @@ impl Motion {
                         })
                 })
                 .collect::<Vec<_>>();
-            let _  = self.opaque.add_model_keyframe(MotionModelKeyframe {
+            let _ = self.opaque.add_model_keyframe(MotionModelKeyframe {
                 base: MotionKeyframeBase {
                     frame_index: 0,
                     annotations: HashMap::new(),
@@ -303,14 +299,6 @@ impl Motion {
         Self::loadable_extensions()
             .iter()
             .any(|ext| ext.to_lowercase().eq(extension))
-    }
-
-    pub fn uri_has_loadable_extension(uri: &Uri) -> bool {
-        if let Some(ext) = uri.absolute_path_extension() {
-            Self::is_loadable_extension(ext)
-        } else {
-            false
-        }
     }
 
     pub fn add_frame_index_delta(value: i32, frame_index: u32) -> Option<u32> {

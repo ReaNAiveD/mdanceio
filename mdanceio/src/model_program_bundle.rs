@@ -13,7 +13,6 @@ use wgpu::util::DeviceExt;
 use crate::{
     camera::Camera,
     drawable::Drawable,
-    image_view::ImageView,
     light::Light,
     model::{Model, NanoemMaterial},
     pass,

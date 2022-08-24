@@ -1,3 +1,0 @@
-pub trait Track {
-    // TODO
-}

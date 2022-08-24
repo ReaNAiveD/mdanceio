@@ -102,16 +102,14 @@ impl Clock {
     }
 
     pub fn pause(&mut self) {
-        match self.state {
-            ClockState::Running(start) => self.state = ClockState::Pausing(Instant::now() - start),
-            _ => {}
+        if let ClockState::Running(start) = self.state {
+            self.state = ClockState::Pausing(Instant::now() - start)
         }
     }
 
     pub fn resume(&mut self) {
-        match self.state {
-            ClockState::Pausing(delta) => self.state = ClockState::Running(Instant::now() - delta),
-            _ => {}
+        if let ClockState::Pausing(delta) = self.state {
+            self.state = ClockState::Running(Instant::now() - delta)
         }
     }
 
@@ -233,11 +231,11 @@ impl AudioPlayer for ClockAudioPlayer {
     fn verify_bias(&mut self, expect: Rational, epsilon: Rational) -> Result<Rational, Rational> {
         self.update();
         if (self.clock.secs() - expect.subdivide()).abs() <= epsilon.subdivide() {
-            return Ok(self.current_rational);
+            Ok(self.current_rational)
         } else {
             let last = self.current_rational;
             self.seek(expect);
-            return Err(last);
+            Err(last)
         }
     }
 

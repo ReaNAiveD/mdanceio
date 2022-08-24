@@ -1,18 +1,16 @@
 use std::{
-    cell::{Cell, RefCell},
+    cell::RefCell,
     collections::{HashMap, HashSet},
     f32::consts::PI,
     iter,
-    rc::{Rc, Weak},
+    rc::Rc,
     time::Instant,
 };
 
-use bytemuck::{Pod, Zeroable};
 use cgmath::{
-    AbsDiffEq, Deg, ElementWise, InnerSpace, Matrix3, Matrix4, Quaternion, Rad, Rotation3,
-    SquareMatrix, Vector3, Vector4, VectorSpace, Zero,
+    AbsDiffEq, ElementWise, InnerSpace, Matrix3, Matrix4, Quaternion, Rad, Rotation3, SquareMatrix,
+    Vector3, Vector4, VectorSpace, Zero,
 };
-use nalgebra::Isometry;
 use nanoem::{
     model::{ModelMorphCategory, ModelRigidBodyTransformType},
     motion::{MotionBoneKeyframe, MotionModelKeyframe, MotionTrackBundle},
@@ -27,24 +25,14 @@ use crate::{
     effect::{Effect, IEffect},
     error::Error,
     forward::LineVertexUnit,
-    internal::LinearDrawer,
-    light::{DirectionalLight, Light},
-    model_object_selection::ModelObjectSelection,
-    model_program_bundle::{
-        EdgeTechnique, GroundShadowTechnique, ModelProgramBundle, ObjectTechnique,
-        PassExecuteConfiguration, TechniqueType, ZplotTechnique,
-    },
+    light::Light,
+    model_program_bundle::{PassExecuteConfiguration, TechniqueType},
     motion::{KeyframeInterpolationPoint, Motion},
     pass,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
-    project::Project,
-    shadow_camera::ShadowCamera,
-    technique::Technique,
-    undo::UndoStack,
-    uri::Uri,
     utils::{
         f128_to_quat, f128_to_vec3, f128_to_vec4, from_na_mat4, lerp_f32, mat4_truncate,
-        to_isometry, to_na_mat4, to_na_vec3, CompareElementWise, Invert,
+        to_isometry, to_na_vec3, CompareElementWise, Invert,
     },
 };
 
@@ -68,18 +56,6 @@ pub type LabelIndex = usize;
 pub type RigidBodyIndex = usize;
 pub type JointIndex = usize;
 pub type SoftBodyIndex = usize;
-
-pub struct BindPose {
-    // TODO
-}
-
-pub trait Gizmo {
-    // TODO
-}
-
-pub trait VertexWeightPainter {
-    // TODO
-}
 
 pub enum AxisType {
     None,
@@ -111,13 +87,6 @@ pub enum ResetType {
     OrientationAngleX,
     OrientationAngleY,
     OrientationAngleZ,
-}
-
-struct LoadingImageItem {
-    file_uri: Uri,
-    filename: String,
-    wrap: AddressMode,
-    flags: u32,
 }
 
 #[repr(C)]
@@ -163,47 +132,6 @@ pub enum ImportFileType {
     WaveFrontObj,
     DirectX,
     Metasequoia,
-}
-
-pub struct ImportDescription {
-    file_uri: Uri,
-    name: HashMap<nanoem::common::LanguageType, String>,
-    comment: HashMap<nanoem::common::LanguageType, String>,
-    transform: Matrix4<f32>,
-    file_type: ImportFileType,
-}
-
-pub struct ExportDescription {
-    transform: Matrix4<f32>,
-}
-
-struct ParallelSkinningTaskData {
-    draw_type: DrawType,
-    edge_size_scale_factor: f32,
-    bone_indices: HashMap<Rc<RefCell<NanoemMaterial>>, HashMap<i32, i32>>,
-    output: u8,
-    materials: Rc<RefCell<[NanoemMaterial]>>,
-    vertices: Rc<RefCell<[NanoemMaterial]>>,
-    num_vertices: usize,
-}
-
-struct DrawArrayBuffer {
-    vertices: Vec<LineVertexUnit>,
-    buffer: Buffer,
-}
-
-struct DrawIndexedBuffer {
-    vertices: Vec<LineVertexUnit>,
-    active_indices: Vec<u32>,
-    vertex_buffer: Buffer,
-    index_buffer: Buffer,
-    active_index_buffer: Buffer,
-    color: Vector4<f32>,
-}
-
-struct OffscreenPassiveRenderTargetEffect {
-    passive_effect: Rc<RefCell<dyn IEffect>>,
-    enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -777,14 +705,6 @@ impl Model {
         Self::loadable_extensions()
             .iter()
             .any(|ext| ext.to_lowercase().eq(extension))
-    }
-
-    pub fn uri_has_loadable_extension(uri: &Uri) -> bool {
-        if let Some(ext) = uri.absolute_path_extension() {
-            Self::is_loadable_extension(ext)
-        } else {
-            false
-        }
     }
 
     pub fn generate_new_model_data(

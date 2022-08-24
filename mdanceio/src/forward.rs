@@ -1,7 +1,3 @@
-use cgmath::{Vector3, Vector4};
-
-pub const MAX_COLOR_ATTACHMENTS: usize = 4;
-
 #[repr(C, align(16))]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct LineVertexUnit {

@@ -1,75 +1,26 @@
-use std::{
-    cell::{Ref, RefCell},
-    collections::{HashMap, HashSet},
-    rc::Rc,
-    time::Instant,
-};
+use std::{collections::HashMap, time::Instant};
 
 use cgmath::{ElementWise, Vector2, Vector3, Vector4, VectorSpace};
 
 use crate::{
-    accessory::Accessory,
-    accessory_program_bundle::AccessoryProgramBundle,
     audio_player::{AudioPlayer, ClockAudioPlayer},
-    background_video_renderer::BackgroundVideoRenderer,
     camera::{Camera, PerspectiveCamera},
     clear_pass::ClearPass,
-    debug_capture::DebugCapture,
     drawable::{DrawContext, DrawType, Drawable},
-    effect::{self, common::RenderPassScope, global_uniform::GlobalUniform, Effect, ScriptOrder},
+    effect::ScriptOrder,
     error::Error,
-    event_publisher::EventPublisher,
-    file_manager::FileManager,
-    file_utils,
-    forward::QuadVertexUnit,
     grid::Grid,
-    image_loader::ImageLoader,
-    image_view::ImageView,
     injector::Injector,
-    internal::{BlitPass, DebugDrawer},
     light::{DirectionalLight, Light},
-    model::{BindPose, Bone, Model, VisualizationClause},
+    model::{Bone, Model},
     model_program_bundle::ModelProgramBundle,
     motion::Motion,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
-    pixel_format::PixelFormat,
-    primitive_2d::Primitive2d,
-    progress::CancelPublisher,
     shadow_camera::ShadowCamera,
     time_line_segment::TimeLineSegment,
-    track::Track,
-    translator::{LanguageType, Translator},
-    undo::UndoStack,
-    uri::Uri,
+    translator::LanguageType,
     utils::lerp_f32,
 };
-
-pub trait Confirmor {
-    fn seek(&mut self, frame_index: u32, project: &Project);
-    fn play(&mut self, project: &Project);
-    fn resume(&mut self, project: &Project);
-}
-
-pub trait RendererCapability {
-    fn suggested_sample_level(&self) -> u32;
-    fn supports_sample_level(&self, value: u32) -> bool;
-}
-
-pub trait SharedCancelPublisherFactory {
-    fn cancel_publisher(&self) -> Rc<RefCell<dyn CancelPublisher>>;
-}
-
-pub trait SharedDebugCaptureFactory {
-    fn debug_factory(&self) -> Rc<RefCell<dyn DebugCapture>>;
-}
-
-pub trait SharedResourceFactory {
-    fn accessory_program_bundle(&self) -> &AccessoryProgramBundle;
-    fn model_program_bundle(&self) -> &ModelProgramBundle;
-    fn effect_global_uniform(&self) -> &GlobalUniform;
-    fn toon_image(&self, value: i32) -> &dyn ImageView;
-    fn toon_color(&self, value: i32) -> Vector4<f32>;
-}
 
 #[derive(Debug, Clone, Copy)]
 struct SaveState {
