@@ -159,7 +159,7 @@ impl WasmClient {
 
     pub fn load_texture(&mut self, key: &str, data: &[u8], update_bind: bool) {
         self.service
-            .load_texture(key, data, &self.device, &self.queue, update_bind);
+            .load_texture(key, data, update_bind, &self.device, &self.queue);
     }
 
     pub fn load_decoded_texture(
