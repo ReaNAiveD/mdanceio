@@ -1,9 +1,7 @@
 use std::{
-    cell::RefCell,
     collections::{HashMap, HashSet},
     f32::consts::PI,
     iter,
-    rc::Rc,
     time::Instant,
 };
 
@@ -15,16 +13,13 @@ use nanoem::{
     model::{ModelMorphCategory, ModelRigidBodyTransformType},
     motion::{MotionBoneKeyframe, MotionModelKeyframe, MotionTrackBundle},
 };
-use wgpu::{AddressMode, Buffer};
 
 use crate::{
     bounding_box::BoundingBox,
     camera::{Camera, PerspectiveCamera},
     deformer::Deformer,
     drawable::{DrawContext, DrawType, Drawable},
-    effect::{Effect, IEffect},
     error::Error,
-    forward::LineVertexUnit,
     light::Light,
     model_program_bundle::{PassExecuteConfiguration, TechniqueType},
     motion::{KeyframeInterpolationPoint, Motion},
@@ -57,37 +52,6 @@ pub type RigidBodyIndex = usize;
 pub type JointIndex = usize;
 pub type SoftBodyIndex = usize;
 
-pub enum AxisType {
-    None,
-    Center,
-    X,
-    Y,
-    Z,
-}
-
-pub enum EditActionType {
-    None,
-    SelectModelObject,
-    PaintVertexWeight,
-    CreateTriangleVertices,
-    CreateParentBone,
-    CreateTargetBone,
-}
-
-pub enum TransformCoordinateType {
-    Global,
-    Local,
-}
-
-pub enum ResetType {
-    TranslationAxisX,
-    TranslationAxisY,
-    TranslationAxisZ,
-    Orientation,
-    OrientationAngleX,
-    OrientationAngleY,
-    OrientationAngleZ,
-}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -120,18 +84,6 @@ impl From<VertexSimd> for VertexUnit {
             info: simd.info.into(),
         }
     }
-}
-
-pub struct NewModelDescription {
-    name: HashMap<nanoem::common::LanguageType, String>,
-    comment: HashMap<nanoem::common::LanguageType, String>,
-}
-
-pub enum ImportFileType {
-    None,
-    WaveFrontObj,
-    DirectX,
-    Metasequoia,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -171,18 +123,7 @@ struct ModelStates {
 
 pub struct Model {
     camera: Box<PerspectiveCamera>,
-    // selection: Rc<RefCell<dyn ModelObjectSelection>>,
-    // drawer: Box<LinearDrawer>,
     skin_deformer: Deformer,
-    // gizmo: Rc<RefCell<dyn Gizmo>>,
-    // vertex_weight_painter: Rc<RefCell<dyn VertexWeightPainter>>,
-    // offscreen_passive_render_target_effects: HashMap<String, OffscreenPassiveRenderTargetEffect>,
-    // draw_all_vertex_normals: DrawArrayBuffer,
-    // draw_all_vertex_points: DrawArrayBuffer,
-    // draw_all_vertex_faces: DrawIndexedBuffer,
-    // draw_all_vertex_weights: DrawIndexedBuffer,
-    // draw_rigid_body: HashMap<Rc<RefCell<TriMesh>>, DrawIndexedBuffer>,
-    // draw_joint: HashMap<Rc<RefCell<TriMesh>>, DrawIndexedBuffer>,
     opaque: Box<NanoemModel>,
     vertices: Vec<Vertex>,
     vertex_indices: Vec<u32>,
@@ -194,28 +135,13 @@ pub struct Model {
     rigid_bodies: Vec<RigidBody>,
     joints: Vec<Joint>,
     soft_bodies: Vec<SoftBody>,
-    // undo_stack: Box<UndoStack>,
-    // editing_undo_stack: Box<UndoStack>,
     active_morph: ModelMorphUsage,
-    // active_constraint_ptr: Rc<RefCell<NanoemConstraint>>,
-    // active_material_ptr: Rc<RefCell<NanoemMaterial>>,
-    // hovered_bone_ptr: Rc<RefCell<NanoemBone>>,
-    // vertex_buffer_data: Vec<u8>,
-    // face_states: Vec<u32>,
     active_bone_pair: (Option<BoneIndex>, Option<BoneIndex>),
-    // active_effect_pair_ptr: (Rc<RefCell<dyn IEffect>>, Rc<RefCell<dyn IEffect>>),
-    // screen_image: Image,
-    // loading_image_items: Vec<LoadingImageItem>,
-    // image_map: HashMap<String, Image>,
     bone_index_hash_map: HashMap<MaterialIndex, HashMap<BoneIndex, usize>>,
     bones_by_name: HashMap<String, BoneIndex>,
     morphs_by_name: HashMap<String, MorphIndex>,
     bone_to_constraints: HashMap<BoneIndex, ConstraintIndex>,
-    // redo_bone_names: Vec<String>,
-    // redo_morph_names: Vec<String>,
     outside_parents: HashMap<BoneIndex, (String, String)>,
-    // image_uris: HashMap<String, Uri>,
-    // attachment_uris: HashMap<String, Uri>,
     bone_bound_rigid_bodies: HashMap<BoneIndex, RigidBodyIndex>,
     constraint_joint_bones: HashMap<BoneIndex, ConstraintIndex>,
     inherent_bones: HashMap<BoneIndex, HashSet<BoneIndex>>,
@@ -223,22 +149,15 @@ pub struct Model {
     parent_bone_tree: HashMap<BoneIndex, Vec<BoneIndex>>,
     pub shared_fallback_bone: Bone,
     bounding_box: BoundingBox,
-    // // UserData m_userData;
-    // annotations: HashMap<String, String>,
     vertex_buffers: [wgpu::Buffer; 2],
     index_buffer: wgpu::Buffer,
     edge_color: Vector4<f32>,
-    // transform_axis_type: AxisType,
-    // edit_action_type: EditActionType,
-    // transform_coordinate_type: TransformCoordinateType,
-    // file_uri: Uri,
     name: String,
     comment: String,
     canonical_name: String,
     states: ModelStates,
     edge_size_scale_factor: f32,
     opacity: f32,
-    // // void *m_dispatchParallelTaskQueue
     count_vertex_skinning_needed: i32,
     stage_vertex_buffer_index: usize,
 }
@@ -705,75 +624,6 @@ impl Model {
         Self::loadable_extensions()
             .iter()
             .any(|ext| ext.to_lowercase().eq(extension))
-    }
-
-    pub fn generate_new_model_data(
-        desc: &NewModelDescription,
-    ) -> Result<Vec<u8>, nanoem::common::Status> {
-        let mut buffer = nanoem::common::MutableBuffer::create()?;
-        let mut model = NanoemModel {
-            version: nanoem::model::ModelFormatVersion::Pmx2_0,
-            codec_type: nanoem::model::CodecType::Utf16Le,
-            additional_uv_size: 0u8,
-            name_ja: "".to_owned(),
-            name_en: "".to_owned(),
-            comment_ja: "".to_owned(),
-            comment_en: "".to_owned(),
-            vertices: vec![],
-            vertex_indices: vec![],
-            materials: vec![],
-            bones: vec![],
-            constraints: vec![],
-            textures: vec![],
-            morphs: vec![],
-            labels: vec![],
-            rigid_bodies: vec![],
-            joints: vec![],
-            soft_bodies: vec![],
-        };
-        let mut center_bone = NanoemBone::default();
-        center_bone.set_name(
-            &Bone::NAME_CENTER_IN_JAPANESE.to_string(),
-            nanoem::common::LanguageType::Japanese,
-        );
-        center_bone.set_name(&"Center".to_string(), nanoem::common::LanguageType::English);
-        center_bone.set_visible(true);
-        center_bone.set_movable(true);
-        center_bone.set_rotatable(true);
-        center_bone.set_user_handleable(true);
-        let center_bone = center_bone;
-        let center_bone = model.insert_bone(center_bone, -1)?;
-        {
-            let mut root_label = nanoem::model::ModelLabel {
-                base: nanoem::model::ModelObject { index: 0 },
-                name_ja: "Root".to_string(),
-                name_en: "Root".to_string(),
-                is_special: true,
-                items: vec![],
-            };
-            root_label.insert_item_object(
-                nanoem::model::ModelLabelItem::create_from_bone_object(center_bone),
-                -1,
-            );
-            model.insert_label(root_label, -1);
-        }
-        {
-            let mut expression_label = nanoem::model::ModelLabel {
-                base: nanoem::model::ModelObject { index: 0 },
-                name_ja: Label::NAME_EXPRESSION_IN_JAPANESE.to_string(),
-                name_en: "Expression".to_string(),
-                is_special: true,
-                items: vec![],
-            };
-            model.insert_label(expression_label, -1);
-        }
-        model.save_to_buffer(&mut buffer)?;
-        Ok(buffer.get_data())
-    }
-
-    pub fn upload(&mut self) {
-        // TODO
-        self.states.uploaded = true;
     }
 
     pub fn create_all_images(
@@ -1959,14 +1809,8 @@ impl Model {
         queue: &wgpu::Queue,
     ) {
         if self.states.dirty_staging_buffer {
-            let time_0 = Instant::now();
             self.skin_deformer
-                .update_buffer(self, camera, device, queue);
-            log::info!(
-                "Update Skin Deformer Buffer use {:?}",
-                Instant::now() - time_0
-            );
-            let time_1 = Instant::now();
+                .update_buffer(self, camera, queue);
             self.skin_deformer.execute(
                 &self.vertex_buffers[self.stage_vertex_buffer_index],
                 device,
@@ -3452,7 +3296,6 @@ pub struct Material {
     // TODO
     color: MaterialBlendColor,
     edge: MaterialBlendEdge,
-    effect: Option<Effect>,
     diffuse_image: Option<wgpu::TextureView>,
     sphere_map_image: Option<wgpu::TextureView>,
     toon_image: Option<wgpu::TextureView>,
@@ -3546,7 +3389,6 @@ impl Material {
                 add: MaterialEdge::new_reset(0f32),
                 mul: MaterialEdge::new_reset(1f32),
             },
-            effect: None,
             diffuse_image: None,
             sphere_map_image: None,
             toon_image: None,

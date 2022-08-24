@@ -87,10 +87,7 @@ impl Clock {
     }
 
     pub fn is_paused(&self) -> bool {
-        match self.state {
-            ClockState::Pausing(_) => true,
-            _ => false,
-        }
+        matches!(self.state, ClockState::Pausing(_))
     }
 
     pub fn start(&mut self) {

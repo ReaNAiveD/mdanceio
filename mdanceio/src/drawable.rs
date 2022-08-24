@@ -1,6 +1,7 @@
-use std::rc::Rc;
-
-use crate::{project::Project, camera::PerspectiveCamera, shadow_camera::ShadowCamera, light::DirectionalLight, model::Model, model_program_bundle::ModelProgramBundle};
+use crate::{
+    camera::PerspectiveCamera, light::DirectionalLight, model::Model,
+    model_program_bundle::ModelProgramBundle, shadow_camera::ShadowCamera,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DrawType {

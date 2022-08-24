@@ -1,21 +1,20 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap};
 
 use cgmath::{
-    AbsDiffEq, Deg, ElementWise, InnerSpace, Matrix3, Matrix4, MetricSpace, PerspectiveFov,
-    Quaternion, Rad, Rotation3, SquareMatrix, Transform, Vector1, Vector2, Vector3, Vector4,
-    VectorSpace, Zero,
+    AbsDiffEq, Deg, ElementWise, InnerSpace, Matrix3, Matrix4, MetricSpace, Quaternion, Rad,
+    Rotation3, SquareMatrix, Vector1, Vector2, Vector3, Vector4, VectorSpace, Zero,
 };
 
 use crate::{
     bezier_curve::BezierCurve,
-    model::{Bone, Model, NanoemBone},
+    model::{Bone, Model},
     motion::{KeyframeInterpolationPoint, Motion},
     project::Project,
     ray::Ray,
     utils::{f128_to_vec3, infinite_perspective, intersect_ray_plane, project, un_project, Invert},
 };
 
-use nanoem::motion::{MotionCameraKeyframe, MotionCameraKeyframeInterpolation, MotionTrackBundle};
+use nanoem::motion::{MotionCameraKeyframe, MotionTrackBundle};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum TransformCoordinateType {
@@ -35,7 +34,6 @@ fn bone_pos(bone: &Bone) -> Vector3<f32> {
 }
 
 pub trait Camera {
-    // TODO
     fn get_view_transform(&self) -> (Matrix4<f32>, Matrix4<f32>);
 
     fn position(&self) -> Vector3<f32>;
@@ -83,19 +81,8 @@ pub struct PerspectiveCamera {
     dirty: bool,
 }
 
-impl PerspectiveCamera {
-    pub const ANGLE_SCALE_FACTOR: Vector3<f32> = Vector3::new(-1f32, 1f32, 1f32);
-    pub const INITIAL_LOOK_AT: Vector3<f32> = Vector3::new(0f32, 10f32, 0f32);
-    pub const INITIAL_DISTANCE: f32 = 45f32;
-    pub const INITIAL_FOV_RADIAN: f32 =
-        (Self::INITIAL_FOV as f32) * 0.01745329251994329576923690768489f32;
-    pub const MAX_FOV: i32 = 135;
-    pub const MIN_FOV: i32 = 1;
-    pub const INITIAL_FOV: i32 = 30;
-    pub const DEFAULT_BEZIER_CONTROL_POINT: Vector4<u8> = Vector4::new(20, 20, 107, 107);
-    pub const DEFAULT_AUTOMATIC_BEZIER_CONTROL_POINT: Vector4<u8> = Vector4::new(64, 0, 64, 127);
-
-    pub fn new() -> Self {
+impl Default for PerspectiveCamera {
+    fn default() -> Self {
         Self {
             bezier_curves_data: RefCell::new(HashMap::new()),
             outside_parent: (String::default(), String::default()),
@@ -115,6 +102,23 @@ impl PerspectiveCamera {
             locked: false,
             dirty: false,
         }
+    }
+}
+
+impl PerspectiveCamera {
+    pub const ANGLE_SCALE_FACTOR: Vector3<f32> = Vector3::new(-1f32, 1f32, 1f32);
+    pub const INITIAL_LOOK_AT: Vector3<f32> = Vector3::new(0f32, 10f32, 0f32);
+    pub const INITIAL_DISTANCE: f32 = 45f32;
+    pub const INITIAL_FOV_RADIAN: f32 =
+        (Self::INITIAL_FOV as f32) * 0.01745329251994329576923690768489f32;
+    pub const MAX_FOV: i32 = 135;
+    pub const MIN_FOV: i32 = 1;
+    pub const INITIAL_FOV: i32 = 30;
+    pub const DEFAULT_BEZIER_CONTROL_POINT: Vector4<u8> = Vector4::new(20, 20, 107, 107);
+    pub const DEFAULT_AUTOMATIC_BEZIER_CONTROL_POINT: Vector4<u8> = Vector4::new(64, 0, 64, 127);
+
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn reset(&mut self) {
@@ -143,16 +147,17 @@ impl PerspectiveCamera {
             self.direction = (position - bound_look_at).normalize();
         }
         self.position = position;
-        let viewport_image_size: Vector2<f32> =
-            viewport_image_size.cast().unwrap().map(|v: f32| v.max(1f32));
+        let viewport_image_size: Vector2<f32> = viewport_image_size
+            .cast()
+            .unwrap()
+            .map(|v: f32| v.max(1f32));
         if self.perspective {
             self.fov.1 = (Rad::from(Deg(1.0f32)).0).max(self.fov.1);
             self.projection_matrix = infinite_perspective(
                 Rad(self.fov.1),
                 viewport_image_size.x / viewport_image_size.y,
                 0.5,
-            )
-            .into();
+            );
         } else {
             let inverse_distance = 1.0 / self.distance;
             let mut projection_matrix: Matrix4<f32> = Matrix4::identity();
@@ -346,17 +351,8 @@ impl PerspectiveCamera {
         }
     }
 
-    pub fn un_projected(
-        &self,
-        value: &Vector3<f32>,
-        viewport_size: Vector2<u32>,
-    ) -> Vector3<f32> {
-        let viewport = Vector4::new(
-            0f32,
-            0f32,
-            viewport_size.x as f32,
-            viewport_size.y as f32,
-        );
+    pub fn un_projected(&self, value: &Vector3<f32>, viewport_size: Vector2<u32>) -> Vector3<f32> {
+        let viewport = Vector4::new(0f32, 0f32, viewport_size.x as f32, viewport_size.y as f32);
         un_project(value, &self.view_matrix, &self.projection_matrix, &viewport).unwrap()
     }
 
@@ -410,10 +406,7 @@ impl PerspectiveCamera {
 
     // TODO: padding, rect, size used in project can be extracted
     pub fn create_ray(&self, value: Vector2<i32>, viewport_size: Vector2<u32>) -> Ray {
-        let from = self.un_projected(
-            &value.extend(0).cast().unwrap(),
-            viewport_size,
-        );
+        let from = self.un_projected(&value.extend(0).cast().unwrap(), viewport_size);
         let to = self.un_projected(
             &value.cast().unwrap().extend(1f32 - f32::EPSILON),
             viewport_size,
@@ -429,7 +422,11 @@ impl PerspectiveCamera {
         }
     }
 
-    pub fn cast_ray(&self, position: Vector2<i32>, viewport_size: Vector2<u32>) -> Option<Vector3<f32>> {
+    pub fn cast_ray(
+        &self,
+        position: Vector2<i32>,
+        viewport_size: Vector2<u32>,
+    ) -> Option<Vector3<f32>> {
         let ray = self.create_ray(position, viewport_size);
         intersect_ray_plane(
             &ray.from,

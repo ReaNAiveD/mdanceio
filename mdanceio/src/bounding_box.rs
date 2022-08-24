@@ -1,4 +1,4 @@
-use cgmath::{Vector3, ElementWise};
+use cgmath::Vector3;
 
 use crate::utils::CompareElementWise;
 

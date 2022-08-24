@@ -119,13 +119,9 @@ struct CurveCacheKey {
 
 #[derive(Debug, Clone)]
 pub struct Motion {
-    // selection: Box<dyn MotionKeyframeSelection>,
     pub opaque: NanoemMotion,
     bezier_curves_data: RefCell<HashMap<CurveCacheKey, Box<BezierCurve>>>,
     annotations: HashMap<String, String>,
-    // file_uri: Uri,
-    // format_type: MotionFormatType,
-    // handle: u32,
     pub dirty: bool,
 }
 

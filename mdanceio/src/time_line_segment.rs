@@ -1,21 +1,11 @@
 use crate::project::Project;
 
+#[derive(Debug, Default)]
 pub struct TimeLineSegment {
     pub from: u32,
     pub to: u32,
     pub enable_from: bool,
     pub enable_to: bool,
-}
-
-impl Default for TimeLineSegment {
-    fn default() -> Self {
-        Self {
-            from: 0,
-            to: 0,
-            enable_from: false,
-            enable_to: false,
-        }
-    }
 }
 
 impl TimeLineSegment {

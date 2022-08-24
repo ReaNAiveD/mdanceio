@@ -1,7 +1,6 @@
 use log4rs::append::file::FileAppender;
 use log4rs::encode::pattern::PatternEncoder;
 use mdanceio::base_application_service::BaseApplicationService;
-use std::io::Write;
 use winit::window::Window;
 use winit::{
     event::*,
@@ -11,7 +10,6 @@ use winit::{
 
 struct State {
     surface: wgpu::Surface,
-    adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -73,7 +71,6 @@ impl State {
         );
         Self {
             surface,
-            adapter,
             device,
             queue,
             config,
@@ -118,7 +115,7 @@ impl State {
         Ok(())
     }
 
-    fn input(&mut self, event: &WindowEvent) -> bool {
+    fn input(&mut self, _event: &WindowEvent) -> bool {
         false
     }
 

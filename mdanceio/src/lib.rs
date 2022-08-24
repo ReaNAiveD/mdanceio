@@ -9,8 +9,6 @@ mod drawable;
 mod effect;
 mod error;
 mod event_publisher;
-mod file_manager;
-mod file_utils;
 mod forward;
 mod grid;
 pub mod injector;

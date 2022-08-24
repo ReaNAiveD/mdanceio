@@ -1,7 +1,4 @@
-use std::{
-    cell::RefCell, collections::HashMap, iter, mem, num::NonZeroU64, ops::Deref, rc::Rc,
-    time::Instant,
-};
+use std::{cell::RefCell, collections::HashMap, mem, num::NonZeroU64, ops::Deref};
 
 use crate::{
     camera::PerspectiveCamera, light::DirectionalLight, model::Material, technique::Technique,
@@ -11,12 +8,7 @@ use cgmath::{Matrix4, Vector4};
 use wgpu::util::DeviceExt;
 
 use crate::{
-    camera::Camera,
-    drawable::Drawable,
-    light::Light,
-    model::{Model, NanoemMaterial},
-    pass,
-    project::Project,
+    camera::Camera, drawable::Drawable, light::Light, model::Model, pass,
     shadow_camera::ShadowCamera,
 };
 
@@ -41,16 +33,6 @@ struct ModelParametersUniform {
     sphere_texture_type: [f32; 4],
     shadow_map_size: [f32; 4],
     padding: [f32; 12],
-}
-
-impl ModelParametersUniform {}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum TextureSamplerStage {
-    ShadowMapTextureSamplerStage0,
-    DiffuseTextureSamplerStage,
-    SphereTextureSamplerStage,
-    ToonTextureSamplerStage,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -162,7 +144,7 @@ impl UniformBindCache {
         self.dirty = false;
     }
 
-    pub fn get_uniform_mut(
+    fn get_uniform_mut(
         &mut self,
         index: usize,
         device: &wgpu::Device,
@@ -187,13 +169,9 @@ impl UniformBindCache {
 }
 
 pub struct CommonPassCache {
-    // TODO: uncompleted
     shader: wgpu::ShaderModule,
     uniform_cache: RefCell<UniformBindCache>,
-    // shadow_sampler: wgpu::Sampler,
-    // sampler: wgpu::Sampler,
     pipeline_cache: RefCell<HashMap<CommonPassCacheKey, wgpu::RenderPipeline>>,
-    // uniform_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl CommonPassCache {
@@ -202,10 +180,6 @@ impl CommonPassCache {
             shader,
             uniform_cache: RefCell::new(UniformBindCache::new(device)),
             pipeline_cache: RefCell::new(HashMap::new()),
-            // texture_bind_group_layout,
-            // uniform_bind_group_layout,
-            // shadow_sampler,
-            // sampler,
         }
     }
 }
@@ -470,8 +444,6 @@ impl<'a> CommonPass<'a> {
         self.shadow_bind = color_image;
     }
 
-    // TODO: process with feature
-    // #[cfg(target_feature = "enable_blendop_minmax")]
     fn get_add_blend_state(&self) -> (wgpu::BlendState, wgpu::ColorWrites) {
         (
             wgpu::BlendState {
@@ -490,8 +462,6 @@ impl<'a> CommonPass<'a> {
         )
     }
 
-    // TODO: process with feature
-    // #[cfg(target_feature = "enable_blendop_minmax")]
     fn get_alpha_blend_state(&self) -> (wgpu::BlendState, wgpu::ColorWrites) {
         (
             wgpu::BlendState {
@@ -625,28 +595,12 @@ impl<'a> CommonPass<'a> {
                     format: wgpu::TextureFormat::Depth24PlusStencil8,
                     depth_write_enabled: true,
                     depth_compare: wgpu::CompareFunction::Less,
-                    // stencil: wgpu::StencilState {
-                    //     front: wgpu::StencilFaceState {
-                    //         compare: wgpu::CompareFunction::Greater,
-                    //         fail_op: wgpu::StencilOperation::default(),
-                    //         depth_fail_op: wgpu::StencilOperation::default(),
-                    //         pass_op: wgpu::StencilOperation::Replace,
-                    //     },
-                    //     back: wgpu::StencilFaceState {
-                    //         compare: wgpu::CompareFunction::Greater,
-                    //         fail_op: wgpu::StencilOperation::default(),
-                    //         depth_fail_op: wgpu::StencilOperation::default(),
-                    //         pass_op: wgpu::StencilOperation::Replace,
-                    //     },
-                    //     read_mask: 0,
-                    //     write_mask: 0, // TODO: there was a ref=2 in original stencil state
-                    // },
-                    stencil: wgpu::StencilState::default(), // TODO
+                    stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
                 }
             } else {
                 wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth24PlusStencil8, // TODO: set to depth pixel format
+                    format: wgpu::TextureFormat::Depth24PlusStencil8,
                     depth_write_enabled: is_depth_enabled,
                     depth_compare: if is_depth_enabled {
                         wgpu::CompareFunction::LessEqual
@@ -689,9 +643,6 @@ impl<'a> CommonPass<'a> {
             })
         });
 
-        // let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        //     label: Some("Model Pass Executor Encoder"),
-        // });
         encoder.push_debug_group("ModelProgramBundle::execute");
         let mut uniform_bind = self.cache.uniform_cache.borrow_mut();
         let uniform_bind_group = uniform_bind.bind_group(queue);
@@ -718,10 +669,7 @@ impl<'a> CommonPass<'a> {
                     }
                 }),
             });
-            // m_lastDrawnRenderPass = handle;
-            log::info!("Setting Pipeline");
             rpass.set_pipeline(&pipeline);
-            log::info!("Setting Bind Group");
             rpass.set_bind_group(0, self.texture_bind, &[]);
 
             rpass.set_bind_group(
@@ -730,11 +678,8 @@ impl<'a> CommonPass<'a> {
                 &[(material_idx * std::mem::size_of::<ModelParametersUniform>()) as u32],
             );
             rpass.set_bind_group(2, self.shadow_bind, &[]);
-            log::info!("Setting Vertex Buffer");
             rpass.set_vertex_buffer(0, buffer.vertex_buffer.slice(..));
-            log::info!("Setting Index Buffer");
             rpass.set_index_buffer(buffer.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            log::info!("Draw Indexed");
             rpass.draw_indexed(
                 buffer.num_offset as u32..(buffer.num_offset + buffer.num_indices) as u32,
                 0,
@@ -887,10 +832,6 @@ impl ObjectTechnique {
             },
         }
     }
-
-    pub fn technique_type(&self) -> TechniqueType {
-        self.base.technique_type
-    }
 }
 
 impl Technique for ObjectTechnique {
@@ -956,10 +897,6 @@ impl EdgeTechnique {
                 pass_cache: CommonPassCache::new(device, shader),
             },
         }
-    }
-
-    pub fn technique_type(&self) -> TechniqueType {
-        self.base.technique_type
     }
 }
 
@@ -1027,10 +964,6 @@ impl GroundShadowTechnique {
             },
         }
     }
-
-    pub fn technique_type(&self) -> TechniqueType {
-        self.base.technique_type
-    }
 }
 
 impl Technique for GroundShadowTechnique {
@@ -1096,10 +1029,6 @@ impl ZplotTechnique {
                 pass_cache: CommonPassCache::new(device, shader),
             },
         }
-    }
-
-    pub fn technique_type(&self) -> TechniqueType {
-        self.base.technique_type
     }
 }
 

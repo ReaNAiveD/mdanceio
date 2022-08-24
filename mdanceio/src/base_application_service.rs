@@ -9,7 +9,6 @@ use crate::{
 use std::{collections::HashMap, io::Cursor};
 
 pub struct BaseApplicationService {
-    // state_controller: StateController,
     project: Project,
     injector: Injector,
 }

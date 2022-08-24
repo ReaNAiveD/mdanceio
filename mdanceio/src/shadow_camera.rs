@@ -1,15 +1,9 @@
-use std::rc::Rc;
-
-use cgmath::{
-    InnerSpace, Matrix, Matrix3, Matrix4, SquareMatrix, Vector1, Vector2, Vector3, Vector4,
-    VectorSpace,
-};
+use cgmath::{InnerSpace, Matrix, Matrix3, Matrix4, Vector2, Vector3};
 
 use crate::{
     camera::{Camera, PerspectiveCamera},
     clear_pass::ClearPass,
     light::{DirectionalLight, Light},
-    project::Project,
     utils::lerp_f32,
 };
 
@@ -62,7 +56,11 @@ impl ShadowCamera {
     pub const INITIAL_DISTANCE: f32 = 8875f32;
     pub const INITIAL_TEXTURE_SIZE: u32 = 2048;
 
-    pub fn new(bind_group_layout: &wgpu::BindGroupLayout, shadow_sampler: &wgpu::Sampler, device: &wgpu::Device) -> Self {
+    pub fn new(
+        bind_group_layout: &wgpu::BindGroupLayout,
+        shadow_sampler: &wgpu::Sampler,
+        device: &wgpu::Device,
+    ) -> Self {
         let color_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ShadowCamera/color"),
             size: wgpu::Extent3d {
@@ -126,7 +124,7 @@ impl ShadowCamera {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
+                    resource: wgpu::BindingResource::Sampler(shadow_sampler),
                 },
             ],
         });
@@ -189,47 +187,6 @@ impl ShadowCamera {
         }
         encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
-    }
-
-    pub fn resize(&mut self, size: Vector2<u32>, device: &wgpu::Device) {
-        if size != self.texture_size {
-            self.texture_size = size.map(|s| s.max(256u32));
-            self.update(device)
-        }
-    }
-
-    pub fn update(&mut self, device: &wgpu::Device) {
-        if self.enabled {
-            let color_texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("ShadowCamera/color"),
-                size: wgpu::Extent3d {
-                    width: self.texture_size.x as u32,
-                    height: self.texture_size.y as u32,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R32Float,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-            });
-            let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("ShadowCamera/color"),
-                size: wgpu::Extent3d {
-                    width: self.texture_size.x as u32,
-                    height: self.texture_size.y as u32,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Depth24PlusStencil8,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-            });
-            // TODO: register render pass
-        }
     }
 
     fn get_view_matrix(

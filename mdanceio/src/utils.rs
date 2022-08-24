@@ -1,6 +1,6 @@
 use cgmath::{
-    perspective, BaseFloat, BaseNum, ElementWise, InnerSpace, Matrix3, Matrix4, Quaternion,
-    SquareMatrix, Vector3, Vector4, Rad,
+    perspective, BaseFloat, BaseNum, InnerSpace, Matrix3, Matrix4, Quaternion, Rad, SquareMatrix,
+    Vector3, Vector4,
 };
 use nalgebra::Isometry3;
 
@@ -52,13 +52,6 @@ pub fn to_na_vec3(v: Vector3<f32>) -> nalgebra::Vector3<f32> {
     nalgebra::Vector3::new(v[0], v[1], v[2])
 }
 
-pub fn to_na_mat4(v: Matrix4<f32>) -> nalgebra::Matrix4<f32> {
-    nalgebra::Matrix4::new(
-        v[0][0], v[0][1], v[0][2], v[0][3], v[1][0], v[1][1], v[1][2], v[1][3], v[2][0], v[2][1],
-        v[2][2], v[2][3], v[3][0], v[3][1], v[3][2], v[3][3],
-    )
-}
-
 pub fn to_na_mat3(v: Matrix3<f32>) -> nalgebra::Matrix3<f32> {
     nalgebra::Matrix3::new(
         v[0][0], v[0][1], v[0][2], v[1][0], v[1][1], v[1][2], v[2][0], v[2][1], v[2][2],
@@ -79,33 +72,6 @@ pub fn from_na_mat4(v: nalgebra::Matrix4<f32>) -> Matrix4<f32> {
         v.m11, v.m12, v.m13, v.m14, v.m21, v.m22, v.m23, v.m24, v.m31, v.m32, v.m33, v.m34, v.m41,
         v.m42, v.m43, v.m44,
     )
-}
-
-pub struct EnumUtils {}
-
-macro_rules! set_enabled {
-    ($typ: ty, $fn_name: ident) => {
-        pub fn $fn_name(flags: &mut $typ, mask: $typ, enabled: bool) {
-            *flags = if enabled {
-                *flags | mask
-            } else {
-                *flags & (!mask)
-            }
-        }
-    };
-}
-
-macro_rules! is_enabled {
-    ($typ: ty, $fn_name: ident) => {
-        pub fn $fn_name(flags: &$typ, mask: $typ) -> bool {
-            (*flags & mask) != (0 as $typ)
-        }
-    };
-}
-
-impl EnumUtils {
-    set_enabled!(u32, set_enabled_u32);
-    is_enabled!(u32, is_enabled_u32);
 }
 
 pub trait CompareElementWise<Rhs = Self> {
@@ -148,21 +114,17 @@ pub trait Invert {
 
 impl<S: BaseFloat> Invert for Matrix4<S> {
     fn affine_invert(&self) -> Option<Self> {
-        if let Some(inv) = Matrix3::new(
+        Matrix3::new(
             self[0][0], self[0][1], self[0][2], self[1][0], self[1][1], self[1][2], self[2][0],
             self[2][1], self[2][2],
         )
         .invert()
-        {
-            Some(Matrix4 {
-                x: inv[0].extend(S::zero()),
-                y: inv[1].extend(S::zero()),
-                z: inv[2].extend(S::zero()),
-                w: (-(inv * Vector3::new(self[3][0], self[3][1], self[3][2]))).extend(S::one()),
-            })
-        } else {
-            None
-        }
+        .map(|inv| Matrix4 {
+            x: inv[0].extend(S::zero()),
+            y: inv[1].extend(S::zero()),
+            z: inv[2].extend(S::zero()),
+            w: (-(inv * Vector3::new(self[3][0], self[3][1], self[3][2]))).extend(S::one()),
+        })
     }
 }
 

@@ -55,12 +55,6 @@ impl SaveState {
     }
 }
 
-pub struct DrawQueue {}
-
-pub struct BatchDrawQueue {}
-
-pub struct SerialDrawQueue {}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EditingMode {
     None,
@@ -68,10 +62,6 @@ pub enum EditingMode {
     Move,
     Rotate,
 }
-
-pub enum FilePathMode {}
-
-pub enum CursorType {}
 
 #[derive(Debug, Clone, Copy, Default)]
 struct HandleAllocator(u32);
@@ -90,10 +80,6 @@ impl HandleAllocator {
         self.0 = 0u32;
     }
 }
-
-pub struct RenderPassBundle {}
-
-pub struct SharedRenderTargetImageContainer {}
 
 struct Pass {
     name: String,
@@ -247,8 +233,6 @@ impl FpsUnit {
     }
 }
 
-struct OffscreenRenderTargetCondition {}
-
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ProjectStates {
     pub disable_hidden_bone_bounds_rigid_body: bool,
@@ -299,19 +283,8 @@ pub struct ConfirmSeekFlags {
 pub type ModelHandle = u32;
 
 pub struct Project {
-    // background_video_renderer: Box<dyn BackgroundVideoRenderer<Error>>,
-    // confirmor: Box<dyn Confirmor>,
-    // file_manager: Box<dyn FileManager>,
-    // event_publisher: Box<dyn EventPublisher>,
-    // primitive_2d: Box<dyn Primitive2d>,
-    // renderer_capability: Box<dyn RendererCapability>,
-    // shared_cancel_publisher_factory: Box<dyn SharedCancelPublisherFactory>,
-    // shared_resource_factory: Box<dyn SharedResourceFactory>,
-    // translator: Box<dyn Translator>,
-    // shared_image_loader: Option<Rc<ImageLoader>>,
     transform_model_order_list: Vec<ModelHandle>,
     active_model_pair: (Option<ModelHandle>, Option<ModelHandle>),
-    // active_accessory: Option<Rc<RefCell<Accessory>>>,
     audio_player: Box<dyn AudioPlayer + Send>,
     physics_engine: Box<PhysicsEngine>,
     camera: PerspectiveCamera,
@@ -321,53 +294,19 @@ pub struct Project {
     camera_motion: Motion,
     light_motion: Motion,
     self_shadow_motion: Motion,
-    // undo_stack: Rc<RefCell<UndoStack>>,
-    // all_models: Vec<Rc<RefCell<Model>>>,
-    // all_accessories: Vec<Rc<RefCell<Accessory>>>,
-    // all_motions: Vec<Rc<RefCell<Motion>>>,
-    // drawable_to_motion_ptrs: HashMap<Rc<RefCell<dyn Drawable>>, Rc<RefCell<Motion>>>,
     model_to_motion: HashMap<ModelHandle, Motion>,
-    // all_traces: Vec<Rc<RefCell<dyn Track>>>,
-    // selected_track: Option<Rc<RefCell<dyn Track>>>,
     last_save_state: Option<SaveState>,
     model_program_bundle: Box<ModelProgramBundle>,
-    // draw_queue: Box<DrawQueue>,
-    // batch_draw_queue: Box<BatchDrawQueue>,
-    // serial_draw_queue: Box<SerialDrawQueue>,
-    // offscreen_render_pass_scope: Box<RenderPassScope>,
-    // viewport_pass_blitter: Box<BlitPass>,
-    // render_pass_blitter: Box<BlitPass>,
-    // shared_image_blitter: Box<BlitPass>,
-    // render_pass_clear: Box<ClearPass>,
     clear_pass: Box<ClearPass>,
-    // shared_debug_drawer: Rc<RefCell<DebugDrawer>>,
     viewport_texture_format: (wgpu::TextureFormat, wgpu::TextureFormat),
-    // last_bind_pose: BindPose,
-    // rigid_body_visualization_clause: VisualizationClause,
     draw_type: DrawType,
-    // file_uri: (Uri, file_utils::TransientPath),
-    // redo_file_uri: Uri,
-    // drawables_to_attach_offscreen_render_target_effect: (String, HashSet<Rc<RefCell<dyn Drawable>>>),
-    // current_render_pass: Option<Rc<RenderPass<'a>>>,
-    // last_drawn_render_pass: Option<Rc<RenderPass<'a>>>,
-    // current_offscreen_render_pass: Option<Rc<RenderPass<'a>>>,
-    // origin_offscreen_render_pass: Option<Rc<RenderPass<'a>>>,
-    // script_external_render_pass: Option<Rc<RenderPass<'a>>>,
-    // shared_render_target_image_containers: HashMap<String, SharedRenderTargetImageContainer>,
     editing_mode: EditingMode,
-    // file_path_mode: FilePathMode,
     playing_segment: TimeLineSegment,
     selection_segment: TimeLineSegment,
     base_duration: u32,
     language: LanguageType,
     viewport_size: (Vector2<u32>, Vector2<u32>),
-    // background_video_rect: Vector4<i32>,
-    // bone_selection_rect: Vector4<i32>,
-    // logical_scale_cursor_positions: HashMap<CursorType, Vector4<i32>>,
-    // logical_scale_moving_cursor_position: Vector2<i32>,
-    // scroll_delta: Vector2<i32>,
     viewport_background_color: Vector4<f32>,
-    // all_offscreen_render_targets: HashMap<Rc<RefCell<Effect>>, HashMap<String, Vec<OffscreenRenderTargetCondition>>>,
     fallback_texture: wgpu::TextureView,
     shared_sampler: wgpu::Sampler,
     shadow_sampler: wgpu::Sampler,
@@ -375,47 +314,19 @@ pub struct Project {
     shadow_bind_group_layout: wgpu::BindGroupLayout,
     texture_fallback_bind: wgpu::BindGroup,
     shadow_fallback_bind: wgpu::BindGroup,
-    // // TODO: bx::HandleAlloc *m_objectHandleAllocator;
     object_handler_allocator: HandleAllocator,
-    // accessory_handle_map: HashMap<u16, Rc<RefCell<Accessory>>>,
     model_handle_map: HashMap<ModelHandle, Model>,
-    // motion_handle_map: HashMap<u16, Rc<RefCell<Motion>>>,
-    // render_pass_bundle_map: HashMap<u32, RenderPassBundle>,
-    // hashed_render_pass_bundle_map: HashMap<u32, Rc<RefCell<RenderPassBundle>>>,
-    // redo_object_handles: HashMap<u16, u32>,
-    // render_pass_string_map: HashMap<u32, String>,
-    // render_pipeline_string_map: HashMap<u32, String>,
     viewport_primary_pass: Pass,
     viewport_secondary_pass: Pass,
-    // context_2d_pass: Pass,
-    // background_image: (Texture, Vector2<u32>),
     preferred_motion_fps: FpsUnit,
-    // editing_fps: u32,
-    // bone_interpolation_type: i32,
-    // camera_interpolation_type: i32,
-    // model_clipboard: Vec<u8>,
-    // motion_clipboard: Vec<u8>,
-    // effect_order_set: HashMap<effect::ScriptOrderType, HashSet<Rc<RefCell<dyn Drawable>>>>,
-    // effect_references: HashMap<String, (Rc<RefCell<Effect>>, i32)>,
-    // loaded_effect_set: HashSet<Rc<RefCell<Effect>>>,
     depends_on_script_external: Vec<Box<dyn Drawable + Send>>,
     transform_performed_at: (u32, i32),
-    // indices_of_material_to_attach_effect: (u16, HashSet<usize>),
-    // uptime: (f64, f64),
     local_frame_index: (u32, u32),
     time_step_factor: f32,
-    // background_video_scale_factor: f32,
-    // circle_radius: f32,
     sample_level: (u32, u32),
     state_flags: ProjectStates,
     confirm_seek_flags: ConfirmSeekFlags,
-    // last_physics_debug_flags: u32,
-    // coordination_system: u32,
-    // cursor_modifiers: u32,
-    // actual_fps: u32,
-    // actual_sequence: u32,
-    // active: bool,
-    tmp_texture_map: HashMap<String, wgpu::Texture>,
+    loaded_texture_map: HashMap<String, wgpu::Texture>,
 }
 
 impl Project {
@@ -447,7 +358,7 @@ impl Project {
             viewport_size,
             injector.texture_format(),
             1,
-            &device,
+            device,
         );
 
         let viewport_secondary_pass = Pass::new(
@@ -455,7 +366,7 @@ impl Project {
             viewport_size,
             injector.texture_format(),
             1,
-            &device,
+            device,
         );
         log::trace!("Finish Primary and Secondary Pass");
 
@@ -616,7 +527,7 @@ impl Project {
         let mut physics_engine = Box::new(PhysicsEngine::new());
         physics_engine.simulation_mode = SimulationMode::EnableTracing;
 
-        let mut object_handler_allocator = HandleAllocator::new();
+        let object_handler_allocator = HandleAllocator::new();
 
         let mut camera_motion = Motion::empty();
         camera_motion.initialize_camera_frame_0(&camera, None);
@@ -624,8 +535,6 @@ impl Project {
         light_motion.initialize_light_frame_0(&directional_light);
         let mut self_shadow_motion = Motion::empty();
         self_shadow_motion.initialize_self_shadow_frame_0(&shadow_camera);
-
-        // TODO: build tracks
 
         Self {
             audio_player: Box::new(ClockAudioPlayer::default()),
@@ -668,7 +577,7 @@ impl Project {
             viewport_primary_pass,
             viewport_secondary_pass,
             physics_engine,
-            tmp_texture_map: HashMap::new(),
+            loaded_texture_map: HashMap::new(),
             state_flags: ProjectStates {
                 display_transform_handle: true,
                 display_user_interface: true,
@@ -892,7 +801,7 @@ impl Project {
                 return false;
             }
         }
-        return true;
+        true
     }
 
     pub fn play(&mut self) {
@@ -1231,7 +1140,7 @@ impl Project {
     }
 
     pub fn mark_all_models_dirty(&mut self) {
-        for (_, model) in &mut self.model_handle_map {
+        for model in self.model_handle_map.values_mut() {
             model.mark_staging_vertex_buffer_dirty();
         }
         // TODO: mark blitter dirty
@@ -1243,7 +1152,7 @@ impl Project {
         let physics_simulation_time_step = self.physics_simulation_time_step();
         let outside_parent_bone_map = HashMap::new();
         if let Some(model) = model
-            .or_else(|| self.active_model_pair.0)
+            .or(self.active_model_pair.0)
             .and_then(|handle| self.model_handle_map.get_mut(&handle))
         {
             model.perform_all_bones_transform(
@@ -1262,7 +1171,7 @@ impl Project {
         self.reset_transform_performed_at();
         if let Some((handle, model)) =
             model
-                .or_else(|| self.active_model_pair.0)
+                .or(self.active_model_pair.0)
                 .and_then(|handle| {
                     self.model_handle_map
                         .get_mut(&handle)
@@ -1467,7 +1376,7 @@ impl Project {
             depth_or_array_layers: 1,
         };
         let texture = self
-            .tmp_texture_map
+            .loaded_texture_map
             .entry(key.to_owned())
             .or_insert_with(|| {
                 device.create_texture(&wgpu::TextureDescriptor {
@@ -1517,7 +1426,7 @@ impl Project {
     pub fn update_bind_texture(&mut self, device: &wgpu::Device) {
         for (handle, model) in &mut self.model_handle_map {
             model.create_all_images(
-                &self.tmp_texture_map,
+                &self.loaded_texture_map,
                 &self.shared_sampler,
                 &self.texture_bind_group_layout,
                 &self.fallback_texture,

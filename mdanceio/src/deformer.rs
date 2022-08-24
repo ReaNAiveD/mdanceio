@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem, time::Instant};
+use std::{mem, time::Instant};
 
 use wgpu::util::DeviceExt;
 
@@ -97,7 +97,7 @@ impl Deformer {
         });
         let mut sdef_buffer_data = vec![[0f32; 4]; num_vertices * 3];
         for (idx, vertex) in vertices.iter().enumerate() {
-            sdef_buffer_data[idx * 3 + 0] = vertex.origin.sdef_c;
+            sdef_buffer_data[idx * 3] = vertex.origin.sdef_c;
             sdef_buffer_data[idx * 3 + 1] = vertex.origin.sdef_r0;
             sdef_buffer_data[idx * 3 + 2] = vertex.origin.sdef_r1;
         }
@@ -218,14 +218,14 @@ impl Deformer {
         let matrix_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Deformer/MatrixBuffer"),
             contents: bytemuck::cast_slice(
-                &Self::build_matrix_buffer_data(bones, fallback_bone, device)[..],
+                &Self::build_matrix_buffer_data(bones, fallback_bone)[..],
             ),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
         let morph_weight_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Deformer/MorphBuffer"),
             contents: bytemuck::cast_slice(
-                &Self::build_morph_weight_buffer_data(morphs, device)[..],
+                &Self::build_morph_weight_buffer_data(morphs)[..],
             ),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
@@ -249,19 +249,18 @@ impl Deformer {
     fn build_matrix_buffer_data(
         bones: &[Bone],
         fallback_bone: &Bone,
-        device: &wgpu::Device,
     ) -> Vec<[[f32; 4]; 4]> {
         let mut matrix_buffer_data = vec![[[0f32; 4]; 4]; bones.len().max(1)];
         for (idx, bone) in bones.iter().enumerate() {
             matrix_buffer_data[idx] = bone.matrices.skinning_transform.into();
         }
-        if bones.len() == 0 {
+        if bones.is_empty() {
             matrix_buffer_data[0] = fallback_bone.matrices.skinning_transform.into();
         }
         matrix_buffer_data
     }
 
-    fn build_morph_weight_buffer_data(morphs: &[Morph], device: &wgpu::Device) -> Vec<f32> {
+    fn build_morph_weight_buffer_data(morphs: &[Morph]) -> Vec<f32> {
         let mut morph_weight_buffer_data = vec![0f32; morphs.len() + 1];
         for (idx, morph) in morphs.iter().enumerate() {
             morph_weight_buffer_data[idx + 1] = morph.weight();
@@ -273,7 +272,6 @@ impl Deformer {
         &self,
         model: &Model,
         camera: &dyn Camera,
-        device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
         let argument = Argument {
@@ -290,7 +288,7 @@ impl Deformer {
             &self.matrix_buffer,
             0,
             bytemuck::cast_slice(
-                &Self::build_matrix_buffer_data(model.bones(), &model.shared_fallback_bone, device)
+                &Self::build_matrix_buffer_data(model.bones(), &model.shared_fallback_bone)
                     [..],
             ),
         );
@@ -299,7 +297,7 @@ impl Deformer {
         queue.write_buffer(
             &self.morph_weight_buffer,
             0,
-            bytemuck::cast_slice(&Self::build_morph_weight_buffer_data(model.morphs(), device)[..]),
+            bytemuck::cast_slice(&Self::build_morph_weight_buffer_data(model.morphs())[..]),
         );
         log::info!("Write Morph Weight Buffer use {:?}", Instant::now() - time_2);
     }

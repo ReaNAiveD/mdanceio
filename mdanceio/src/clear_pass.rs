@@ -1,7 +1,6 @@
 use std::{
     cell::{Ref, RefCell},
     collections::HashMap,
-    rc::Rc,
 };
 
 use crate::forward::QuadVertexUnit;
@@ -53,7 +52,7 @@ impl ClearPass {
             .iter()
             .map(|format| {
                 Some(wgpu::ColorTargetState {
-                    format: format.clone(),
+                    format: *format,
                     blend: if *format == wgpu::TextureFormat::R32Float {
                         None
                     } else {
