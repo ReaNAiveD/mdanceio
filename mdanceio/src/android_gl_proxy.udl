@@ -1,6 +1,0 @@
-namespace mdanceio {
-};
-interface AndroidGlProxy {
-    constructor(u32 width, u32 height);
-    void draw_with_world_and_camera([ByRef] float world_matrix, [ByRef] float camera_view_matrix, [ByRef] float camera_projection_matrix);
-};

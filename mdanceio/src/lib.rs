@@ -48,8 +48,6 @@ mod technique;
 mod line_drawer;
 mod deformer;
 pub mod offscreen_proxy;
-#[cfg(target_os = "android")]
-pub mod android_gl_proxy;
 
 #[cfg(test)]
 mod tests {
