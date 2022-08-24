@@ -77,7 +77,7 @@ impl BaseApplicationService {
         self.project.play();
     }
 
-    pub fn enable_model_shadow_map(&mut self, value: bool) {
+    pub fn enable_all_model_shadow_map(&mut self, value: bool) {
         if let Some(model) = self.project.active_model_mut() {
             model.set_shadow_map_enabled(value);
         }
