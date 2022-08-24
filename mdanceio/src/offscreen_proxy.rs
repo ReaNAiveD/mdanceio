@@ -150,10 +150,6 @@ impl OffscreenProxy {
         return result;
     }
 
-    pub fn disable_physics_simulation(&mut self) {
-        self.application.disable_physics_simulation();
-    }
-
     pub fn play(&mut self) {
         self.application.play();
     }

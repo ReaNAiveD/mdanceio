@@ -23,15 +23,6 @@ pub enum SimulationMode {
     EnableTracing,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DebugDrawType {
-    Wireframe,
-    Aabb,
-    ContactPoints,
-    Constraints,
-    ConstraintLimits,
-}
-
 pub struct PhysicsEngine {
     pub rigid_body_set: RigidBodySet,
     pub collider_set: ColliderSet,
@@ -45,11 +36,10 @@ pub struct PhysicsEngine {
     narrow_phase: NarrowPhase,
     ccd_solver: CCDSolver,
     pub simulation_mode: SimulationMode,
-    // TODO
 }
 
-impl PhysicsEngine {
-    pub fn new() -> Self {
+impl Default for PhysicsEngine {
+    fn default() -> Self {
         Self {
             rigid_body_set: RigidBodySet::new(),
             collider_set: ColliderSet::new(),
@@ -64,6 +54,12 @@ impl PhysicsEngine {
             ccd_solver: CCDSolver::new(),
             simulation_mode: SimulationMode::Disable,
         }
+    }
+}
+
+impl PhysicsEngine {
+    pub fn new() -> Self {
+        Self::default()
     }
 
     pub fn step(&mut self, delta: f32) {
@@ -84,6 +80,5 @@ impl PhysicsEngine {
         )
     }
 
-    pub fn reset(&mut self) {
-    }
+    pub fn reset(&mut self) {}
 }

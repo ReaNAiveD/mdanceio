@@ -525,7 +525,7 @@ impl Project {
         let directional_light = DirectionalLight::new();
 
         let mut physics_engine = Box::new(PhysicsEngine::new());
-        physics_engine.simulation_mode = SimulationMode::EnableTracing;
+        physics_engine.simulation_mode = SimulationMode::Disable;
 
         let object_handler_allocator = HandleAllocator::new();
 

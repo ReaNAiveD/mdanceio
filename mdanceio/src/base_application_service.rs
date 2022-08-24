@@ -83,10 +83,10 @@ impl BaseApplicationService {
         }
     }
 
-    pub fn disable_physics_simulation(&mut self) {
-        self.project
-            .set_physics_simulation_mode(SimulationMode::Disable)
-    }
+    // pub fn disable_physics_simulation(&mut self) {
+    //     self.project
+    //         .set_physics_simulation_mode(SimulationMode::Disable)
+    // }
 
     pub fn set_camera_angle(&mut self, value: Vector3<f32>) {
         self.project.global_camera_mut().set_angle(value);

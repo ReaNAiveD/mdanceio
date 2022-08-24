@@ -109,7 +109,6 @@ impl State {
         self.application.update_bind_texture(&self.device);
         let motion_data = std::fs::read("mdanceio/tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
         self.application.load_model_motion(&motion_data);
-        self.application.disable_physics_simulation();
         self.application.play();
         drop(motion_data);
         Ok(())
