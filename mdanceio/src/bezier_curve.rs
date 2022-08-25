@@ -44,7 +44,7 @@ impl BezierCurve {
                 nearest = &self.parameters[i];
             }
         }
-        return nearest.y;
+        nearest.y
     }
 
     pub fn split(&self, t: f32) -> (Self, Self) {
@@ -66,10 +66,6 @@ impl BezierCurve {
 
     pub fn c1(&self) -> Vector2<u8> {
         self.c1
-    }
-
-    pub fn to_hash(parameters: &[u8], interval: u32) -> u64 {
-        ((parameters[0] as u64) & 0x7Fu64 << 0) | ((parameters[1] as u64) & 0x7Fu64 << 7) | ((parameters[2] as u64) & 0x7Fu64 << 14) | ((parameters[3] as u64) & 0x7Fu64 << 21) | (interval as u64) << 28
     }
 
     fn split_bezier_curve(points: &Vec<Vector2<f32>>, t: f32, left: &mut Vec<Vector2<f32>>, right: &mut Vec<Vector2<f32>>) {

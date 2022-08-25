@@ -3,14 +3,12 @@ use image::GenericImageView;
 
 use crate::{
     injector::Injector,
-    physics_engine::SimulationMode,
-    project::{ModelHandle, Project},
+    project::{ModelHandle, Project}, error::MdanceioError,
 };
 use std::{collections::HashMap, io::Cursor};
 
 pub struct BaseApplicationService {
     project: Project,
-    injector: Injector,
 }
 
 impl BaseApplicationService {
@@ -22,7 +20,6 @@ impl BaseApplicationService {
     ) -> Self {
         Self {
             project: Project::new(adapter, device, queue, injector),
-            injector,
         }
     }
 
@@ -53,20 +50,20 @@ impl BaseApplicationService {
         self.project.update(device, queue);
     }
 
-    pub fn load_model(&mut self, data: &[u8], device: &wgpu::Device, queue: &wgpu::Queue) {
-        self.project.load_model(data, device, queue);
+    pub fn load_model(&mut self, data: &[u8], device: &wgpu::Device, queue: &wgpu::Queue) -> Result<(), MdanceioError> {
+        self.project.load_model(data, device, queue)
     }
 
-    pub fn load_model_motion(&mut self, data: &[u8]) {
-        self.project.load_model_motion(data);
+    pub fn load_model_motion(&mut self, data: &[u8]) -> Result<(), MdanceioError> {
+        self.project.load_model_motion(data)
     }
 
-    pub fn load_camera_motion(&mut self, data: &[u8]) {
-        self.project.load_camera_motion(data);
+    pub fn load_camera_motion(&mut self, data: &[u8]) -> Result<(), MdanceioError> {
+        self.project.load_camera_motion(data)
     }
 
-    pub fn load_light_motion(&mut self, data: &[u8]) {
-        self.project.load_light_motion(data);
+    pub fn load_light_motion(&mut self, data: &[u8]) -> Result<(), MdanceioError> {
+        self.project.load_light_motion(data)
     }
 
     pub fn seek(&mut self, frame_index: u32) {

@@ -3309,12 +3309,6 @@ pub struct Material {
 }
 
 impl Material {
-    pub const PRIVATE_STATE_VISIBLE: u32 = 1u32 << 1;
-    pub const PRIVATE_STATE_DISPLAY_DIFFUSE_TEXTURE_UV_MESH_ENABLED: u32 = 1u32 << 2;
-    pub const PRIVATE_STATE_DISPLAY_SPHERE_MAP_TEXTURE_UV_MESH_ENABLED: u32 = 1u32 << 3;
-    pub const PRIVATE_STATE_RESERVED: u32 = 1u32 << 31;
-    pub const PRIVATE_STATE_INITIAL_VALUE: u32 =
-        Self::PRIVATE_STATE_VISIBLE | Self::PRIVATE_STATE_DISPLAY_DIFFUSE_TEXTURE_UV_MESH_ENABLED;
     pub const MINIUM_SPECULAR_POWER: f32 = 0.1f32;
 
     pub fn from_nanoem(
@@ -4168,12 +4162,6 @@ pub struct Joint {
 }
 
 impl Joint {
-    pub const PRIVATE_STATE_ENABLED: u32 = 1u32 << 1;
-    pub const PRIVATE_STATE_EDITING_MASKED: u32 = 1u32 << 2;
-    pub const PRIVATE_STATE_RESERVED: u32 = 1u32 << 31;
-
-    pub const PRIVATE_STATE_INITIAL_VALUE: u32 = 0u32;
-
     pub fn from_nanoem(joint: &NanoemJoint, language: nanoem::common::LanguageType) -> Self {
         // TODO: should resolve physic engine
         let mut name = joint.get_name(language).to_owned();

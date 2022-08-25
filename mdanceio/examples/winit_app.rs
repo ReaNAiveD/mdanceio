@@ -91,7 +91,7 @@ impl State {
     fn load_sample_data(&mut self) -> Result<(), Box<dyn std::error::Error + 'static>> {
         let model_data = std::fs::read("mdanceio/tests/example/Alicia/MMD/Alicia_solid.pmx")?;
         self.application
-            .load_model(&model_data, &self.device, &self.queue);
+            .load_model(&model_data, &self.device, &self.queue)?;
         drop(model_data);
         self.application.enable_all_model_shadow_map(true);
         let texture_dir = std::fs::read_dir("mdanceio/tests/example/Alicia/FBX/").unwrap();
@@ -108,7 +108,7 @@ impl State {
         }
         self.application.update_bind_texture(&self.device);
         let motion_data = std::fs::read("mdanceio/tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
-        self.application.load_model_motion(&motion_data);
+        self.application.load_model_motion(&motion_data)?;
         self.application.play();
         drop(motion_data);
         Ok(())

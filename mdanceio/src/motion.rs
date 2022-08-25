@@ -19,9 +19,10 @@ use crate::{
     error::MdanceioError,
     light::{DirectionalLight, Light},
     model::{Bone, Model},
+    motion_keyframe_selection::MotionKeyframeSelection,
     project::Project,
     shadow_camera::ShadowCamera,
-    utils::{f128_to_quat, f128_to_vec4}, motion_keyframe_selection::MotionKeyframeSelection,
+    utils::{f128_to_quat, f128_to_vec4},
 };
 
 pub type NanoemMotion = nanoem::motion::Motion;
@@ -144,7 +145,10 @@ impl Motion {
                 annotations: HashMap::new(),
                 dirty: false,
             }),
-            Err(status) => Err(MdanceioError::from_nanoem("Cannot load the model: ", status)),
+            Err(status) => Err(MdanceioError::from_nanoem(
+                "Cannot load the model: ",
+                status,
+            )),
         }
     }
 
@@ -298,15 +302,12 @@ impl Motion {
     }
 
     pub fn add_frame_index_delta(value: i32, frame_index: u32) -> Option<u32> {
-        let mut result = false;
         if value > 0 {
             if frame_index <= Self::MAX_KEYFRAME_INDEX - value as u32 {
                 return Some(frame_index + (value as u32));
             }
-        } else if value < 0 {
-            if frame_index >= value.abs() as u32 {
-                return Some(frame_index - (value.abs() as u32));
-            }
+        } else if value < 0 && frame_index >= value.unsigned_abs() {
+            return Some(frame_index - value.unsigned_abs());
         }
         None
     }
@@ -321,7 +322,7 @@ impl Motion {
         offset: i32,
     ) -> Result<(), NanoemError> {
         for keyframe in keyframes {
-            let frame_index = keyframe.frame_index_with_offset(offset);
+            let _frame_index = keyframe.frame_index_with_offset(offset);
             let mut n_keyframe = keyframe.clone();
             keyframe.copy_outside_parent(target, &mut n_keyframe);
             let _ = target.add_accessory_keyframe(n_keyframe);
@@ -337,26 +338,11 @@ impl Motion {
         Self::copy_all_accessory_keyframes(
             &source
                 .get_all_accessory_keyframe_objects()
-                .map(|keyframe| keyframe.clone())
+                .cloned()
                 .collect::<Vec<_>>(),
             target,
             offset,
         )
-    }
-
-    pub fn copy_all_bone_keyframes(
-        keyframes: &[MotionBoneKeyframe],
-        parent_motion: &NanoemMotion,
-        selection: &(dyn MotionKeyframeSelection),
-        model: &Model,
-        target: &mut NanoemMotion,
-        offset: i32,
-    ) -> Result<(), NanoemError> {
-        for keyframe in keyframes {
-            // let name = keyframe.get_name(parent_motion);
-            // TODO: unfinished
-        }
-        Ok(())
     }
 
     pub fn merge_all_keyframes(&mut self, source: &Motion) {

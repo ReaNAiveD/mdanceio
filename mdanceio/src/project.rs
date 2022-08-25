@@ -1188,8 +1188,13 @@ impl Project {
 }
 
 impl Project {
-    pub fn load_model(&mut self, model_data: &[u8], device: &wgpu::Device, queue: &wgpu::Queue) {
-        if let Ok(model) = Model::new_from_bytes(
+    pub fn load_model(
+        &mut self,
+        model_data: &[u8],
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<(), MdanceioError> {
+        Model::new_from_bytes(
             model_data,
             self.parse_language(),
             &mut self.physics_engine,
@@ -1199,10 +1204,11 @@ impl Project {
             &self.texture_bind_group_layout,
             device,
             queue,
-        ) {
+        )
+        .map(|model| {
             let handle = self.add_model(model);
             self.set_active_model(Some(handle));
-        }
+        })
     }
 
     pub fn add_model(&mut self, mut model: Model) -> ModelHandle {
@@ -1281,10 +1287,10 @@ impl Project {
             // TODO: publish add motion event
             return last_model_motion;
         }
-        return None;
+        None
     }
 
-    pub fn set_camera_motion(&mut self, mut motion: Motion) -> Motion {
+    pub fn set_camera_motion(&mut self, motion: Motion) -> Motion {
         let last_motion = self.camera_motion.clone();
         self.camera_motion = motion;
         self.set_base_duration(self.project_duration());
@@ -1299,7 +1305,7 @@ impl Project {
         last_motion
     }
 
-    pub fn set_light_motion(&mut self, mut motion: Motion) -> Motion {
+    pub fn set_light_motion(&mut self, motion: Motion) -> Motion {
         let last_motion = self.light_motion.clone();
         self.light_motion = motion;
         self.set_base_duration(self.project_duration());

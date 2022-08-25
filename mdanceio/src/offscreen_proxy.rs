@@ -1,4 +1,4 @@
-use crate::{base_application_service::BaseApplicationService, injector::Injector};
+use crate::{base_application_service::BaseApplicationService, injector::Injector, error::MdanceioError};
 
 pub struct OffscreenProxy {
     texture: wgpu::Texture,
@@ -6,9 +6,6 @@ pub struct OffscreenProxy {
     buffer_dimensions: BufferDimensions,
     target_buffer: wgpu::Buffer,
 
-    instance: wgpu::Instance,
-    adapter: wgpu::Adapter,
-    adapter_info: wgpu::AdapterInfo,
     device: wgpu::Device,
     queue: wgpu::Queue,
 
@@ -28,7 +25,6 @@ impl OffscreenProxy {
             })
             .await
             .unwrap();
-        let adapter_info = adapter.get_info();
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
@@ -81,17 +77,14 @@ impl OffscreenProxy {
             target: view,
             buffer_dimensions,
             target_buffer,
-            instance,
-            adapter,
-            adapter_info,
             device,
             queue,
             application: service,
         }
     }
 
-    pub fn load_model(&mut self, data: &[u8]) {
-        self.application.load_model(data, &self.device, &self.queue);
+    pub fn load_model(&mut self, data: &[u8]) -> Result<(), MdanceioError> {
+        self.application.load_model(data, &self.device, &self.queue)
     }
 
     pub fn load_texture(&mut self, key: &str, data: &[u8], update_bind: bool) {
@@ -99,8 +92,8 @@ impl OffscreenProxy {
             .load_texture(key, data, update_bind, &self.device, &self.queue);
     }
 
-    pub fn load_model_motion(&mut self, data: &[u8]) {
-        self.application.load_model_motion(data);
+    pub fn load_model_motion(&mut self, data: &[u8]) -> Result<(), MdanceioError> {
+        self.application.load_model_motion(data)
     }
 
     pub fn redraw(&mut self) -> Vec<u8> {
@@ -147,7 +140,7 @@ impl OffscreenProxy {
         }
         drop(mapped_buffer);
         self.target_buffer.unmap();
-        return result;
+        result
     }
 
     pub fn play(&mut self) {

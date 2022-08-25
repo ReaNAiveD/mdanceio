@@ -55,7 +55,7 @@ impl Grid {
     pub fn draw(
         &self,
         color_view: &wgpu::TextureView,
-        depth_view: Option<&wgpu::TextureView>,
+        _depth_view: Option<&wgpu::TextureView>,
         project: &Project,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
