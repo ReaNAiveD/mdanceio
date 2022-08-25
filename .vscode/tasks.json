@@ -2,17 +2,18 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "rust: cargo build",
             "type": "cargo",
             "command": "build",
             "problemMatcher": [
                 "$rustc"
             ],
-            "label": "rust: cargo build",
             "options": {
                 "env": {}
             }
         },
         {
+            "label": "rust: cargo build-wasm",
             "type": "cargo",
             "command": "build",
             "args": [
@@ -24,7 +25,6 @@
             "problemMatcher": [
                 "$rustc"
             ],
-            "label": "rust: cargo build-wasm",
             "options": {
                 "env": {
                     "RUSTFLAGS": "--cfg=web_sys_unstable_apis"
@@ -32,15 +32,16 @@
             }
         },
         {
+            "label": "wasm: bindgen",
             "type": "shell",
             "command": "wasm-bindgen --out-dir target/pkg --target web target/wasm32-unknown-unknown/debug/nanoemweb_emapp.wasm",
-            "label": "wasm: bindgen",
             "dependsOn": [
                 "rust: cargo build-wasm"
             ],
             "problemMatcher": []
         },
         {
+            "label": "rust: cargo run example winit",
             "type": "cargo",
             "command": "run",
             "args": [
@@ -52,7 +53,6 @@
             "problemMatcher": [
                 "$rustc"
             ],
-            "label": "rust: cargo run example winit",
             "options": {
                 "env": {}
             }
