@@ -34,7 +34,7 @@
         {
             "label": "wasm: bindgen",
             "type": "shell",
-            "command": "wasm-bindgen --out-dir target/pkg --target web target/wasm32-unknown-unknown/debug/nanoemweb_emapp.wasm",
+            "command": "wasm-bindgen --out-dir target/pkg --target web target/wasm32-unknown-unknown/debug/mdanceio.wasm",
             "dependsOn": [
                 "rust: cargo build-wasm"
             ],
