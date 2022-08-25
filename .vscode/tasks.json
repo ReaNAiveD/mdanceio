@@ -48,7 +48,14 @@
                 "--package",
                 "mdanceio",
                 "--example",
-                "winit_app"
+                "winit_app",
+                "--",
+                "--model",
+                "<Model Path>",
+                "--texture",
+                "<Texture Directory>",
+                "--motion",
+                "<Motion Path>"
             ],
             "problemMatcher": [
                 "$rustc"

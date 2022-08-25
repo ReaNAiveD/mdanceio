@@ -52,7 +52,6 @@ pub type RigidBodyIndex = usize;
 pub type JointIndex = usize;
 pub type SoftBodyIndex = usize;
 
-
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VertexUnit {
@@ -612,7 +611,10 @@ impl Model {
                     },
                 })
             }
-            Err(status) => Err(MdanceioError::from_nanoem("Cannot load the model: ", status)),
+            Err(status) => Err(MdanceioError::from_nanoem(
+                "Cannot load the model: ",
+                status,
+            )),
         }
     }
 
@@ -973,7 +975,7 @@ impl Model {
                 bone.synchronize_motion(motion, rigid_body, frame_index, amount, physics_engine);
             }
         }
-        self.apply_all_bones_transform(timing, physics_engine, outside_parent_bone_map);
+        self.apply_all_bones_transform(timing, outside_parent_bone_map);
     }
 
     fn synchronize_morph_motion(&mut self, motion: &Motion, frame_index: u32, amount: f32) {
@@ -1252,7 +1254,6 @@ impl Model {
     fn apply_all_bones_transform(
         &mut self,
         timing: SimulationTiming,
-        physics_engine: &mut PhysicsEngine,
         outside_parent_bone_map: &HashMap<(String, String), Bone>,
     ) {
         if timing == SimulationTiming::Before {
@@ -1275,7 +1276,7 @@ impl Model {
                 let parent_bone = usize::try_from(bone.origin.parent_bone_index)
                     .ok()
                     .and_then(|idx| self.bones.get(idx))
-                    .map(|b| (b.clone()));
+                    .cloned();
                 let parent_bone_and_is_constraint_joint_bone_active =
                     parent_bone.as_ref().map(|bone| {
                         (
@@ -1579,11 +1580,7 @@ impl Model {
         physics_simulation_time_step: f32,
         outside_parent_bone_map: &HashMap<(String, String), Bone>,
     ) {
-        self.apply_all_bones_transform(
-            SimulationTiming::Before,
-            physics_engine,
-            outside_parent_bone_map,
-        );
+        self.apply_all_bones_transform(SimulationTiming::Before, outside_parent_bone_map);
         self.solve_all_constraints();
         if physics_engine.simulation_mode == SimulationMode::EnableAnytime {
             self.synchronize_all_rigid_bodies_transform_feedback_to_simulation(physics_engine);
@@ -1593,11 +1590,7 @@ impl Model {
                 physics_engine,
             );
         }
-        self.apply_all_bones_transform(
-            SimulationTiming::After,
-            physics_engine,
-            outside_parent_bone_map,
-        );
+        self.apply_all_bones_transform(SimulationTiming::After, outside_parent_bone_map);
         self.mark_staging_vertex_buffer_dirty();
         // TODO: handle owned camera
     }
@@ -1809,8 +1802,7 @@ impl Model {
         queue: &wgpu::Queue,
     ) {
         if self.states.dirty_staging_buffer {
-            self.skin_deformer
-                .update_buffer(self, camera, queue);
+            self.skin_deformer.update_buffer(self, camera, queue);
             self.skin_deformer.execute(
                 &self.vertex_buffers[self.stage_vertex_buffer_index],
                 device,
@@ -2720,17 +2712,8 @@ impl Bone {
         effector_bone_local_user_orientation: Option<Quaternion<f32>>,
         is_constraint_joint_bone_active: bool,
     ) {
-        // let is_constraint_joint_bone_active = Some(true)
-        //     == model
-        //         .constraint_joint_bones
-        //         .get(&self.origin.base.index)
-        //         .and_then(|idx| model.constraints.get(*idx))
-        //         .map(|constraint| constraint.states.enabled);
         if self.origin.flags.has_inherent_orientation {
             let mut orientation = Quaternion::<f32>::zero();
-            // if let Some(parent_bone) = usize::try_from(self.origin.parent_bone_index)
-            //     .ok()
-            //     .and_then(|idx| model.bones.get(idx))
             if let Some((parent_bone, parent_is_constraint_joint_bone_active)) =
                 parent_bone_and_is_constraint_joint_bone_active
             {
@@ -2738,20 +2721,12 @@ impl Bone {
                     orientation = Quaternion::<f32>::from(mat4_truncate(
                         parent_bone.matrices.local_transform,
                     )) * orientation;
-                } else if parent_is_constraint_joint_bone_active
-                // } else if let Some(true) = model
-                //     .constraint_joint_bones
-                //     .get(&parent_bone.origin.base.index)
-                //     .and_then(|idx| model.constraints.get(*idx))
-                //     .map(|constraint| constraint.states.enabled)
-                {
+                } else if parent_is_constraint_joint_bone_active {
                     orientation = parent_bone.constraint_joint_orientation * orientation;
+                } else if parent_bone.origin.flags.has_inherent_orientation {
+                    orientation = parent_bone.local_inherent_orientation * orientation;
                 } else {
-                    if parent_bone.origin.flags.has_inherent_orientation {
-                        orientation = parent_bone.local_inherent_orientation * orientation;
-                    } else {
-                        orientation = parent_bone.local_user_orientation * orientation;
-                    }
+                    orientation = parent_bone.local_user_orientation * orientation;
                 }
             }
             let coefficient = self.origin.inherent_coefficient;
@@ -2766,11 +2741,9 @@ impl Bone {
                 }
             }
             let local_orientation = if is_constraint_joint_bone_active {
-                (self.constraint_joint_orientation * self.local_morph_orientation * orientation)
-                    .normalize()
+                self.constraint_joint_orientation * self.local_morph_orientation * orientation
             } else {
-                (self.local_morph_orientation * self.local_user_orientation * orientation)
-                    .normalize()
+                self.local_morph_orientation * self.local_user_orientation * orientation
             };
             self.local_orientation = local_orientation;
             self.local_inherent_orientation = orientation;
@@ -3864,7 +3837,7 @@ impl RigidBody {
                 world_transform = offset * world_transform;
                 initial_world_transform = world_transform;
                 let skinning_transform = to_isometry(bone.matrices.skinning_transform);
-                world_transform = world_transform * skinning_transform;
+                world_transform *= skinning_transform;
             }
         }
         let rigid_body_builder = rapier3d::dynamics::RigidBodyBuilder::new(
@@ -4102,7 +4075,7 @@ impl RigidBody {
                 && !physics_rigid_body.is_kinematic()
             {
                 let initial_transform = self.initial_world_transform;
-                let mut world_transform = physics_rigid_body.position().clone();
+                let mut world_transform = *physics_rigid_body.position();
                 if follow_type == RigidBodyFollowBone::Perform
                     && self.origin.transform_type
                         == ModelRigidBodyTransformType::FromBoneOrientationAndSimulationToBone

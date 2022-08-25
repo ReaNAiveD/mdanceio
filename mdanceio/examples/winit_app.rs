@@ -1,6 +1,9 @@
+use std::path::PathBuf;
+
 use log4rs::append::file::FileAppender;
 use log4rs::encode::pattern::PatternEncoder;
 use mdanceio::base_application_service::BaseApplicationService;
+use winit::dpi::PhysicalSize;
 use winit::window::Window;
 use winit::{
     event::*,
@@ -88,13 +91,20 @@ impl State {
         }
     }
 
-    fn load_sample_data(&mut self) -> Result<(), Box<dyn std::error::Error + 'static>> {
-        let model_data = std::fs::read("mdanceio/tests/example/Alicia/MMD/Alicia_solid.pmx")?;
+    fn load_sample_data(
+        &mut self,
+        model_path: &PathBuf,
+        texture_dir: &PathBuf,
+        motion_path: Option<&PathBuf>,
+    ) -> Result<(), Box<dyn std::error::Error + 'static>> {
+        log::info!("Loading Model...");
+        let model_data = std::fs::read(model_path)?;
         self.application
             .load_model(&model_data, &self.device, &self.queue)?;
         drop(model_data);
         self.application.enable_all_model_shadow_map(true);
-        let texture_dir = std::fs::read_dir("mdanceio/tests/example/Alicia/FBX/").unwrap();
+        log::info!("Loading Texture...");
+        let texture_dir = std::fs::read_dir(texture_dir).unwrap();
         for texture_file in texture_dir {
             let texture_file = texture_file.unwrap();
             let texture_data = std::fs::read(texture_file.path())?;
@@ -107,10 +117,12 @@ impl State {
             );
         }
         self.application.update_bind_texture(&self.device);
-        let motion_data = std::fs::read("mdanceio/tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
-        self.application.load_model_motion(&motion_data)?;
+        log::info!("Loading Motion...");
+        if let Some(motion_path) = motion_path {
+            let motion_data = std::fs::read(motion_path)?;
+            self.application.load_model_motion(&motion_data)?;
+        }
         self.application.play();
-        drop(motion_data);
         Ok(())
     }
 
@@ -135,12 +147,73 @@ impl State {
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
+    let app = clap::App::new("mdrs")
+        .version("0.1.0")
+        .author("NAiveD <nice-die@live.com>")
+        .setting(clap::AppSettings::DeriveDisplayOrder)
+        .arg(
+            clap::Arg::new("width")
+                .long("width")
+                .short('w')
+                .default_value("800")
+                .value_parser(clap::value_parser!(u32).range(1..))
+                .help("Width of render target texture"),
+        )
+        .arg(
+            clap::Arg::new("height")
+                .long("height")
+                .short('h')
+                .default_value("600")
+                .value_parser(clap::value_parser!(u32).range(1..))
+                .help("Height of render target texture"),
+        )
+        .arg(
+            clap::arg!(
+                --model <FILE> "Path to the model to load"
+            )
+            .required(true)
+            .value_parser(clap::value_parser!(PathBuf)),
+        )
+        .arg(
+            clap::arg!(
+                --texture <DIR> "Path to the texture directory"
+            )
+            .required(false)
+            .value_parser(clap::value_parser!(PathBuf)),
+        )
+        .arg(
+            clap::arg!(
+                --motion <FILE> "Path to the motion to load"
+            )
+            .required(false)
+            .value_parser(clap::value_parser!(PathBuf)),
+        );
+
+    let matches = app.clone().get_matches();
+    let width: u32 = *matches
+        .get_one("width")
+        .expect("Parameter `width` is required. ");
+    let height: u32 = *matches
+        .get_one("height")
+        .expect("Parameter `height` is required. ");
+    let model_path = matches
+        .get_one::<PathBuf>("model")
+        .expect("Parameter `model` is required. ");
+    let texture_dir = matches
+        .get_one::<PathBuf>("texture")
+        .cloned()
+        .unwrap_or_else(|| {
+            let mut dir = model_path.clone();
+            dir.pop();
+            dir
+        });
+    let motion_path = matches.get_one::<PathBuf>("motion");
+
     let logfile = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new(
             "{d(%Y-%m-%d %H:%M:%S.%6f)} [{level}] - {m} [{file}:{line}]{n}",
         )))
         .build("target/log/output.log")?;
-
     let config = log4rs::config::Config::builder()
         .appender(log4rs::config::Appender::builder().build("logfile", Box::new(logfile)))
         .build(
@@ -148,14 +221,16 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
                 .appender("logfile")
                 .build(log::LevelFilter::Info),
         )?;
-
     log4rs::init_config(config)?;
     let event_loop = EventLoop::new();
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
+    let window = WindowBuilder::new()
+        .with_inner_size(PhysicalSize { width, height })
+        .build(&event_loop)
+        .unwrap();
 
     let mut state = State::new(&window).await;
 
-    state.load_sample_data()?;
+    state.load_sample_data(model_path, &texture_dir, motion_path)?;
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
