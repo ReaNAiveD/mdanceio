@@ -5,7 +5,7 @@ use std::{
 
 use cgmath::{Quaternion, Vector1, Vector2, Vector4, VectorSpace};
 use nanoem::{
-    common::Status,
+    common::NanoemError,
     motion::{
         MotionAccessoryKeyframe, MotionBoneKeyframe, MotionBoneKeyframeInterpolation,
         MotionCameraKeyframe, MotionKeyframeBase, MotionLightKeyframe, MotionModelKeyframe,
@@ -16,7 +16,7 @@ use nanoem::{
 use crate::{
     bezier_curve::BezierCurve,
     camera::PerspectiveCamera,
-    error::Error,
+    error::MdanceioError,
     light::{DirectionalLight, Light},
     model::{Bone, Model},
     project::Project,
@@ -135,7 +135,7 @@ impl Motion {
     ];
     pub const MAX_KEYFRAME_INDEX: u32 = u32::MAX;
 
-    pub fn new_from_bytes(bytes: &[u8], offset: u32) -> Result<Self, Error> {
+    pub fn new_from_bytes(bytes: &[u8], offset: u32) -> Result<Self, MdanceioError> {
         let mut buffer = nanoem::common::Buffer::create(bytes);
         match NanoemMotion::load_from_buffer(&mut buffer, offset) {
             Ok(motion) => Ok(Self {
@@ -144,7 +144,7 @@ impl Motion {
                 annotations: HashMap::new(),
                 dirty: false,
             }),
-            Err(status) => Err(Error::from_nanoem("Cannot load the model: ", status)),
+            Err(status) => Err(MdanceioError::from_nanoem("Cannot load the model: ", status)),
         }
     }
 
@@ -319,7 +319,7 @@ impl Motion {
         keyframes: &[MotionAccessoryKeyframe],
         target: &mut NanoemMotion,
         offset: i32,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         for keyframe in keyframes {
             let frame_index = keyframe.frame_index_with_offset(offset);
             let mut n_keyframe = keyframe.clone();
@@ -333,7 +333,7 @@ impl Motion {
         source: &NanoemMotion,
         target: &mut NanoemMotion,
         offset: i32,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         Self::copy_all_accessory_keyframes(
             &source
                 .get_all_accessory_keyframe_objects()
@@ -351,7 +351,7 @@ impl Motion {
         model: &Model,
         target: &mut NanoemMotion,
         offset: i32,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         for keyframe in keyframes {
             // let name = keyframe.get_name(parent_motion);
             // TODO: unfinished

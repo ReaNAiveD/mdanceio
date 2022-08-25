@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use crate::error::Error;
+use crate::error::MdanceioError;
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Rational {
@@ -32,7 +32,7 @@ pub enum AudioPlayerState {
 
 pub trait AudioPlayer {
     // TODO
-    fn load(bytes: &[u8]) -> Result<Self, Error>
+    fn load(bytes: &[u8]) -> Result<Self, MdanceioError>
     where
         Self: Sized;
     fn play(&mut self);
@@ -168,7 +168,7 @@ impl Default for ClockAudioPlayer {
 }
 
 impl AudioPlayer for ClockAudioPlayer {
-    fn load(bytes: &[u8]) -> Result<Self, Error>
+    fn load(bytes: &[u8]) -> Result<Self, MdanceioError>
     where
         Self: Sized,
     {

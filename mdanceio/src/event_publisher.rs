@@ -1,4 +1,4 @@
-use crate::error::{Error};
+use crate::error::{MdanceioError};
 
 pub trait EventPublisher {
     fn publish_tracking_event(&mut self, screen: String, action: String, category: String, label: String);
@@ -72,5 +72,5 @@ pub trait EventPublisher {
     fn publish_disable_cursor_event(&mut self, );
     fn publish_enable_cursor_event(&mut self, );
     fn publish_quit_application_event(&mut self, );
-    fn publish_error_event(&mut self, error: Error);
+    fn publish_error_event(&mut self, error: MdanceioError);
 }

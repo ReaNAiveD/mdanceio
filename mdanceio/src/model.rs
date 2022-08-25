@@ -19,7 +19,7 @@ use crate::{
     camera::{Camera, PerspectiveCamera},
     deformer::Deformer,
     drawable::{DrawContext, DrawType, Drawable},
-    error::Error,
+    error::MdanceioError,
     light::Light,
     model_program_bundle::{PassExecuteConfiguration, TechniqueType},
     motion::{KeyframeInterpolationPoint, Motion},
@@ -186,7 +186,7 @@ impl Model {
         bind_group_layout: &wgpu::BindGroupLayout,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, MdanceioError> {
         let mut buffer = nanoem::common::Buffer::create(bytes);
         match NanoemModel::load_from_buffer(&mut buffer) {
             Ok(nanoem_model) => {
@@ -612,7 +612,7 @@ impl Model {
                     },
                 })
             }
-            Err(status) => Err(Error::from_nanoem("Cannot load the model: ", status)),
+            Err(status) => Err(MdanceioError::from_nanoem("Cannot load the model: ", status)),
         }
     }
 

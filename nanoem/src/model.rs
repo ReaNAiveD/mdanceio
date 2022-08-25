@@ -1,5 +1,5 @@
 use crate::{
-    common::{Buffer, LanguageType, MutableBuffer, Status},
+    common::{Buffer, LanguageType, MutableBuffer, NanoemError},
     utils::fourcc,
 };
 
@@ -54,14 +54,14 @@ impl CodecType {
         }
     }
 
-    fn get_string(&self, buffer: &mut Buffer) -> Result<String, Status> {
+    fn get_string(&self, buffer: &mut Buffer) -> Result<String, NanoemError> {
         let length = buffer.read_len()?;
         let src = buffer.read_buffer(length)?;
         let codec = self.get_encoding();
         // TODO: need bom removal or not?
         let (cow, _, had_errors) = codec.decode(src);
         if had_errors {
-            return Err(Status::ErrorDecodeUnicodeStringFailed);
+            return Err(NanoemError::DecodeUnicodeStringFailed);
         }
         Ok(cow.into())
     }
@@ -166,10 +166,10 @@ pub struct Model {
 impl Model {
     const PMX_SIGNATURE: &'static str = "PMX ";
 
-    fn load_from_pmx(buffer: &mut Buffer) -> Result<Self, Status> {
+    fn load_from_pmx(buffer: &mut Buffer) -> Result<Self, NanoemError> {
         let signature = buffer.read_u32_little_endian()?;
-        if signature == fourcc('P' as u8, 'M' as u8, 'X' as u8, ' ' as u8)
-            || signature == fourcc('P' as u8, 'M' as u8, 'X' as u8, 0xA0u8)
+        if signature == fourcc(b'P', b'M', b'X', b' ')
+            || signature == fourcc(b'P', b'M', b'X', 0xA0u8)
         {
             let version = buffer.read_f32_little_endian()?.into();
             let info_length = buffer.read_byte()?;
@@ -211,27 +211,23 @@ impl Model {
                 model.parse_pmx(buffer, &info)?;
                 Ok(model)
             } else {
-                Err(Status::ErrorPmxInfoCorrupted)
+                Err(NanoemError::PmxInfoCorrupted)
             }
         } else {
-            Err(Status::ErrorInvalidSignature)
+            Err(NanoemError::InvalidSignature)
         }
-    }
-
-    fn get_string_pmx(&self, buffer: &mut Buffer, info: &ModelInfo) -> Result<String, Status> {
-        info.codec_type.get_string(buffer)
     }
 
     fn parse_vertex_block_pmx(
         &mut self,
         buffer: &mut Buffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let num_vertices = buffer.read_len()?;
         if num_vertices > 0 {
             self.vertices.clear();
             for i in 0..num_vertices {
-                let vertex = ModelVertex::parse_pmx(buffer, &info, i)?;
+                let vertex = ModelVertex::parse_pmx(buffer, info, i)?;
                 self.vertices.push(vertex);
             }
         }
@@ -242,12 +238,12 @@ impl Model {
         &mut self,
         buffer: &mut Buffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let vertex_index_size = info.vertex_index_size as usize;
         let num_vertex_indices = buffer.read_len()?;
         let num_vertices = self.vertices.len();
         if (num_vertex_indices == 0 && num_vertices > 0) || num_vertex_indices % 3 != 0 {
-            Err(Status::ErrorModelFaceCorrupted)
+            Err(NanoemError::ModelFaceCorrupted)
         } else {
             self.vertex_indices.clear();
             for _ in 0..num_vertex_indices {
@@ -267,7 +263,7 @@ impl Model {
         &mut self,
         buffer: &mut Buffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let num_textures = buffer.read_len()?;
         if num_textures > 0 {
             self.textures.clear();
@@ -283,7 +279,7 @@ impl Model {
         &mut self,
         buffer: &mut Buffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let num_materials = buffer.read_len()?;
         if num_materials > 0 {
             self.materials.clear();
@@ -299,7 +295,7 @@ impl Model {
         &mut self,
         buffer: &mut Buffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let num_bones = buffer.read_len()?;
         if num_bones > 0 {
             self.bones.clear();
@@ -316,7 +312,7 @@ impl Model {
         &mut self,
         buffer: &mut Buffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let num_morphs = buffer.read_len()?;
         if num_morphs > 0 {
             self.morphs.clear();
@@ -332,7 +328,7 @@ impl Model {
         &mut self,
         buffer: &mut Buffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let num_labels = buffer.read_len()?;
         if num_labels > 0 {
             self.labels.clear();
@@ -348,12 +344,12 @@ impl Model {
         &mut self,
         buffer: &mut Buffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let num_rigid_bodies = buffer.read_len()?;
         if num_rigid_bodies > 0 {
             self.rigid_bodies.clear();
             for i in 0..num_rigid_bodies {
-                let mut rigid_body = ModelRigidBody::parse_pmx(buffer, info, i)?;
+                let rigid_body = ModelRigidBody::parse_pmx(buffer, info, i)?;
                 self.rigid_bodies.push(rigid_body);
             }
         }
@@ -364,12 +360,12 @@ impl Model {
         &mut self,
         buffer: &mut Buffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let num_joints = buffer.read_len()?;
         if num_joints > 0 {
             self.joints.clear();
             for i in 0..num_joints {
-                let mut joint = ModelJoint::parse_pmx(buffer, info, i)?;
+                let joint = ModelJoint::parse_pmx(buffer, info, i)?;
                 self.joints.push(joint);
             }
         }
@@ -380,19 +376,19 @@ impl Model {
         &mut self,
         buffer: &mut Buffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let num_soft_bodies = buffer.read_len()?;
         if num_soft_bodies > 0 {
             self.soft_bodies.clear();
             for i in 0..num_soft_bodies {
-                let mut soft_body = ModelSoftBody::parse_pmx(buffer, info, i)?;
+                let soft_body = ModelSoftBody::parse_pmx(buffer, info, i)?;
                 self.soft_bodies.push(soft_body);
             }
         }
         Ok(())
     }
 
-    fn parse_pmx(&mut self, buffer: &mut Buffer, info: &ModelInfo) -> Result<(), Status> {
+    fn parse_pmx(&mut self, buffer: &mut Buffer, info: &ModelInfo) -> Result<(), NanoemError> {
         self.parse_vertex_block_pmx(buffer, info)?;
         self.parse_vertex_index_block_pmx(buffer, info)?;
         self.parse_texture_block_pmx(buffer, info)?;
@@ -408,14 +404,14 @@ impl Model {
         if buffer.is_end() {
             Ok(())
         } else {
-            Err(Status::ErrorBufferNotEnd)
+            Err(NanoemError::BufferNotEnd)
         }
     }
 
-    pub fn load_from_buffer(buffer: &mut Buffer) -> Result<Self, Status> {
+    pub fn load_from_buffer(buffer: &mut Buffer) -> Result<Self, NanoemError> {
         let result = Self::load_from_pmx(buffer);
-        if let Err(Status::ErrorInvalidSignature) = result {
-            Err(Status::ErrorNoSupportForPMD)
+        if let Err(NanoemError::InvalidSignature) = result {
+            Err(NanoemError::NoSupportForPMD)
         } else {
             result
         }
@@ -425,7 +421,7 @@ impl Model {
         &self,
         buffer: &mut MutableBuffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_i32_little_endian(self.vertices.len() as i32)?;
         for vertex in &self.vertices {
             vertex.save_to_buffer(buffer, self.is_pmx(), info)?;
@@ -437,7 +433,7 @@ impl Model {
         &self,
         buffer: &mut MutableBuffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_i32_little_endian(self.textures.len() as i32)?;
         for texture in &self.textures {
             texture.save_to_buffer(buffer, info)?;
@@ -449,7 +445,7 @@ impl Model {
         &self,
         buffer: &mut MutableBuffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_i32_little_endian(self.materials.len() as i32)?;
         for material in &self.materials {
             material.save_to_buffer(buffer, self.is_pmx(), info)?;
@@ -461,7 +457,7 @@ impl Model {
         &self,
         buffer: &mut MutableBuffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_integer(self.bones.len() as i32, if self.is_pmx() { 4 } else { 2 })?;
         for bone in &self.bones {
             bone.save_to_buffer(buffer, self, info)?;
@@ -473,7 +469,7 @@ impl Model {
         &self,
         buffer: &mut MutableBuffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_integer(self.morphs.len() as i32, if self.is_pmx() { 4 } else { 2 })?;
         for morph in &self.morphs {
             morph.save_to_buffer(buffer, self.is_pmx(), info)?;
@@ -485,7 +481,7 @@ impl Model {
         &self,
         buffer: &mut MutableBuffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         if self.is_pmx() {
             buffer.write_integer(self.labels.len() as i32, 4)?;
             for label in &self.labels {
@@ -493,7 +489,7 @@ impl Model {
             }
             Ok(())
         } else {
-            Err(Status::ErrorNoSupportForPMD)
+            Err(NanoemError::NoSupportForPMD)
         }
     }
 
@@ -501,7 +497,7 @@ impl Model {
         &self,
         buffer: &mut MutableBuffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_i32_little_endian(self.rigid_bodies.len() as i32)?;
         for rigid_body in &self.rigid_bodies {
             rigid_body.save_to_buffer(buffer, self.is_pmx(), info)?;
@@ -513,7 +509,7 @@ impl Model {
         &self,
         buffer: &mut MutableBuffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_i32_little_endian(self.joints.len() as i32)?;
         for joint in &self.joints {
             joint.save_to_buffer(buffer, self.is_pmx(), info)?;
@@ -525,17 +521,17 @@ impl Model {
         &self,
         buffer: &mut MutableBuffer,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         if self.is_pmx21() {
             buffer.write_i32_little_endian(self.soft_bodies.len() as i32)?;
             for soft_body in &self.soft_bodies {
-                soft_body.save_to_buffer(buffer, self.is_pmx(), info)?;
+                soft_body.save_to_buffer(buffer, info)?;
             }
         }
         Ok(())
     }
 
-    pub fn save_to_buffer_pmx(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    pub fn save_to_buffer_pmx(&self, buffer: &mut MutableBuffer) -> Result<(), NanoemError> {
         let encoding = self.get_codec_type().get_encoding();
         let info_length = 8;
         let info = ModelInfo {
@@ -567,7 +563,7 @@ impl Model {
         let vertex_index_size = info.vertex_index_size as usize;
         buffer.write_i32_little_endian(self.vertex_indices.len() as i32)?;
         for vertex_index in &self.vertex_indices {
-            buffer.write_integer(vertex_index.clone() as i32, vertex_index_size)?;
+            buffer.write_integer(*vertex_index as i32, vertex_index_size)?;
         }
         self.textures_save_to_buffer(buffer, &info)?;
         self.materials_save_to_buffer(buffer, &info)?;
@@ -580,11 +576,11 @@ impl Model {
         Ok(())
     }
 
-    pub fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    pub fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), NanoemError> {
         if self.is_pmx() {
             self.save_to_buffer_pmx(buffer)
         } else {
-            Err(Status::ErrorNoSupportForPMD)
+            Err(NanoemError::NoSupportForPMD)
         }
     }
 
@@ -658,21 +654,21 @@ impl Model {
 
     pub fn get_vertex_index_size(size: usize) -> u8 {
         if size <= 0xff {
-            return 1u8;
+            1u8
         } else if size <= 0xffff {
-            return 2u8;
+            2u8
         } else {
-            return 4u8;
+            4u8
         }
     }
 
     pub fn get_object_index_size(size: usize) -> u8 {
         if size <= 0x7f {
-            return 1u8;
+            1u8
         } else if size <= 0x7fff {
-            return 2u8;
+            2u8
         } else {
-            return 4u8;
+            4u8
         }
     }
 
@@ -711,7 +707,7 @@ impl Model {
         &'b mut self,
         mut bone: ModelBone,
         index: i32,
-    ) -> Result<&'a ModelBone, Status> {
+    ) -> Result<&'a ModelBone, NanoemError> {
         let result_idx;
         if index >= 0 && (index as usize) < self.bones.len() {
             result_idx = index as usize;
@@ -755,7 +751,7 @@ fn mutable_model_object_apply_change_object_index(target: &mut i32, object_index
 }
 
 impl Model {
-    fn apply_change_all_object_indices(&mut self, vertex_index: i32, delta: i32) {
+    pub fn apply_change_all_object_indices(&mut self, vertex_index: i32, delta: i32) {
         for morph in &mut self.morphs {
             match &mut morph.typ {
                 ModelMorphType::Vertex(vertices) => {
@@ -794,19 +790,16 @@ impl Model {
         }
     }
 
-    fn material_apply_change_all_object_indices(&mut self, material_index: i32, delta: i32) {
+    pub fn material_apply_change_all_object_indices(&mut self, material_index: i32, delta: i32) {
         for morph in &mut self.morphs {
-            match &mut morph.typ {
-                ModelMorphType::Material(materials) => {
-                    for morph_material in materials {
-                        mutable_model_object_apply_change_object_index(
-                            &mut morph_material.material_index,
-                            material_index,
-                            delta,
-                        )
-                    }
+            if let ModelMorphType::Material(materials) = &mut morph.typ {
+                for morph_material in materials {
+                    mutable_model_object_apply_change_object_index(
+                        &mut morph_material.material_index,
+                        material_index,
+                        delta,
+                    )
                 }
-                _ => {}
             }
         }
         for soft_body in &mut self.soft_bodies {
@@ -818,7 +811,7 @@ impl Model {
         }
     }
 
-    fn bone_apply_change_all_object_indices(&mut self, bone_index: i32, delta: i32) {
+    pub fn bone_apply_change_all_object_indices(&mut self, bone_index: i32, delta: i32) {
         for vertex in &mut self.vertices {
             for vertex_bone_index in &mut vertex.bone_indices {
                 mutable_model_object_apply_change_object_index(
@@ -903,7 +896,7 @@ impl Model {
         }
     }
 
-    fn morph_apply_change_all_object_indices(&mut self, morph_index: i32, delta: i32) {
+    pub fn morph_apply_change_all_object_indices(&mut self, morph_index: i32, delta: i32) {
         for morph in &mut self.morphs {
             if let ModelMorphType::Group(groups) = &mut morph.typ {
                 for group in groups {
@@ -925,7 +918,11 @@ impl Model {
         }
     }
 
-    fn rigid_body_apply_change_all_object_indices(&mut self, rigid_body_index: i32, delta: i32) {
+    pub fn rigid_body_apply_change_all_object_indices(
+        &mut self,
+        rigid_body_index: i32,
+        delta: i32,
+    ) {
         for morph in &mut self.morphs {
             if let ModelMorphType::Impulse(impulses) = &mut morph.typ {
                 for impulse in impulses {
@@ -960,7 +957,7 @@ impl Model {
         }
     }
 
-    fn texture_apply_change_all_object_indices(&mut self, texture_index: i32, delta: i32) {
+    pub fn texture_apply_change_all_object_indices(&mut self, texture_index: i32, delta: i32) {
         for material in &mut self.materials {
             mutable_model_object_apply_change_object_index(
                 &mut material.diffuse_texture_index,
@@ -983,15 +980,9 @@ impl Model {
     }
 }
 
-#[derive(Debug, Clone, Copy, Hash)]
+#[derive(Debug, Default, Clone, Copy, Hash)]
 pub struct ModelObject {
     pub index: usize,
-}
-
-impl Default for ModelObject {
-    fn default() -> Self {
-        Self { index: 0 }
-    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1060,7 +1051,7 @@ impl ModelVertex {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
-    ) -> Result<ModelVertex, Status> {
+    ) -> Result<ModelVertex, NanoemError> {
         let mut vertex = ModelVertex {
             base: ModelObject { index },
             origin: buffer.read_f32_3_little_endian()?,
@@ -1088,7 +1079,7 @@ impl ModelVertex {
         }
         let bone_index_size = info.bone_index_size;
         match vertex.typ {
-            ModelVertexType::UNKNOWN => return Err(Status::ErrorModelVertexCorrupted),
+            ModelVertexType::UNKNOWN => return Err(NanoemError::ModelVertexCorrupted),
             ModelVertexType::BDEF1 => {
                 vertex.bone_indices[0] = buffer.read_integer_nullable(bone_index_size as usize)?;
                 vertex.bone_weights[0] = 1.0f32;
@@ -1128,7 +1119,7 @@ impl ModelVertex {
             }
         }
         vertex.edge_size = buffer.read_f32_little_endian()?;
-        return Ok(vertex);
+        Ok(vertex)
     }
 
     fn save_to_buffer(
@@ -1136,7 +1127,7 @@ impl ModelVertex {
         buffer: &mut MutableBuffer,
         is_pmx: bool,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_f32_3_little_endian(self.origin)?;
         buffer.write_f32_3_little_endian(self.normal)?;
         buffer.write_f32_2_little_endian(self.uv)?;
@@ -1146,7 +1137,7 @@ impl ModelVertex {
             }
             let size = info.bone_index_size as usize;
             match self.typ {
-                ModelVertexType::UNKNOWN => return Err(Status::ErrorModelVertexCorrupted),
+                ModelVertexType::UNKNOWN => return Err(NanoemError::ModelVertexCorrupted),
                 ModelVertexType::BDEF1 => {
                     buffer.write_byte(i32::from(self.typ) as u8)?;
                     buffer.write_integer(self.bone_indices[0], size)?;
@@ -1246,7 +1237,7 @@ pub struct ModelMaterialFlags {
 
 impl ModelMaterialFlags {
     fn from_u8(value: u8) -> ModelMaterialFlags {
-        return ModelMaterialFlags {
+        ModelMaterialFlags {
             is_culling_disabled: value % 2 != 0,
             is_casting_shadow_enabled: (value / 2) % 2 != 0,
             is_casting_shadow_map_enabled: (value / 4) % 2 != 0,
@@ -1255,13 +1246,13 @@ impl ModelMaterialFlags {
             is_vertex_color_enabled: (value / 32) % 2 != 0,
             is_point_draw_enabled: (value / 64) % 2 != 0,
             is_line_draw_enabled: (value / 128) % 2 != 0,
-        };
+        }
     }
 }
 
 impl From<ModelMaterialFlags> for u8 {
     fn from(value: ModelMaterialFlags) -> Self {
-        (value.is_culling_disabled as u8) << 0
+        (value.is_culling_disabled as u8)
             | (value.is_casting_shadow_enabled as u8) << 1
             | (value.is_casting_shadow_map_enabled as u8) << 2
             | (value.is_shadow_map_enabled as u8) << 3
@@ -1348,8 +1339,8 @@ impl ModelMaterial {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
-    ) -> Result<ModelMaterial, Status> {
-        let mut error: Option<Status> = None;
+    ) -> Result<ModelMaterial, NanoemError> {
+        let mut error: Option<NanoemError> = None;
         let texture_index_size = info.texture_index_size;
         let mut material = ModelMaterial {
             base: ModelObject { index },
@@ -1390,7 +1381,7 @@ impl ModelMaterial {
         };
         match sphere_map_texture_type {
             ModelMaterialSphereMapTextureType::Unknown => {
-                error = Some(Status::ErrorModelMaterialCorrupted)
+                error = Some(NanoemError::ModelMaterialCorrupted)
             }
             ModelMaterialSphereMapTextureType::TypeNone
             | ModelMaterialSphereMapTextureType::TypeMultiply
@@ -1420,7 +1411,7 @@ impl ModelMaterial {
         buffer: &mut MutableBuffer,
         is_pmx: bool,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         if is_pmx {
             let encoding = info.codec_type.get_encoding();
             buffer.write_string(&self.name_ja, encoding)?;
@@ -1452,7 +1443,7 @@ impl ModelMaterial {
             buffer.write_byte(self.flags.is_edge_enabled as u8)?;
             buffer.write_i32_little_endian(self.num_vertex_indices as i32)?;
             let s = self.diffuse_texture.as_ref().map(|t| t.path.clone());
-            buffer.write_string(&s.unwrap_or("".to_string()), encoding_rs::SHIFT_JIS)?;
+            buffer.write_string(&s.unwrap_or_else(|| "".to_string()), encoding_rs::SHIFT_JIS)?;
         }
         Ok(())
     }
@@ -1529,18 +1520,16 @@ impl ModelMaterial {
         let diffuse_texture_index = self.diffuse_texture_index;
         if diffuse_texture_index > -1 {
             TextureResult::Index(diffuse_texture_index)
+        } else if let Some(texture) = self.diffuse_texture.as_ref() {
+            TextureResult::Texture(texture)
         } else {
-            if let Some(texture) = self.diffuse_texture.as_ref() {
-                TextureResult::Texture(texture)
-            } else {
-                TextureResult::Index(-1)
-            }
+            TextureResult::Index(-1)
         }
     }
 
     pub fn get_diffuse_texture_object<'a, 'b: 'a, 'c: 'a>(
         &'c self,
-        texture_lut: &'b Vec<ModelTexture>,
+        texture_lut: &'b [ModelTexture],
     ) -> Option<&'a ModelTexture> {
         match self.get_diffuse_texture_result() {
             TextureResult::Texture(texture) => Some(texture),
@@ -1558,20 +1547,18 @@ impl ModelMaterial {
         let sphere_map_texture_index = self.sphere_map_texture_index;
         if sphere_map_texture_index > -1 {
             TextureResult::Index(sphere_map_texture_index)
+        } else if let Some(texture) = self.sphere_map_texture_spa.as_ref() {
+            TextureResult::Texture(texture)
+        } else if let Some(texture) = self.sphere_map_texture_sph.as_ref() {
+            TextureResult::Texture(texture)
         } else {
-            if let Some(texture) = self.sphere_map_texture_spa.as_ref() {
-                TextureResult::Texture(texture)
-            } else if let Some(texture) = self.sphere_map_texture_sph.as_ref() {
-                TextureResult::Texture(texture)
-            } else {
-                TextureResult::Index(-1)
-            }
+            TextureResult::Index(-1)
         }
     }
 
     pub fn get_sphere_map_texture_object<'a, 'b: 'a, 'c: 'a>(
         &'c self,
-        texture_lut: &'b Vec<ModelTexture>,
+        texture_lut: &'b [ModelTexture],
     ) -> Option<&'a ModelTexture> {
         match self.get_sphere_map_texture_result() {
             TextureResult::Texture(texture) => Some(texture),
@@ -1591,7 +1578,7 @@ impl ModelMaterial {
 
     pub fn get_toon_texture_object<'a, 'b: 'a, 'c: 'a>(
         &'c self,
-        texture_lut: &'b Vec<ModelTexture>,
+        texture_lut: &'b [ModelTexture],
     ) -> Option<&'a ModelTexture> {
         match self.get_toon_texture_result() {
             TextureResult::Texture(texture) => Some(texture),
@@ -1701,12 +1688,12 @@ impl From<ModelBoneFlags> for u16 {
 #[test]
 fn test_model_bone_flags_from_value() {
     let f = ModelBoneFlags::from_raw(33);
-    assert_eq!(true, f.has_destination_bone_index);
-    assert_eq!(true, f.has_constraint);
-    assert_eq!(false, f.has_inherent_translation);
+    assert!(f.has_destination_bone_index);
+    assert!(f.has_constraint);
+    assert!(!f.has_inherent_translation);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct ModelBone {
     pub base: ModelObject,
     pub name_ja: String,
@@ -1728,49 +1715,12 @@ pub struct ModelBone {
     pub flags: ModelBoneFlags,
 }
 
-impl Default for ModelBone {
-    fn default() -> Self {
-        Self {
-            base: Default::default(),
-            name_ja: Default::default(),
-            name_en: Default::default(),
-            constraint: Default::default(),
-            origin: Default::default(),
-            destination_origin: Default::default(),
-            fixed_axis: Default::default(),
-            local_x_axis: Default::default(),
-            local_z_axis: Default::default(),
-            inherent_coefficient: Default::default(),
-            parent_bone_index: Default::default(),
-            parent_inherent_bone_index: Default::default(),
-            effector_bone_index: Default::default(),
-            target_bone_index: Default::default(),
-            global_bone_index: Default::default(),
-            stage_index: Default::default(),
-            typ: Default::default(),
-            flags: Default::default(),
-        }
-    }
-}
-
 impl ModelBone {
-    fn compare_pmx(&self, other: &Self) -> i32 {
-        if self.flags.is_affected_by_physics_simulation
-            == other.flags.is_affected_by_physics_simulation
-        {
-            if self.stage_index == other.stage_index {
-                return self.base.index as i32 - other.base.index as i32;
-            }
-            return self.stage_index - other.stage_index;
-        }
-        return if other.flags.is_affected_by_physics_simulation {
-            -1
-        } else {
-            1
-        };
-    }
-
-    fn parse_pmx(buffer: &mut Buffer, info: &ModelInfo, index: usize) -> Result<ModelBone, Status> {
+    fn parse_pmx(
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+        index: usize,
+    ) -> Result<ModelBone, NanoemError> {
         let bone_index_size = info.bone_index_size;
         let mut bone = ModelBone {
             base: ModelObject { index },
@@ -1828,7 +1778,7 @@ impl ModelBone {
         buffer: &mut MutableBuffer,
         parent_model: &Model,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         if parent_model.is_pmx() {
             let encoding = parent_model.get_codec_type().get_encoding();
             buffer.write_string(&self.name_ja, encoding)?;
@@ -1977,7 +1927,7 @@ impl ModelConstraintJoint {
         buffer: &mut MutableBuffer,
         parent_model: &Model,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         if parent_model.is_pmx() {
             let bone_index = parent_model
                 .bones
@@ -2017,7 +1967,7 @@ impl ModelConstraint {
         info: &ModelInfo,
         index: usize,
         target_bone_index: usize,
-    ) -> Result<ModelConstraint, Status> {
+    ) -> Result<ModelConstraint, NanoemError> {
         let bone_index_size = info.bone_index_size as usize;
         let mut constraint = ModelConstraint {
             base: ModelObject { index },
@@ -2032,7 +1982,7 @@ impl ModelConstraint {
             let mut joint = ModelConstraintJoint {
                 base: ModelObject { index: i },
                 bone_index: buffer.read_integer_nullable(bone_index_size)?,
-                has_angle_limit: buffer.read_byte()? != (0 as u8),
+                has_angle_limit: buffer.read_byte()? != 0_u8,
                 lower_limit: <[f32; 4]>::default(),
                 upper_limit: <[f32; 4]>::default(),
             };
@@ -2050,7 +2000,7 @@ impl ModelConstraint {
         buffer: &mut MutableBuffer,
         parent_model: &Model,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         if parent_model.is_pmx() {
             buffer.write_integer(self.effector_bone_index, info.bone_index_size as usize)?;
             buffer.write_i32_little_endian(self.num_iterations)?;
@@ -2094,7 +2044,7 @@ impl ModelMorphBone {
     fn parse_pmx(
         buffer: &mut Buffer,
         bone_index_size: usize,
-    ) -> Result<Vec<ModelMorphBone>, Status> {
+    ) -> Result<Vec<ModelMorphBone>, NanoemError> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
         for index in 0..num_objects {
@@ -2113,7 +2063,7 @@ impl ModelMorphBone {
         &self,
         buffer: &mut MutableBuffer,
         bone_index_size: usize,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_integer(self.bone_index, bone_index_size)?;
         buffer.write_f32_3_little_endian(self.translation)?;
         buffer.write_f32_4_little_endian(self.orientation)?;
@@ -2132,7 +2082,7 @@ impl ModelMorphGroup {
     fn parse_pmx(
         buffer: &mut Buffer,
         morph_index_size: usize,
-    ) -> Result<Vec<ModelMorphGroup>, Status> {
+    ) -> Result<Vec<ModelMorphGroup>, NanoemError> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
         for index in 0..num_objects {
@@ -2150,7 +2100,7 @@ impl ModelMorphGroup {
         &self,
         buffer: &mut MutableBuffer,
         morph_index_size: usize,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_integer(self.morph_index, morph_index_size)?;
         buffer.write_f32_little_endian(self.weight)?;
         Ok(())
@@ -2168,7 +2118,7 @@ impl ModelMorphFlip {
     fn parse_pmx(
         buffer: &mut Buffer,
         morph_index_size: usize,
-    ) -> Result<Vec<ModelMorphFlip>, Status> {
+    ) -> Result<Vec<ModelMorphFlip>, NanoemError> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
         for index in 0..num_objects {
@@ -2186,7 +2136,7 @@ impl ModelMorphFlip {
         &self,
         buffer: &mut MutableBuffer,
         morph_index_size: usize,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_integer(self.morph_index, morph_index_size)?;
         buffer.write_f32_little_endian(self.weight)?;
         Ok(())
@@ -2206,7 +2156,7 @@ impl ModelMorphImpulse {
     fn parse_pmx(
         buffer: &mut Buffer,
         rigid_body_index_size: usize,
-    ) -> Result<Vec<ModelMorphImpulse>, Status> {
+    ) -> Result<Vec<ModelMorphImpulse>, NanoemError> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
         for index in 0..num_objects {
@@ -2226,7 +2176,7 @@ impl ModelMorphImpulse {
         &self,
         buffer: &mut MutableBuffer,
         rigid_body_index_size: usize,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_integer(self.rigid_body_index, rigid_body_index_size)?;
         buffer.write_byte(self.is_local as u8)?;
         buffer.write_f32_3_little_endian(self.velocity)?;
@@ -2284,7 +2234,7 @@ impl ModelMorphMaterial {
     fn parse_pmx(
         buffer: &mut Buffer,
         material_index_size: usize,
-    ) -> Result<Vec<ModelMorphMaterial>, Status> {
+    ) -> Result<Vec<ModelMorphMaterial>, NanoemError> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
         for index in 0..num_objects {
@@ -2313,7 +2263,7 @@ impl ModelMorphMaterial {
         &self,
         buffer: &mut MutableBuffer,
         material_index_size: usize,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_integer(self.material_index, material_index_size)?;
         buffer.write_byte(self.operation.into())?;
         buffer.write_f32_3_little_endian(self.diffuse_color)?;
@@ -2342,7 +2292,7 @@ impl ModelMorphUv {
     fn parse_pmx(
         buffer: &mut Buffer,
         vertex_index_size: usize,
-    ) -> Result<Vec<ModelMorphUv>, Status> {
+    ) -> Result<Vec<ModelMorphUv>, NanoemError> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
         for index in 0..num_objects {
@@ -2360,7 +2310,7 @@ impl ModelMorphUv {
         &self,
         buffer: &mut MutableBuffer,
         vertex_index_size: usize,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_integer(self.vertex_index, vertex_index_size)?;
         buffer.write_f32_4_little_endian(self.position)?;
         Ok(())
@@ -2379,7 +2329,7 @@ impl ModelMorphVertex {
     fn parse_pmx(
         buffer: &mut Buffer,
         vertex_index_size: usize,
-    ) -> Result<Vec<ModelMorphVertex>, Status> {
+    ) -> Result<Vec<ModelMorphVertex>, NanoemError> {
         let num_objects = buffer.read_len()?;
         let mut vec = vec![];
         for index in 0..num_objects {
@@ -2398,7 +2348,7 @@ impl ModelMorphVertex {
         &self,
         buffer: &mut MutableBuffer,
         vertex_index_size: usize,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_integer(self.vertex_index, vertex_index_size)?;
         buffer.write_f32_3_little_endian(self.position)?;
         Ok(())
@@ -2430,6 +2380,18 @@ impl ModelMorphU {
             ModelMorphU::MATERIALS(o) => o.len(),
             ModelMorphU::FLIPS(o) => o.len(),
             ModelMorphU::IMPULSES(o) => o.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            ModelMorphU::GROUPS(o) => o.is_empty(),
+            ModelMorphU::VERTICES(o) => o.is_empty(),
+            ModelMorphU::BONES(o) => o.is_empty(),
+            ModelMorphU::UVS(o) => o.is_empty(),
+            ModelMorphU::MATERIALS(o) => o.is_empty(),
+            ModelMorphU::FLIPS(o) => o.is_empty(),
+            ModelMorphU::IMPULSES(o) => o.is_empty(),
         }
     }
 }
@@ -2486,7 +2448,11 @@ pub enum ModelMorphType {
 }
 
 impl ModelMorphType {
-    pub fn from_buffer(typ: u8, buffer: &mut Buffer, info: &ModelInfo) -> Result<Self, Status> {
+    pub fn from_buffer(
+        typ: u8,
+        buffer: &mut Buffer,
+        info: &ModelInfo,
+    ) -> Result<Self, NanoemError> {
         Ok(match typ {
             0 => ModelMorphType::Group(ModelMorphGroup::parse_pmx(
                 buffer,
@@ -2532,7 +2498,7 @@ impl ModelMorphType {
                 buffer,
                 info.rigid_body_index_size as usize,
             )?),
-            _ => return Err(Status::ErrorModelMorphCorrupted),
+            _ => return Err(NanoemError::ModelMorphCorrupted),
         })
     }
 
@@ -2568,6 +2534,22 @@ impl ModelMorphType {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        match self {
+            ModelMorphType::Group(v) => v.is_empty(),
+            ModelMorphType::Vertex(v) => v.is_empty(),
+            ModelMorphType::Bone(v) => v.is_empty(),
+            ModelMorphType::Texture(v) => v.is_empty(),
+            ModelMorphType::Uva1(v) => v.is_empty(),
+            ModelMorphType::Uva2(v) => v.is_empty(),
+            ModelMorphType::Uva3(v) => v.is_empty(),
+            ModelMorphType::Uva4(v) => v.is_empty(),
+            ModelMorphType::Material(v) => v.is_empty(),
+            ModelMorphType::Flip(v) => v.is_empty(),
+            ModelMorphType::Impulse(v) => v.is_empty(),
+        }
+    }
+
     pub fn uv_index(&self) -> Option<usize> {
         match self {
             ModelMorphType::Texture(_) => Some(0),
@@ -2594,7 +2576,7 @@ impl ModelMorph {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
-    ) -> Result<ModelMorph, Status> {
+    ) -> Result<ModelMorph, NanoemError> {
         let codec_type = info.codec_type;
         let morph = ModelMorph {
             base: ModelObject { index },
@@ -2611,7 +2593,7 @@ impl ModelMorph {
         buffer: &mut MutableBuffer,
         is_pmx: bool,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         if is_pmx {
             let encoding = info.codec_type.get_encoding();
             buffer.write_string(&self.name_ja, encoding)?;
@@ -2771,7 +2753,7 @@ impl ModelLabel {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
-    ) -> Result<ModelLabel, Status> {
+    ) -> Result<ModelLabel, NanoemError> {
         let codec_type = info.codec_type;
         let bone_index_size = info.bone_index_size as usize;
         let morph_index_size = info.morph_index_size as usize;
@@ -2797,7 +2779,7 @@ impl ModelLabel {
                     typ: ModelLabelItemType::Morph,
                     item_idx: buffer.read_integer_nullable(morph_index_size)?,
                 }),
-                ModelLabelItemType::Unknown => return Err(Status::ErrorModelLabelCorrupted),
+                ModelLabelItemType::Unknown => return Err(NanoemError::ModelLabelCorrupted),
             }
         }
         Ok(label)
@@ -2808,7 +2790,7 @@ impl ModelLabel {
         buffer: &mut MutableBuffer,
         parent_model: &Model,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         if parent_model.is_pmx() {
             let encoding = parent_model.get_codec_type().get_encoding();
             buffer.write_string(&self.name_ja, encoding)?;
@@ -2817,7 +2799,7 @@ impl ModelLabel {
             buffer.write_i32_little_endian(self.items.len() as i32)?;
             for item in &self.items {
                 match item.typ {
-                    ModelLabelItemType::Unknown => return Err(Status::ErrorModelLabelCorrupted),
+                    ModelLabelItemType::Unknown => return Err(NanoemError::ModelLabelCorrupted),
                     ModelLabelItemType::Bone => {
                         if let Some(bone) = parent_model.get_one_bone_object(item.item_idx) {
                             buffer.write_byte(ModelLabelItemType::Bone.into())?;
@@ -2826,7 +2808,7 @@ impl ModelLabel {
                                 info.bone_index_size as usize,
                             )?;
                         } else {
-                            return Err(Status::ErrorModelLabelCorrupted);
+                            return Err(NanoemError::ModelLabelCorrupted);
                         }
                     }
                     ModelLabelItemType::Morph => {
@@ -2837,7 +2819,7 @@ impl ModelLabel {
                                 info.morph_index_size as usize,
                             )?;
                         } else {
-                            return Err(Status::ErrorModelLabelCorrupted);
+                            return Err(NanoemError::ModelLabelCorrupted);
                         }
                     }
                 }
@@ -2870,7 +2852,7 @@ impl ModelLabel {
         self.is_special = value;
     }
 
-    pub fn insert_item_object(&mut self, mut item: ModelLabelItem, mut index: i32) -> () {
+    pub fn insert_item_object(&mut self, mut item: ModelLabelItem, index: i32) {
         if index >= 0 && (index as usize) < self.items.len() {
             item.base.index = index as usize;
             self.items.insert(index as usize, item);
@@ -2879,7 +2861,7 @@ impl ModelLabel {
             }
         } else {
             item.base.index = self.items.len();
-            self.items.push(item.clone());
+            self.items.push(item);
         }
     }
 }
@@ -2970,9 +2952,9 @@ impl ModelRigidBody {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
-    ) -> Result<ModelRigidBody, Status> {
+    ) -> Result<ModelRigidBody, NanoemError> {
         // TODO: not process Unknown for shpe_type and transform_type
-        let mut rigid_body = ModelRigidBody {
+        let rigid_body = ModelRigidBody {
             base: ModelObject { index },
             name_ja: info.codec_type.get_string(buffer)?,
             name_en: info.codec_type.get_string(buffer)?,
@@ -2999,7 +2981,7 @@ impl ModelRigidBody {
         buffer: &mut MutableBuffer,
         is_pmx: bool,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         if is_pmx {
             let encoding = info.codec_type.get_encoding();
             buffer.write_string(&self.name_ja, encoding)?;
@@ -3107,9 +3089,9 @@ impl ModelJoint {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
-    ) -> Result<ModelJoint, Status> {
+    ) -> Result<ModelJoint, NanoemError> {
         let rigid_body_index_size = info.rigid_body_index_size as usize;
-        let mut joint = ModelJoint {
+        let joint = ModelJoint {
             base: ModelObject { index },
             name_ja: info.codec_type.get_string(buffer)?,
             name_en: info.codec_type.get_string(buffer)?,
@@ -3133,7 +3115,7 @@ impl ModelJoint {
         buffer: &mut MutableBuffer,
         is_pmx: bool,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         if is_pmx {
             let encoding = info.codec_type.get_encoding();
             let size = info.rigid_body_index_size as usize;
@@ -3291,7 +3273,7 @@ impl ModelSoftBody {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
-    ) -> Result<ModelSoftBody, Status> {
+    ) -> Result<ModelSoftBody, NanoemError> {
         let material_index_size = info.material_index_size as usize;
         let rigid_body_index_size = info.rigid_body_index_size as usize;
         let vertex_index_size = info.vertex_index_size as usize;
@@ -3303,7 +3285,7 @@ impl ModelSoftBody {
             material_index: buffer.read_integer_nullable(material_index_size)?,
             collision_group_id: buffer.read_byte()?,
             collision_mask: buffer.read_u16_little_endian()?,
-            flags: buffer.read_byte()?.into(),
+            flags: buffer.read_byte()?,
             bending_constraints_distance: buffer.read_i32_little_endian()?,
             cluster_count: buffer.read_i32_little_endian()?,
             total_mass: buffer.read_f32_little_endian()?,
@@ -3358,9 +3340,8 @@ impl ModelSoftBody {
     fn save_to_buffer(
         &self,
         buffer: &mut MutableBuffer,
-        is_pmx: bool,
         info: &ModelInfo,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let material_index_size = info.material_index_size as usize;
         let rigid_body_index_size = info.rigid_body_index_size as usize;
         let vertex_index_size = info.vertex_index_size as usize;
@@ -3410,7 +3391,7 @@ impl ModelSoftBody {
         }
         buffer.write_i32_little_endian(self.pinned_vertex_indices.len() as i32)?;
         for pinned_vertex_index in &self.pinned_vertex_indices {
-            buffer.write_integer(pinned_vertex_index.clone() as i32, vertex_index_size)?;
+            buffer.write_integer(*pinned_vertex_index as i32, vertex_index_size)?;
         }
         Ok(())
     }
@@ -3435,14 +3416,18 @@ impl ModelTexture {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
-    ) -> Result<ModelTexture, Status> {
+    ) -> Result<ModelTexture, NanoemError> {
         Ok(ModelTexture {
             base: ModelObject { index },
             path: info.codec_type.get_string(buffer)?,
         })
     }
 
-    fn save_to_buffer(&self, buffer: &mut MutableBuffer, info: &ModelInfo) -> Result<(), Status> {
+    fn save_to_buffer(
+        &self,
+        buffer: &mut MutableBuffer,
+        info: &ModelInfo,
+    ) -> Result<(), NanoemError> {
         let encoding = info.codec_type.get_encoding();
         buffer.write_string(&self.path, encoding)
     }
@@ -3474,7 +3459,7 @@ fn test_save_pmx_resource() -> Result<(), Box<dyn std::error::Error + 'static>> 
                 Ok(()) => {
                     if let Ok(mut buffer) = mutable_buffer.create_buffer_object() {
                         match Model::load_from_buffer(&mut buffer) {
-                            Ok(model) => {
+                            Ok(_) => {
                                 println!("Parse Recomposed PMX successfully");
                             }
                             Err(e) => println!("Parse Recomposed PMX with {:?}", &e),

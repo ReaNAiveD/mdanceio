@@ -8,7 +8,7 @@ use crate::{
     clear_pass::ClearPass,
     drawable::{DrawContext, DrawType, Drawable},
     effect::ScriptOrder,
-    error::Error,
+    error::MdanceioError,
     grid::Grid,
     injector::Injector,
     light::{DirectionalLight, Light},
@@ -1169,15 +1169,11 @@ impl Project {
         bones: &HashMap<String, Vec<u32>>,
     ) {
         self.reset_transform_performed_at();
-        if let Some((handle, model)) =
-            model
-                .or(self.active_model_pair.0)
-                .and_then(|handle| {
-                    self.model_handle_map
-                        .get_mut(&handle)
-                        .map(|model| (handle, model))
-                })
-        {
+        if let Some((handle, model)) = model.or(self.active_model_pair.0).and_then(|handle| {
+            self.model_handle_map
+                .get_mut(&handle)
+                .map(|model| (handle, model))
+        }) {
             if let Some(motion) = self.model_to_motion.get_mut(&handle) {
                 let mut updaters = motion.build_add_bone_keyframes_updaters(
                     model,
@@ -1226,14 +1222,14 @@ impl Project {
         model_handle
     }
 
-    pub fn load_model_motion(&mut self, motion_data: &[u8]) -> Result<(), Error> {
+    pub fn load_model_motion(&mut self, motion_data: &[u8]) -> Result<(), MdanceioError> {
         if self.active_model().is_some() {
             Motion::new_from_bytes(motion_data, self.local_frame_index.0).and_then(|motion| {
                 if motion.opaque.target_model_name == Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
-                    return Err(Error::new(
+                    return Err(MdanceioError::new(
                         "読み込まれたモーションはモデル用ではありません",
                         "",
-                        crate::error::DomainType::DomainTypeApplication,
+                        crate::error::DomainType::Application,
                     ));
                 }
                 // TODO: record history in motion redo
@@ -1248,21 +1244,21 @@ impl Project {
                 Ok(())
             })
         } else {
-            Err(Error::new(
+            Err(MdanceioError::new(
                 "モデルモーションを読み込むためのモデルが選択されていません",
                 "モデルを選択してください",
-                crate::error::DomainType::DomainTypeApplication,
+                crate::error::DomainType::Application,
             ))
         }
     }
 
-    pub fn load_camera_motion(&mut self, motion_data: &[u8]) -> Result<(), Error> {
+    pub fn load_camera_motion(&mut self, motion_data: &[u8]) -> Result<(), MdanceioError> {
         Motion::new_from_bytes(motion_data, self.local_frame_index.0).and_then(|motion| {
             if motion.opaque.target_model_name != Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
-                return Err(Error::new(
+                return Err(MdanceioError::new(
                     "読み込まれたモーションはカメラ及び照明用ではありません",
                     "",
-                    crate::error::DomainType::DomainTypeApplication,
+                    crate::error::DomainType::Application,
                 ));
             }
             // TODO: record history in motion redo
@@ -1271,13 +1267,13 @@ impl Project {
         })
     }
 
-    pub fn load_light_motion(&mut self, motion_data: &[u8]) -> Result<(), Error> {
+    pub fn load_light_motion(&mut self, motion_data: &[u8]) -> Result<(), MdanceioError> {
         Motion::new_from_bytes(motion_data, self.local_frame_index.0).and_then(|motion| {
             if motion.opaque.target_model_name != Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
-                return Err(Error::new(
+                return Err(MdanceioError::new(
                     "読み込まれたモーションはカメラ及び照明用ではありません",
                     "",
-                    crate::error::DomainType::DomainTypeApplication,
+                    crate::error::DomainType::Application,
                 ));
             }
             // TODO: record history in motion redo
@@ -1287,10 +1283,7 @@ impl Project {
     }
 
     pub fn add_model_motion(&mut self, mut motion: Motion, model: ModelHandle) -> Option<Motion> {
-        let last_model_motion = self
-            .model_to_motion
-            .get(&model)
-            .map(|motion| motion.clone());
+        let last_model_motion = self.model_to_motion.get(&model).cloned();
         if let Some(last_model_motion) = last_model_motion.as_ref() {
             if self.state_flags.enable_motion_merge {
                 motion.merge_all_keyframes(last_model_motion);

@@ -1,67 +1,37 @@
-use crate::event_publisher::EventPublisher;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DomainType {
-    DomainTypeUnknown,
-    DomainTypeOS,
-    DomainTypeMinizip,
-    DomainTypeNanoem,
-    DomainTypeNanodxm,
-    DomainTypeNanomqo,
-    DomainTypeApplication,
-    DomainTypePlugin,
-    DomainTypeCancel = 0x7ffffffe,
+    OS,
+    Minizip,
+    Nanoem,
+    Nanodxm,
+    Nanomqo,
+    Application,
+    Plugin,
+    Cancel,
 }
 
-pub trait Exception {
-    fn has_reason(&self) -> bool;
-    fn has_recovery_suggestion(&self) -> bool;
-    fn reason(&self) -> &str;
-    fn recovery_suggestion(&self) -> &str;
-    fn code(&self) -> i32;
-    fn is_canceled(&self) -> bool;
-    fn domain(&self) -> DomainType;
-    // fn notify(&self, publisher: impl EventPublisher);
-}
-
-pub struct Error {
+#[derive(Debug)]
+pub struct MdanceioError {
     reason: String,
     recovery_suggestion: String,
     code: i32,
     domain: DomainType,
 }
 
-impl Exception for Error {
-    fn has_reason(&self) -> bool {
-        !self.reason.is_empty()
-    }
-
-    fn has_recovery_suggestion(&self) -> bool {
-        !self.recovery_suggestion.is_empty()
-    }
-
-    fn reason(&self) -> &str {
-        self.reason.as_str()
-    }
-
-    fn recovery_suggestion(&self) -> &str {
-        self.recovery_suggestion.as_str()
-    }
-
-    fn code(&self) -> i32 {
-        self.code
-    }
-
-    fn is_canceled(&self) -> bool {
-        false
-    }
-
-    fn domain(&self) -> DomainType {
-        self.domain
+impl std::fmt::Display for MdanceioError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let recovery_hint = if self.recovery_suggestion.is_empty() {
+            "".to_owned()
+        } else {
+            format!("(Try \"{}\" to recover)", self.recovery_suggestion)
+        };
+        write!(f, "[{:?} - {}]{}{}",self.domain, self.code, self.reason, recovery_hint)
     }
 }
 
-impl Error {
+impl std::error::Error for MdanceioError {}
+
+impl MdanceioError {
     pub fn new(reason: &str, recovery_suggestion: &str, domain: DomainType) -> Self {
         Self {
             reason: reason.to_owned(),
@@ -71,12 +41,12 @@ impl Error {
         }
     }
 
-    pub fn from_nanoem(message: &str, status: nanoem::common::Status) -> Self {
+    pub fn from_nanoem(message: &str, status: nanoem::common::NanoemError) -> Self {
         Self {
             reason: message.to_owned(),
             recovery_suggestion: "".to_owned(),
             code: 0,
-            domain: DomainType::DomainTypeNanoem,
+            domain: DomainType::Nanoem,
         }
     }
 
@@ -85,7 +55,7 @@ impl Error {
             reason: "Technique Pass executed without shader".to_owned(),
             recovery_suggestion: "Try Restart or Report to us".to_owned(),
             code: 3,
-            domain: DomainType::DomainTypeApplication,
+            domain: DomainType::Application,
         }
     }
 }

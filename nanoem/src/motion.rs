@@ -1,12 +1,10 @@
 use std::{
-    cell::RefCell,
     cmp::Ordering,
     collections::HashMap,
-    rc::{Rc, Weak},
 };
 
 use crate::{
-    common::{Buffer, MutableBuffer, Status},
+    common::{Buffer, MutableBuffer, NanoemError},
     utils::{compare, u8_slice_get_string},
 };
 
@@ -33,7 +31,7 @@ where
                     .and_then(|pos| self.keyframes.get(&self.ordered_frame_index[pos])),
                 pos.checked_add(1)
                     .and_then(|pos| self.ordered_frame_index.get(pos))
-                    .or(self.ordered_frame_index.last())
+                    .or_else(|| self.ordered_frame_index.last())
                     .and_then(|pos| self.keyframes.get(pos)),
             ),
             Err(pos) => (
@@ -41,7 +39,7 @@ where
                     .and_then(|pos| self.keyframes.get(&self.ordered_frame_index[pos])),
                 self.ordered_frame_index
                     .get(pos)
-                    .or(self.ordered_frame_index.last())
+                    .or_else(|| self.ordered_frame_index.last())
                     .and_then(|pos| self.keyframes.get(pos)),
             ),
         }
@@ -58,13 +56,17 @@ where
     ///
     /// Return a `Err(Status::ErrorMotionCameraKeyframeAlreadyExists)` when conflicting and not force.
     /// Otherwise return a Ok with replaced keyframe.
-    fn insert_keyframe_no_sort(&mut self, keyframe: K, force: bool) -> Result<Option<K>, Status> {
+    fn insert_keyframe_no_sort(
+        &mut self,
+        keyframe: K,
+        force: bool,
+    ) -> Result<Option<K>, NanoemError> {
         let frame_index = keyframe.frame_index();
         if !force && self.keyframes.contains_key(&frame_index) {
-            return Err(Status::ErrorMotionCameraKeyframeAlreadyExists);
+            return Err(NanoemError::MotionCameraKeyframeAlreadyExists);
         }
         let old = self.keyframes.insert(frame_index, keyframe);
-        if let None = old {
+        if old.is_none() {
             self.ordered_frame_index.push(frame_index);
         }
         Ok(old)
@@ -73,7 +75,7 @@ where
     pub fn insert_keyframe(&mut self, keyframe: K) -> Option<K> {
         let frame_index = keyframe.frame_index();
         let old = self.keyframes.insert(frame_index, keyframe);
-        if let None = old {
+        if old.is_none() {
             let pos = self
                 .ordered_frame_index
                 .binary_search(&frame_index)
@@ -112,11 +114,15 @@ impl<K> MotionTrack<K> {
     }
 
     pub fn max_frame_index(&self) -> Option<u32> {
-        self.ordered_frame_index.last().map(|index| *index)
+        self.ordered_frame_index.last().copied()
     }
 
     pub fn len(&self) -> usize {
         self.keyframes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.keyframes.is_empty()
     }
 }
 
@@ -140,12 +146,18 @@ pub struct MotionTrackBundle<K: Sized> {
     pub tracks: HashMap<String, MotionTrack<K>>,
 }
 
-impl<K> MotionTrackBundle<K> {
-    pub fn new() -> MotionTrackBundle<K> {
+impl<K> Default for MotionTrackBundle<K> {
+    fn default() -> Self {
         Self {
             allocator: IdAllocator::default(),
             tracks: HashMap::new(),
         }
+    }
+}
+
+impl<K> MotionTrackBundle<K> {
+    pub fn new() -> MotionTrackBundle<K> {
+        Self::default()
     }
 
     pub fn keyframe_len(&self) -> usize {
@@ -157,36 +169,6 @@ impl<K> MotionTrackBundle<K> {
 
     fn get_by_name(&self, name: &str) -> Option<&MotionTrack<K>> {
         self.tracks.get(name)
-    }
-
-    fn ensure(&mut self, name: &str) {
-        self.tracks
-            .entry(name.to_owned())
-            .or_insert_with(|| MotionTrack {
-                id: self.allocator.next(),
-                name: name.to_string(),
-                keyframes: HashMap::new(),
-                ordered_frame_index: vec![],
-            });
-    }
-
-    fn get_by_name_or_new(&mut self, name: &str) -> &MotionTrack<K> {
-        self.tracks
-            .entry(name.to_owned())
-            .or_insert_with(|| MotionTrack {
-                id: self.allocator.next(),
-                name: name.to_string(),
-                keyframes: HashMap::new(),
-                ordered_frame_index: vec![],
-            })
-    }
-
-    fn get_mut_by_name(&mut self, name: &str) -> Option<&mut MotionTrack<K>> {
-        self.tracks.get_mut(name)
-    }
-
-    fn next_id(&mut self) -> i32 {
-        self.allocator.next()
     }
 
     pub fn resolve_id(&self, id: i32) -> Option<&String> {
@@ -214,20 +196,8 @@ impl<K> MotionTrackBundle<K> {
             .id
     }
 
-    fn remove_keyframe(&mut self, frame_index: u32, name: &str) {
-        if let Some(track) = self.get_mut_by_name(name) {
-            if let Some(_) = track.keyframes.remove(&frame_index) {
-                track
-                    .ordered_frame_index
-                    .binary_search(&frame_index)
-                    .ok()
-                    .map(|pos| track.ordered_frame_index.remove(pos));
-            }
-        }
-    }
-
     fn sort(&mut self) {
-        for (_, track) in &mut self.tracks {
+        for track in &mut self.tracks.values_mut() {
             track.sort();
         }
     }
@@ -264,7 +234,7 @@ where
             .values()
             .filter_map(|track| track.ordered_frame_index.last())
             .max()
-            .map(|n| *n)
+            .copied()
     }
 
     /// Insert a Keyframe into the track without keeping ordered_frame_index sort.
@@ -283,7 +253,7 @@ where
         keyframe: K,
         track_name: &str,
         force: bool,
-    ) -> Result<Option<K>, Status> {
+    ) -> Result<Option<K>, NanoemError> {
         let track = self
             .tracks
             .entry(track_name.to_owned())
@@ -373,25 +343,15 @@ impl Motion {
         }
     }
 
-    fn resolve_local_bone_track_name(&mut self, name: &str) -> i32 {
-        self.local_bone_motion_track_bundle
-            .resolve_name_or_new(name)
-    }
-
-    fn resolve_local_morph_track_name(&mut self, name: &str) -> i32 {
-        self.local_morph_motion_track_bundle
-            .resolve_name_or_new(name)
-    }
-
     fn resolve_global_track_name(&mut self, name: &str) -> i32 {
         self.global_motion_track_bundle.resolve_name_or_new(name)
     }
 
-    pub fn load_from_buffer(buffer: &mut Buffer, offset: u32) -> Result<Self, Status> {
+    pub fn load_from_buffer(buffer: &mut Buffer, offset: u32) -> Result<Self, NanoemError> {
         Self::load_from_buffer_vmd(buffer, offset)
     }
 
-    fn load_from_buffer_vmd(buffer: &mut Buffer, offset: u32) -> Result<Self, Status> {
+    fn load_from_buffer_vmd(buffer: &mut Buffer, offset: u32) -> Result<Self, NanoemError> {
         let mut motion = Self {
             annotations: HashMap::new(),
             target_model_name: "".to_owned(),
@@ -427,12 +387,12 @@ impl Motion {
             motion.parse_vmd(buffer, offset)?;
         } else {
             motion.typ = MotionFormatType::Unknown;
-            return Err(Status::ErrorInvalidSignature);
+            return Err(NanoemError::InvalidSignature);
         }
         Ok(motion)
     }
 
-    fn parse_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), Status> {
+    fn parse_vmd(&mut self, buffer: &mut Buffer, offset: u32) -> Result<(), NanoemError> {
         self.local_bone_motion_track_bundle = Self::parse_bone_keyframe_block_vmd(buffer, offset)?;
         self.local_morph_motion_track_bundle =
             Self::parse_morph_keyframe_block_vmd(buffer, offset)?;
@@ -457,22 +417,22 @@ impl Motion {
             &mut self.local_bone_motion_track_bundle,
         )?;
         if buffer.is_end() {
-            return Ok(());
+            Ok(())
         } else {
-            return Err(Status::ErrorBufferNotEnd);
+            Err(NanoemError::BufferNotEnd)
         }
     }
 
     fn parse_bone_keyframe_block_vmd(
         buffer: &mut Buffer,
         offset: u32,
-    ) -> Result<MotionTrackBundle<MotionBoneKeyframe>, Status> {
+    ) -> Result<MotionTrackBundle<MotionBoneKeyframe>, NanoemError> {
         let num_bone_keyframes = buffer.read_len()?;
         let mut local_bone_motion_track_bundle = MotionTrackBundle::new();
         if num_bone_keyframes > 0 {
             local_bone_motion_track_bundle.clear();
-            for i in 0..num_bone_keyframes {
-                let (mut keyframe, bone_name) = MotionBoneKeyframe::parse_vmd(buffer, offset)?;
+            for _ in 0..num_bone_keyframes {
+                let (keyframe, bone_name) = MotionBoneKeyframe::parse_vmd(buffer, offset)?;
                 local_bone_motion_track_bundle
                     .insert_keyframe_no_sort(keyframe, &bone_name, false)?;
             }
@@ -484,12 +444,12 @@ impl Motion {
     fn parse_morph_keyframe_block_vmd(
         buffer: &mut Buffer,
         offset: u32,
-    ) -> Result<MotionTrackBundle<MotionMorphKeyframe>, Status> {
+    ) -> Result<MotionTrackBundle<MotionMorphKeyframe>, NanoemError> {
         let num_morph_keyframes = buffer.read_len()?;
         let mut local_morph_motion_track_bundle = MotionTrackBundle::new();
         if num_morph_keyframes > 0 {
-            for i in 0..num_morph_keyframes {
-                let (mut keyframe, morph_name) = MotionMorphKeyframe::parse_vmd(buffer, offset)?;
+            for _ in 0..num_morph_keyframes {
+                let (keyframe, morph_name) = MotionMorphKeyframe::parse_vmd(buffer, offset)?;
                 local_morph_motion_track_bundle.insert_keyframe_no_sort(
                     keyframe,
                     &morph_name,
@@ -504,11 +464,11 @@ impl Motion {
     fn parse_camera_keyframe_block_vmd(
         buffer: &mut Buffer,
         offset: u32,
-    ) -> Result<MotionTrack<MotionCameraKeyframe>, Status> {
+    ) -> Result<MotionTrack<MotionCameraKeyframe>, NanoemError> {
         let num_camera_keyframes = buffer.read_len()?;
         let mut camera_keyframes = MotionTrack::new("camera", 0);
         if num_camera_keyframes > 0 {
-            for i in 0..num_camera_keyframes {
+            for _ in 0..num_camera_keyframes {
                 let keyframe = MotionCameraKeyframe::parse_vmd(buffer, offset)?;
                 camera_keyframes.insert_keyframe_no_sort(keyframe, false)?;
             }
@@ -520,12 +480,12 @@ impl Motion {
     fn parse_light_keyframe_block_vmd(
         buffer: &mut Buffer,
         offset: u32,
-    ) -> Result<MotionTrack<MotionLightKeyframe>, Status> {
+    ) -> Result<MotionTrack<MotionLightKeyframe>, NanoemError> {
         let num_light_keyframes = buffer.read_len()?;
         let mut light_keyframes = MotionTrack::new("light", 0);
         if num_light_keyframes > 0 {
-            for i in 0..num_light_keyframes {
-                let mut keyframe = MotionLightKeyframe::parse_vmd(buffer, offset)?;
+            for _ in 0..num_light_keyframes {
+                let keyframe = MotionLightKeyframe::parse_vmd(buffer, offset)?;
                 light_keyframes.insert_keyframe_no_sort(keyframe, false)?;
             }
             light_keyframes.sort();
@@ -536,12 +496,12 @@ impl Motion {
     fn parse_self_shadow_keyframe_block_vmd(
         buffer: &mut Buffer,
         offset: u32,
-    ) -> Result<MotionTrack<MotionSelfShadowKeyframe>, Status> {
+    ) -> Result<MotionTrack<MotionSelfShadowKeyframe>, NanoemError> {
         let num_self_shadow_keyframes = buffer.read_len()?;
         let mut self_shadow_keyframes = MotionTrack::new("self_shadow", 0);
         if num_self_shadow_keyframes > 0 {
-            for i in 0..num_self_shadow_keyframes {
-                let mut keyframe = MotionSelfShadowKeyframe::parse_vmd(buffer, offset)?;
+            for _ in 0..num_self_shadow_keyframes {
+                let keyframe = MotionSelfShadowKeyframe::parse_vmd(buffer, offset)?;
                 self_shadow_keyframes.insert_keyframe_no_sort(keyframe, false)?;
             }
             self_shadow_keyframes.sort();
@@ -553,13 +513,12 @@ impl Motion {
         buffer: &mut Buffer,
         offset: u32,
         local_bone_track: &mut MotionTrackBundle<MotionBoneKeyframe>,
-    ) -> Result<MotionTrack<MotionModelKeyframe>, Status> {
+    ) -> Result<MotionTrack<MotionModelKeyframe>, NanoemError> {
         let num_model_keyframes = buffer.read_len()?;
         let mut model_keyframes = MotionTrack::new("model", 0);
         if num_model_keyframes > 0 {
-            for i in 0..num_model_keyframes {
-                let mut keyframe =
-                    MotionModelKeyframe::parse_vmd(buffer, offset, local_bone_track)?;
+            for _ in 0..num_model_keyframes {
+                let keyframe = MotionModelKeyframe::parse_vmd(buffer, offset, local_bone_track)?;
                 model_keyframes.insert_keyframe_no_sort(keyframe, false)?;
             }
             model_keyframes.sort();
@@ -567,12 +526,12 @@ impl Motion {
         Ok(model_keyframes)
     }
 
-    pub fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    pub fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), NanoemError> {
         buffer.write_byte_array(Self::VMD_SIGNATURE_TYPE2)?;
         buffer.write_i32_little_endian(0)?;
         let (bytes, _, has_errors) = encoding_rs::SHIFT_JIS.encode(&self.target_model_name);
         if has_errors {
-            return Err(Status::ErrorEncodeUnicodeStringFailed);
+            return Err(NanoemError::EncodeUnicodeStringFailed);
         }
         buffer
             .write_byte_array(&bytes[0..Self::VMD_TARGET_MODEL_NAME_LENGTH_V2.min(bytes.len())])?;
@@ -594,7 +553,7 @@ impl Motion {
     fn save_to_buffer_bone_keyframe_block_vmd(
         &self,
         buffer: &mut MutableBuffer,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_u32_little_endian(self.local_bone_motion_track_bundle.keyframe_len() as u32)?;
         for (keyframe, bone_name) in self.local_bone_motion_track_bundle.iter() {
             keyframe.save_to_buffer(&bone_name, buffer)?;
@@ -605,7 +564,7 @@ impl Motion {
     fn save_to_buffer_morph_keyframe_block_vmd(
         &self,
         buffer: &mut MutableBuffer,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer
             .write_u32_little_endian(self.local_morph_motion_track_bundle.keyframe_len() as u32)?;
         for (keyframe, morph_name) in self.local_morph_motion_track_bundle.iter() {
@@ -617,7 +576,7 @@ impl Motion {
     fn save_to_buffer_camera_keyframe_block_vmd(
         &self,
         buffer: &mut MutableBuffer,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_u32_little_endian(self.camera_keyframes.len() as u32)?;
         for keyframe in self.camera_keyframes.iter() {
             keyframe.save_to_buffer(buffer)?;
@@ -628,7 +587,7 @@ impl Motion {
     fn save_to_buffer_light_keyframe_block_vmd(
         &self,
         buffer: &mut MutableBuffer,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_u32_little_endian(self.light_keyframes.len() as u32)?;
         for keyframe in self.light_keyframes.iter() {
             keyframe.save_to_buffer(buffer)?;
@@ -639,7 +598,7 @@ impl Motion {
     fn save_to_buffer_self_shadow_keyframe_block_vmd(
         &self,
         buffer: &mut MutableBuffer,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_u32_little_endian(self.self_shadow_keyframes.len() as u32)?;
         for keyframe in self.self_shadow_keyframes.iter() {
             keyframe.save_to_buffer(buffer)?;
@@ -650,7 +609,7 @@ impl Motion {
     fn save_to_buffer_model_keyframe_block_vmd(
         &self,
         buffer: &mut MutableBuffer,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_u32_little_endian(self.model_keyframes.len() as u32)?;
         for keyframe in self.model_keyframes.iter() {
             keyframe.save_to_buffer(&self.local_bone_motion_track_bundle, buffer)?;
@@ -658,9 +617,9 @@ impl Motion {
         Ok(())
     }
 
-    fn assign_global_trace_id(&mut self, value: &str) -> Result<i32, Status> {
-        let id = self.resolve_global_track_name(&value);
-        return Ok(id);
+    fn assign_global_trace_id(&mut self, value: &str) -> Result<i32, NanoemError> {
+        let id = self.resolve_global_track_name(value);
+        Ok(id)
     }
 }
 
@@ -741,25 +700,18 @@ impl Motion {
         &self,
         name: &str,
     ) -> Option<impl Iterator<Item = &MotionBoneKeyframe>> {
-        if let Some(keyframe_map) = self.local_bone_motion_track_bundle.find_keyframes_map(name) {
-            Some(keyframe_map.values())
-        } else {
-            None
-        }
+        self.local_bone_motion_track_bundle
+            .find_keyframes_map(name)
+            .map(|keyframe_map| keyframe_map.values())
     }
 
     pub fn extract_morph_track_keyframes(
         &self,
         name: &str,
     ) -> Option<impl Iterator<Item = &MotionMorphKeyframe>> {
-        if let Some(keyframe_map) = self
-            .local_morph_motion_track_bundle
+        self.local_morph_motion_track_bundle
             .find_keyframes_map(name)
-        {
-            Some(keyframe_map.values())
-        } else {
-            None
-        }
+            .map(|keyframe_map| keyframe_map.values())
     }
 
     pub fn find_accessory_keyframe_object(&self, index: u32) -> Option<&MotionAccessoryKeyframe> {
@@ -886,16 +838,6 @@ impl Motion {
         }
     }
 
-    fn sort_all_keyframes(&mut self) {
-        self.accessory_keyframes.sort();
-        self.local_bone_motion_track_bundle.sort();
-        self.local_morph_motion_track_bundle.sort();
-        self.camera_keyframes.sort();
-        self.light_keyframes.sort();
-        self.model_keyframes.sort();
-        self.self_shadow_keyframes.sort()
-    }
-
     pub fn add_accessory_keyframe(
         &mut self,
         keyframe: MotionAccessoryKeyframe,
@@ -946,12 +888,6 @@ impl Default for MotionEffectParameterValue {
     }
 }
 
-enum MotionParentKeyframe {
-    ACCESSORY(Weak<RefCell<MotionAccessoryKeyframe>>),
-    CAMERA(Weak<RefCell<MotionCameraKeyframe>>),
-    MODEL(Weak<RefCell<MotionModelKeyframe>>),
-}
-
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MotionEffectParameter {
     pub parameter_id: i32,
@@ -960,33 +896,13 @@ pub struct MotionEffectParameter {
 }
 
 impl MotionEffectParameter {
-    fn create_from_accessory_keyframe(
-        keyframe: Rc<RefCell<MotionAccessoryKeyframe>>,
-    ) -> Result<MotionEffectParameter, Status> {
-        Ok(MotionEffectParameter {
-            parameter_id: 0,
-            // keyframe: MotionParentKeyframe::ACCESSORY(Rc::downgrade(&keyframe)),
-            value: MotionEffectParameterValue::default(),
-        })
-    }
-
-    fn create_from_model_keyframe(
-        keyframe: Rc<RefCell<MotionModelKeyframe>>,
-    ) -> Result<MotionEffectParameter, Status> {
-        Ok(MotionEffectParameter {
-            parameter_id: 0,
-            // keyframe: MotionParentKeyframe::MODEL(Rc::downgrade(&keyframe)),
-            value: MotionEffectParameterValue::default(),
-        })
-    }
-
     fn get_name<'a: 'b, 'b>(&self, parent_motion: &'a mut Motion) -> Option<&'b String> {
         parent_motion
             .global_motion_track_bundle
             .resolve_id(self.parameter_id)
     }
 
-    fn set_name(&mut self, parent_motion: &mut Motion, value: &String) -> Result<(), Status> {
+    fn set_name(&mut self, parent_motion: &mut Motion, value: &str) -> Result<(), NanoemError> {
         self.parameter_id = parent_motion.assign_global_trace_id(value)?;
         Ok(())
     }
@@ -1018,7 +934,7 @@ impl MotionOutsideParent {
         &mut self,
         parent_motion: &mut Motion,
         value: &str,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         self.global_model_track_index = parent_motion.assign_global_trace_id(value)?;
         Ok(())
     }
@@ -1033,7 +949,7 @@ impl MotionOutsideParent {
         &mut self,
         parent_motion: &mut Motion,
         value: &str,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         self.global_bone_track_index = parent_motion.assign_global_trace_id(value)?;
         Ok(())
     }
@@ -1043,12 +959,6 @@ impl MotionOutsideParent {
 pub struct MotionKeyframeBase {
     pub frame_index: u32,
     pub annotations: HashMap<String, String>,
-}
-
-impl MotionKeyframeBase {
-    fn compare(a: &Self, b: &Self) -> std::cmp::Ordering {
-        a.frame_index.cmp(&b.frame_index)
-    }
 }
 
 #[derive(Debug)]
@@ -1073,16 +983,16 @@ impl Clone for MotionAccessoryKeyframe {
                 frame_index: 0,
                 annotations: HashMap::new(),
             },
-            translation: self.translation.clone(),
-            orientation: self.orientation.clone(),
-            scale_factor: self.scale_factor.clone(),
-            opacity: self.opacity.clone(),
-            is_add_blending_enabled: self.is_add_blending_enabled.clone(),
-            is_shadow_enabled: self.is_shadow_enabled.clone(),
-            visible: self.visible.clone(),
+            translation: self.translation,
+            orientation: self.orientation,
+            scale_factor: self.scale_factor,
+            opacity: self.opacity,
+            is_add_blending_enabled: self.is_add_blending_enabled,
+            is_shadow_enabled: self.is_shadow_enabled,
+            visible: self.visible,
             effect_parameters: self.effect_parameters.clone(),
             accessory_id: 0,
-            outside_parent: self.outside_parent.clone(),
+            outside_parent: self.outside_parent,
         }
     }
 }
@@ -1094,7 +1004,7 @@ impl Keyframe for MotionAccessoryKeyframe {
 }
 
 impl MotionAccessoryKeyframe {
-    fn create() -> MotionAccessoryKeyframe {
+    pub fn create() -> MotionAccessoryKeyframe {
         MotionAccessoryKeyframe {
             base: MotionKeyframeBase {
                 frame_index: 0,
@@ -1121,12 +1031,12 @@ impl MotionAccessoryKeyframe {
         let frame_index = self.frame_index();
         if offset > 0 && frame_index + (offset as u32) < frame_index {
             u32::MAX
-        } else if offset < 0 && frame_index - (offset.abs() as u32) > frame_index {
+        } else if offset < 0 && frame_index - offset.unsigned_abs() > frame_index {
             0
         } else if offset >= 0 {
             frame_index + offset as u32
         } else {
-            frame_index - offset.abs() as u32
+            frame_index - offset.unsigned_abs()
         }
     }
 
@@ -1135,7 +1045,7 @@ impl MotionAccessoryKeyframe {
     }
 
     pub fn add_effect_parameter(&mut self, parameter: &MotionEffectParameter) {
-        self.effect_parameters.push(parameter.clone());
+        self.effect_parameters.push(*parameter);
     }
 
     pub fn set_outside_parent(&mut self, value: &MotionOutsideParent) {
@@ -1146,7 +1056,7 @@ impl MotionAccessoryKeyframe {
         &self,
         parent_motion: &mut Motion,
         target_keyframe: &mut MotionAccessoryKeyframe,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         if let Some(outside_parent) = (&self.outside_parent).as_ref() {
             let mut n_outside_parent = MotionOutsideParent::default();
             let name = outside_parent
@@ -1176,7 +1086,7 @@ impl MotionAccessoryKeyframe {
         &self,
         parent_motion: &mut Motion,
         target_keyframe: &mut MotionAccessoryKeyframe,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let parameters = self.get_all_effect_parameters();
         for parameter in parameters {
             let mut n_parameter = MotionEffectParameter::default();
@@ -1191,7 +1101,6 @@ impl MotionAccessoryKeyframe {
     }
 }
 
-const MOTION_BONE_KEYFRAME_INTERPOLATION_TYPE_MAX_ENUM: usize = 4;
 const DEFAULT_INTERPOLATION: [u8; 4] = [20u8, 20u8, 107u8, 107u8];
 
 #[derive(Debug, Clone, Copy, Hash)]
@@ -1242,7 +1151,10 @@ impl MotionBoneKeyframe {
     /// # Return
     ///
     /// The bone keyframe and bone name if successful.
-    fn parse_vmd(buffer: &mut Buffer, offset: u32) -> Result<(MotionBoneKeyframe, String), Status> {
+    fn parse_vmd(
+        buffer: &mut Buffer,
+        offset: u32,
+    ) -> Result<(MotionBoneKeyframe, String), NanoemError> {
         let mut bone_keyframe = MotionBoneKeyframe {
             base: MotionKeyframeBase {
                 frame_index: 0,
@@ -1275,10 +1187,14 @@ impl MotionBoneKeyframe {
             bone_keyframe.interpolation.orientation[i] = buffer.read_byte()?;
         }
         buffer.skip(48usize)?;
-        Ok((bone_keyframe, name.unwrap_or("".to_owned())))
+        Ok((bone_keyframe, name.unwrap_or_else(|| "".to_owned())))
     }
 
-    fn save_to_buffer(&self, bone_name: &str, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn save_to_buffer(
+        &self,
+        bone_name: &str,
+        buffer: &mut MutableBuffer,
+    ) -> Result<(), NanoemError> {
         let (c, _, had_errors) = encoding_rs::SHIFT_JIS.encode(bone_name);
         if !had_errors {
             buffer.write_byte_array(&c[0..Self::VMD_BONE_KEYFRAME_NAME_LENGTH.min(c.len())])?;
@@ -1287,7 +1203,7 @@ impl MotionBoneKeyframe {
                     .write_byte_array(&vec![0u8; Self::VMD_BONE_KEYFRAME_NAME_LENGTH - c.len()])?;
             }
         } else {
-            buffer.write_byte_array(&vec![0u8; Self::VMD_BONE_KEYFRAME_NAME_LENGTH])?;
+            buffer.write_byte_array(&[0u8; Self::VMD_BONE_KEYFRAME_NAME_LENGTH])?;
         }
         buffer.write_u32_little_endian(self.base.frame_index)?;
         buffer.write_f32_3_little_endian(self.translation)?;
@@ -1346,7 +1262,7 @@ impl Keyframe for MotionCameraKeyframe {
 }
 
 impl MotionCameraKeyframe {
-    fn parse_vmd(buffer: &mut Buffer, offset: u32) -> Result<MotionCameraKeyframe, Status> {
+    fn parse_vmd(buffer: &mut Buffer, offset: u32) -> Result<MotionCameraKeyframe, NanoemError> {
         let mut camera_keyframe = MotionCameraKeyframe {
             base: MotionKeyframeBase {
                 frame_index: buffer.read_u32_little_endian()? + offset,
@@ -1374,7 +1290,7 @@ impl MotionCameraKeyframe {
         Ok(camera_keyframe)
     }
 
-    fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), NanoemError> {
         buffer.write_u32_little_endian(self.base.frame_index)?;
         buffer.write_f32_little_endian(self.distance)?;
         buffer.write_f32_3_little_endian(self.look_at)?;
@@ -1407,7 +1323,7 @@ impl Keyframe for MotionLightKeyframe {
 }
 
 impl MotionLightKeyframe {
-    fn parse_vmd(buffer: &mut Buffer, offset: u32) -> Result<MotionLightKeyframe, Status> {
+    fn parse_vmd(buffer: &mut Buffer, offset: u32) -> Result<MotionLightKeyframe, NanoemError> {
         let light_keyframe = MotionLightKeyframe {
             base: MotionKeyframeBase {
                 frame_index: buffer.read_u32_little_endian()? + offset,
@@ -1419,15 +1335,13 @@ impl MotionLightKeyframe {
         Ok(light_keyframe)
     }
 
-    fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), NanoemError> {
         buffer.write_u32_little_endian(self.base.frame_index)?;
         buffer.write_f32_3_little_endian(self.color)?;
         buffer.write_f32_3_little_endian(self.direction)?;
         Ok(())
     }
 }
-
-const PMD_BONE_NAME_LENGTH: usize = 20;
 
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct MotionModelKeyframeConstraintState {
@@ -1440,7 +1354,7 @@ impl MotionModelKeyframeConstraintState {
         &self,
         bone_motion_track_bundle: &MotionTrackBundle<MotionBoneKeyframe>,
         buffer: &mut MutableBuffer,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         let name = bone_motion_track_bundle.resolve_id(self.bone_id);
         let name_cp932: Vec<u8> = if let Some(name) = &name {
             let (c, _, success) = encoding_rs::SHIFT_JIS.encode(name);
@@ -1495,7 +1409,7 @@ impl MotionModelKeyframe {
         buffer: &mut Buffer,
         offset: u32,
         local_bone_track: &mut MotionTrackBundle<MotionBoneKeyframe>,
-    ) -> Result<MotionModelKeyframe, Status> {
+    ) -> Result<MotionModelKeyframe, NanoemError> {
         let mut model_keyframe = MotionModelKeyframe {
             base: MotionKeyframeBase {
                 frame_index: buffer.read_u32_little_endian()? + offset,
@@ -1514,7 +1428,7 @@ impl MotionModelKeyframe {
         let num_constraint_states = buffer.read_len()?;
         if num_constraint_states > 0 {
             model_keyframe.constraint_states.clear();
-            for i in 0..num_constraint_states {
+            for _ in 0..num_constraint_states {
                 let name = buffer.read_string_from_cp932(Self::PMD_BONE_NAME_LENGTH)?;
                 let bone_id = local_bone_track.resolve_name_or_new(&name);
                 model_keyframe
@@ -1532,7 +1446,7 @@ impl MotionModelKeyframe {
         &self,
         bone_motion_track_bundle: &MotionTrackBundle<MotionBoneKeyframe>,
         buffer: &mut MutableBuffer,
-    ) -> Result<(), Status> {
+    ) -> Result<(), NanoemError> {
         buffer.write_u32_little_endian(self.base.frame_index)?;
         buffer.write_byte(self.visible as u8)?;
         buffer.write_u32_little_endian(self.constraint_states.len() as u32)?;
@@ -1542,8 +1456,6 @@ impl MotionModelKeyframe {
         Ok(())
     }
 }
-
-const VMD_MORPH_KEYFRAME_NAME_LENGTH: usize = 15;
 
 #[derive(Debug, Clone)]
 pub struct MotionMorphKeyframe {
@@ -1563,7 +1475,7 @@ impl MotionMorphKeyframe {
     fn parse_vmd(
         buffer: &mut Buffer,
         offset: u32,
-    ) -> Result<(MotionMorphKeyframe, String), Status> {
+    ) -> Result<(MotionMorphKeyframe, String), NanoemError> {
         let str = buffer.try_get_string_with_byte_len(Self::VMD_MORPH_KEYFRAME_NAME_LENGTH);
         let len = str.len();
         let name = if len > 0 && str[0] != 0u8 {
@@ -1582,10 +1494,14 @@ impl MotionMorphKeyframe {
             },
             weight: buffer.read_f32_little_endian()?,
         };
-        Ok((motion_morph_keyframe, name.unwrap_or("".to_owned())))
+        Ok((motion_morph_keyframe, name.unwrap_or_else(|| "".to_owned())))
     }
 
-    fn save_to_buffer(&self, morph_name: &str, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn save_to_buffer(
+        &self,
+        morph_name: &str,
+        buffer: &mut MutableBuffer,
+    ) -> Result<(), NanoemError> {
         let (c, _, has_errors) = encoding_rs::SHIFT_JIS.encode(morph_name);
         if !has_errors {
             buffer.write_byte_array(&c[0..Self::VMD_MORPH_KEYFRAME_NAME_LENGTH.min(c.len())])?;
@@ -1594,7 +1510,7 @@ impl MotionMorphKeyframe {
                     .write_byte_array(&vec![0u8; Self::VMD_MORPH_KEYFRAME_NAME_LENGTH - c.len()])?;
             }
         } else {
-            buffer.write_byte_array(&vec![0u8; Self::VMD_MORPH_KEYFRAME_NAME_LENGTH])?;
+            buffer.write_byte_array(&[0u8; Self::VMD_MORPH_KEYFRAME_NAME_LENGTH])?;
         }
         buffer.write_u32_little_endian(self.base.frame_index)?;
         buffer.write_f32_little_endian(self.weight)?;
@@ -1616,7 +1532,10 @@ impl Keyframe for MotionSelfShadowKeyframe {
 }
 
 impl MotionSelfShadowKeyframe {
-    fn parse_vmd(buffer: &mut Buffer, offset: u32) -> Result<MotionSelfShadowKeyframe, Status> {
+    fn parse_vmd(
+        buffer: &mut Buffer,
+        offset: u32,
+    ) -> Result<MotionSelfShadowKeyframe, NanoemError> {
         let self_shadow_keyframe = MotionSelfShadowKeyframe {
             base: MotionKeyframeBase {
                 frame_index: buffer.read_u32_little_endian()? + offset,
@@ -1628,7 +1547,7 @@ impl MotionSelfShadowKeyframe {
         Ok(self_shadow_keyframe)
     }
 
-    fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), Status> {
+    fn save_to_buffer(&self, buffer: &mut MutableBuffer) -> Result<(), NanoemError> {
         buffer.write_u32_little_endian(self.base.frame_index)?;
         buffer.write_byte(self.mode as u8)?;
         buffer.write_f32_little_endian(self.distance)

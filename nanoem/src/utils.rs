@@ -22,7 +22,7 @@ pub fn u8_slice_get_string(
 
 pub fn compare(a: &[u8], b: &[u8]) -> cmp::Ordering {
     for (ai, bi) in a.iter().zip(b.iter()) {
-        match ai.cmp(&bi) {
+        match ai.cmp(bi) {
             cmp::Ordering::Equal => continue,
             ord => return ord,
         }
