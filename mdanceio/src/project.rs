@@ -1226,16 +1226,12 @@ impl Project {
         if self.active_model().is_some() {
             Motion::new_from_bytes(motion_data, self.local_frame_index.0).and_then(|motion| {
                 if motion.opaque.target_model_name == Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
-                    return Err(MdanceioError::new(
-                        "読み込まれたモーションはモデル用ではありません",
-                        "",
-                        crate::error::DomainType::Application,
-                    ));
+                    return Err(MdanceioError::not_intended_model());
                 }
                 // TODO: record history in motion redo
                 let (missing_bones, missing_morphs) =
                     motion.test_all_missing_model_objects(self.active_model().unwrap());
-                if missing_bones.len() > 0 && missing_morphs.len() > 0 {
+                if !missing_bones.is_empty() && !missing_morphs.is_empty() {
                     // TODO: Dialog hint motion missing
                 }
                 // TODO: add all to motion selection
@@ -1244,22 +1240,14 @@ impl Project {
                 Ok(())
             })
         } else {
-            Err(MdanceioError::new(
-                "モデルモーションを読み込むためのモデルが選択されていません",
-                "モデルを選択してください",
-                crate::error::DomainType::Application,
-            ))
+            Err(MdanceioError::no_active_model())
         }
     }
 
     pub fn load_camera_motion(&mut self, motion_data: &[u8]) -> Result<(), MdanceioError> {
         Motion::new_from_bytes(motion_data, self.local_frame_index.0).and_then(|motion| {
             if motion.opaque.target_model_name != Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
-                return Err(MdanceioError::new(
-                    "読み込まれたモーションはカメラ及び照明用ではありません",
-                    "",
-                    crate::error::DomainType::Application,
-                ));
+                return Err(MdanceioError::not_intended_camera_or_light());
             }
             // TODO: record history in motion redo
             let _ = self.set_camera_motion(motion);
@@ -1270,11 +1258,7 @@ impl Project {
     pub fn load_light_motion(&mut self, motion_data: &[u8]) -> Result<(), MdanceioError> {
         Motion::new_from_bytes(motion_data, self.local_frame_index.0).and_then(|motion| {
             if motion.opaque.target_model_name != Motion::CAMERA_AND_LIGHT_TARGET_MODEL_NAME {
-                return Err(MdanceioError::new(
-                    "読み込まれたモーションはカメラ及び照明用ではありません",
-                    "",
-                    crate::error::DomainType::Application,
-                ));
+                return Err(MdanceioError::not_intended_camera_or_light());
             }
             // TODO: record history in motion redo
             let _ = self.set_light_motion(motion);

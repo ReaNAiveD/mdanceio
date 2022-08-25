@@ -25,7 +25,11 @@ impl std::fmt::Display for MdanceioError {
         } else {
             format!("(Try \"{}\" to recover)", self.recovery_suggestion)
         };
-        write!(f, "[{:?} - {}]{}{}",self.domain, self.code, self.reason, recovery_hint)
+        write!(
+            f,
+            "[{:?} - {}]{}{}",
+            self.domain, self.code, self.reason, recovery_hint
+        )
     }
 }
 
@@ -43,18 +47,45 @@ impl MdanceioError {
 
     pub fn from_nanoem(message: &str, status: nanoem::common::NanoemError) -> Self {
         Self {
-            reason: message.to_owned(),
+            reason: format!("{}({})", message, status),
             recovery_suggestion: "".to_owned(),
             code: 0,
             domain: DomainType::Nanoem,
         }
     }
 
-    pub fn shader_unloaded_error() -> Self {
+    pub fn shader_unloaded() -> Self {
         Self {
             reason: "Technique Pass executed without shader".to_owned(),
             recovery_suggestion: "Try Restart or Report to us".to_owned(),
             code: 3,
+            domain: DomainType::Application,
+        }
+    }
+
+    pub fn not_intended_model() -> Self {
+        Self {
+            reason: "読み込まれたモーションはモデル用ではありません".to_owned(),
+            recovery_suggestion: "".to_owned(),
+            code: 10,
+            domain: DomainType::Application,
+        }
+    }
+
+    pub fn no_active_model() -> Self {
+        Self {
+            reason: "モデルモーションを読み込むためのモデルが選択されていません".to_owned(),
+            recovery_suggestion: "モデルを選択してください".to_owned(),
+            code: 11,
+            domain: DomainType::Application,
+        }
+    }
+
+    pub fn not_intended_camera_or_light() -> Self {
+        Self {
+            reason: "読み込まれたモーションはカメラ及び照明用ではありません".to_owned(),
+            recovery_suggestion: "".to_owned(),
+            code: 12,
             domain: DomainType::Application,
         }
     }
