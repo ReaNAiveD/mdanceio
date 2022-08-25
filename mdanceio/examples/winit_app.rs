@@ -106,15 +106,36 @@ impl State {
         log::info!("Loading Texture...");
         let texture_dir = std::fs::read_dir(texture_dir).unwrap();
         for texture_file in texture_dir {
-            let texture_file = texture_file.unwrap();
-            let texture_data = std::fs::read(texture_file.path())?;
-            self.application.load_texture(
-                texture_file.file_name().to_str().unwrap(),
-                &texture_data,
-                false,
-                &self.device,
-                &self.queue,
-            );
+            let texture_first_entry = texture_file.unwrap();
+            if texture_first_entry.metadata().unwrap().is_file() {
+                let texture_data = std::fs::read(texture_first_entry.path())?;
+                self.application.load_texture(
+                    texture_first_entry.file_name().to_str().unwrap(),
+                    &texture_data,
+                    false,
+                    &self.device,
+                    &self.queue,
+                );
+            } else if texture_first_entry.metadata().unwrap().is_dir() {
+                for texture_file in std::fs::read_dir(texture_first_entry.path()).unwrap() {
+                    let texture_file = texture_file.unwrap();
+                    if texture_file.metadata().unwrap().is_file() {
+                        let texture_data = std::fs::read(texture_file.path())?;
+                        self.application.load_texture(
+                            format!(
+                                "{}/{}",
+                                texture_first_entry.file_name().to_str().unwrap(),
+                                texture_file.file_name().to_str().unwrap()
+                            )
+                            .as_str(),
+                            &texture_data,
+                            false,
+                            &self.device,
+                            &self.queue,
+                        );
+                    }
+                }
+            }
         }
         self.application.update_bind_texture(&self.device);
         log::info!("Loading Motion...");
