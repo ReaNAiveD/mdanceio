@@ -2,5 +2,4 @@
 .idea/
 .vscode/tasks.json
 /target
-Cargo.lock
 /test/example/
