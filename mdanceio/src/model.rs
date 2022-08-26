@@ -42,6 +42,7 @@ pub type NanoemLabel = nanoem::model::ModelLabel;
 pub type NanoemRigidBody = nanoem::model::ModelRigidBody;
 pub type NanoemJoint = nanoem::model::ModelJoint;
 pub type NanoemSoftBody = nanoem::model::ModelSoftBody;
+pub type NanoemTexture = nanoem::model::ModelTexture;
 pub type VertexIndex = usize;
 pub type BoneIndex = usize;
 pub type MaterialIndex = usize;
@@ -279,7 +280,7 @@ impl Model {
                     let target_bone =
                         opaque.get_one_bone_object(nanoem_constraint.get_target_bone_index());
                     constraints.push(Constraint::from_nanoem(
-                        &nanoem_constraint,
+                        nanoem_constraint,
                         target_bone,
                         language_type,
                     ));
@@ -359,8 +360,7 @@ impl Model {
                         .morphs
                         .iter()
                         .enumerate()
-                        .filter(|(index, morph)| morph.category == category)
-                        .next()
+                        .find(|(index, morph)| morph.category == category)
                         .map(|(idx, _)| idx)
                 };
                 let active_morph = ModelMorphUsage {
@@ -378,14 +378,10 @@ impl Model {
                     .rigid_bodies
                     .iter()
                     .map(|rigid_body| {
-                        let is_dynamic =
-                            if let nanoem::model::ModelRigidBodyTransformType::FromBoneToSimulation =
-                                rigid_body.get_transform_type()
-                            {
-                                false
-                            } else {
-                                true
-                            };
+                        let is_dynamic = !matches!(
+                            rigid_body.get_transform_type(),
+                            nanoem::model::ModelRigidBodyTransformType::FromBoneToSimulation
+                        );
                         let is_morph = if let Some(bone) =
                             opaque.get_one_bone_object(rigid_body.get_bone_index())
                         {
@@ -394,7 +390,14 @@ impl Model {
                             false
                         };
                         // TODO: initializeTransformFeedback
-                        RigidBody::from_nanoem(rigid_body, language_type, is_morph, &bones, physics_engine)})
+                        RigidBody::from_nanoem(
+                            rigid_body,
+                            language_type,
+                            is_morph,
+                            &bones,
+                            physics_engine,
+                        )
+                    })
                     .collect();
                 let joints = opaque
                     .joints
@@ -490,9 +493,9 @@ impl Model {
                             for pair in &mut bone_vertex_list {
                                 let all_vertices = &mut pair.1;
                                 for vertex_index in all_vertices {
-                                    vertices
-                                        .get_mut(*vertex_index)
-                                        .map(|vertex| vertex.set_skinning_enabled(true));
+                                    if let Some(vertex) = vertices.get_mut(*vertex_index) {
+                                        vertex.set_skinning_enabled(true)
+                                    }
                                     count_vertex_skinning_needed += 1;
                                 }
                             }
@@ -1624,6 +1627,10 @@ impl Model {
 
     pub fn constraints(&self) -> &[Constraint] {
         &self.constraints
+    }
+
+    pub fn textures(&self) -> &[NanoemTexture] {
+        &self.opaque.textures
     }
 
     pub fn has_any_dirty_bone(&self) -> bool {

@@ -1,4 +1,4 @@
-use crate::{base_application_service::BaseApplicationService, injector::Injector, error::MdanceioError};
+use crate::{base_application_service::BaseApplicationService, injector::Injector, error::MdanceioError, project::ModelHandle};
 
 pub struct OffscreenProxy {
     texture: wgpu::Texture,
@@ -83,7 +83,7 @@ impl OffscreenProxy {
         }
     }
 
-    pub fn load_model(&mut self, data: &[u8]) -> Result<(), MdanceioError> {
+    pub fn load_model(&mut self, data: &[u8]) -> Result<ModelHandle, MdanceioError> {
         self.application.load_model(data, &self.device, &self.queue)
     }
 

@@ -159,7 +159,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
     let mut application = BaseApplicationService::new(&adapter, &device, &queue, injector);
 
     let model_data = std::fs::read("tests/example/Alicia/MMD/Alicia_solid.pmx")?;
-    application.load_model(&model_data, &device, &queue);
+    let model_handle = application.load_model(&model_data, &device, &queue)?;
     drop(model_data);
     let texture_dir = std::fs::read_dir("tests/example/Alicia/FBX/").unwrap();
     for texture_file in texture_dir {

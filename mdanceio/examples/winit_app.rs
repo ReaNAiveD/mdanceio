@@ -99,7 +99,8 @@ impl State {
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         log::info!("Loading Model...");
         let model_data = std::fs::read(model_path)?;
-        self.application
+        let model_handle = self
+            .application
             .load_model(&model_data, &self.device, &self.queue)?;
         drop(model_data);
         self.application.enable_all_model_shadow_map(true);

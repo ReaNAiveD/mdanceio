@@ -2,8 +2,10 @@ use cgmath::{Quaternion, Vector3};
 use image::GenericImageView;
 
 use crate::{
+    error::MdanceioError,
     injector::Injector,
-    project::{ModelHandle, Project}, error::MdanceioError,
+    model::NanoemTexture,
+    project::{ModelHandle, Project},
 };
 use std::{collections::HashMap, io::Cursor};
 
@@ -42,7 +44,8 @@ impl BaseApplicationService {
         queue: &wgpu::Queue,
     ) {
         self.project.draw_shadow_map(device, queue);
-        self.project.draw_viewport_with_depth(view, depth_view, device, queue);
+        self.project
+            .draw_viewport_with_depth(view, depth_view, device, queue);
         self.project.update(device, queue);
     }
 
@@ -50,7 +53,12 @@ impl BaseApplicationService {
         self.project.update(device, queue);
     }
 
-    pub fn load_model(&mut self, data: &[u8], device: &wgpu::Device, queue: &wgpu::Queue) -> Result<(), MdanceioError> {
+    pub fn load_model(
+        &mut self,
+        data: &[u8],
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> Result<ModelHandle, MdanceioError> {
         self.project.load_model(data, device, queue)
     }
 
@@ -84,6 +92,18 @@ impl BaseApplicationService {
     //     self.project
     //         .set_physics_simulation_mode(SimulationMode::Disable)
     // }
+
+    pub fn get_model_texture_paths(&self, model_handle: ModelHandle) -> Vec<String> {
+        if let Some(model) = self.project.model(model_handle) {
+            model
+                .textures()
+                .iter()
+                .map(|texture| texture.path.clone())
+                .collect()
+        } else {
+            vec![]
+        }
+    }
 
     pub fn set_camera_angle(&mut self, value: Vector3<f32>) {
         self.project.global_camera_mut().set_angle(value);
@@ -199,7 +219,14 @@ impl BaseApplicationService {
             let img = image::io::Reader::with_format(Cursor::new(data), format)
                 .decode()
                 .unwrap();
-            self.load_decoded_texture(key, &img.to_rgba8(), img.dimensions(), update_bind, device, queue);
+            self.load_decoded_texture(
+                key,
+                &img.to_rgba8(),
+                img.dimensions(),
+                update_bind,
+                device,
+                queue,
+            );
         } else {
             log::warn!("Texture File {} Not supported", key);
         }

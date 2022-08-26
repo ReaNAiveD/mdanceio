@@ -743,6 +743,10 @@ impl Project {
         }
     }
 
+    pub fn model(&self, handle: ModelHandle) -> Option<&Model> {
+        self.model_handle_map.get(&handle)
+    }
+
     pub fn model_mut(&mut self, handle: ModelHandle) -> Option<&mut Model> {
         self.model_handle_map.get_mut(&handle)
     }
@@ -1193,7 +1197,7 @@ impl Project {
         model_data: &[u8],
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-    ) -> Result<(), MdanceioError> {
+    ) -> Result<ModelHandle, MdanceioError> {
         Model::new_from_bytes(
             model_data,
             self.parse_language(),
@@ -1208,6 +1212,7 @@ impl Project {
         .map(|model| {
             let handle = self.add_model(model);
             self.set_active_model(Some(handle));
+            handle
         })
     }
 
