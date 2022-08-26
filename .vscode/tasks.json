@@ -34,11 +34,24 @@
         {
             "label": "wasm: bindgen",
             "type": "shell",
-            "command": "wasm-bindgen --out-dir target/pkg --target web target/wasm32-unknown-unknown/debug/mdanceio.wasm",
+            "command": "wasm-bindgen --out-dir target/wasm-bundle target/wasm32-unknown-unknown/debug/mdanceio.wasm",
             "dependsOn": [
                 "rust: cargo build-wasm"
             ],
             "problemMatcher": []
+        },
+        {
+            "label": "wasm: pack",
+            "type": "shell",
+            "command": "wasm-pack build mdanceio --out-dir ../target/pkg",
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "options": {
+                "env": {
+                    "RUSTFLAGS": "--cfg=web_sys_unstable_apis"
+                }
+            }
         },
         {
             "label": "rust: cargo run example winit",
