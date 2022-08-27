@@ -62,7 +62,7 @@ impl ShadowCamera {
         device: &wgpu::Device,
     ) -> Self {
         let color_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("ShadowCamera/color"),
+            label: Some("ShadowCamera/Color"),
             size: wgpu::Extent3d {
                 width: Self::INITIAL_TEXTURE_SIZE as u32,
                 height: Self::INITIAL_TEXTURE_SIZE as u32,
@@ -76,7 +76,7 @@ impl ShadowCamera {
         });
         let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("ShadowCamera/depth"),
+            label: Some("ShadowCamera/Depth"),
             size: wgpu::Extent3d {
                 width: Self::INITIAL_TEXTURE_SIZE as u32,
                 height: Self::INITIAL_TEXTURE_SIZE as u32,
@@ -89,7 +89,7 @@ impl ShadowCamera {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
         let fallback_color_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("@mdanceio/ShadowCamera/FallbackColorImage"),
+            label: Some("ShadowCamera/FallbackColor"),
             size: wgpu::Extent3d {
                 width: 1,
                 height: 1,
@@ -102,7 +102,7 @@ impl ShadowCamera {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
         let fallback_depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("@mdanceio/ShadowCamera/FallbackDepthImage"),
+            label: Some("ShadowCamera/FallbackDepth"),
             size: wgpu::Extent3d {
                 width: 1,
                 height: 1,
@@ -115,7 +115,7 @@ impl ShadowCamera {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("ModelProgramBundle/BindGroup/Texture"),
+            label: Some("ShadowCamera/BindGroup/Texture"),
             layout: bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {

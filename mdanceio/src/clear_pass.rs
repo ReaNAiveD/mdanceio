@@ -18,7 +18,7 @@ impl ClearPass {
         let vertex_buffer = wgpu::util::DeviceExt::create_buffer_init(
             device,
             &wgpu::util::BufferInitDescriptor {
-                label: Some("@mdanceio/ClearPass/Vertices"),
+                label: Some("ClearPass/Vertices"),
                 contents: bytemuck::cast_slice(&QuadVertexUnit::generate_quad_tri_strip()),
                 usage: wgpu::BufferUsages::VERTEX,
             },
@@ -35,11 +35,11 @@ impl ClearPass {
         device: &wgpu::Device,
     ) -> wgpu::RenderPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("@mdanceio/ClearPass/Shader"),
+            label: Some("ClearPass/Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("resources/shaders/clear.wgsl").into()),
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("@mdanceio/ClearPass/PipelineLayout"),
+            label: Some("ClearPass/PipelineLayout"),
             bind_group_layouts: &[],
             push_constant_ranges: &[],
         });
@@ -74,7 +74,7 @@ impl ClearPass {
             })
             .collect::<Vec<_>>();
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("@mdanceio/ClearPass/Pipeline"),
+            label: Some("ClearPass/Pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,

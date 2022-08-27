@@ -1438,7 +1438,7 @@ impl Project {
             depth_or_array_layers: 1,
         };
         let fallback_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("@mdanceio/FallbackImage"),
+            label: Some("FallbackImage"),
             size: texture_size,
             mip_level_count: 1,
             sample_count: 1,
@@ -1530,7 +1530,7 @@ impl Project {
                 device,
             );
             let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("@mdanceio/ClearRenderPass"),
+                label: Some("ClearRenderPass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view,
                     resolve_target: None,

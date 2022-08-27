@@ -641,7 +641,7 @@ impl<'a> CommonPass<'a> {
         {
             log::info!("Begin Render Pass");
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Model Pass Render Pass"),
+                label: Some("ModelProgramBundle/RenderPass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: color_attachment_view,
                     resolve_target: None,

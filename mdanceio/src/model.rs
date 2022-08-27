@@ -1832,7 +1832,7 @@ impl Model {
         log::info!("Model Start Drawing Color");
         let num_material = self.materials.len();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Model Draw Color Encoder"),
+            label: Some("Model/CommandEncoder/Color"),
         });
         for (idx, material) in self.materials.iter().enumerate() {
             if material.is_visible() {
@@ -1949,7 +1949,7 @@ impl Model {
     ) {
         let num_material = self.materials.len();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Model Draw Edge Encoder"),
+            label: Some("Model/CommandEncoder/Edge"),
         });
         for (idx, material) in self.materials.iter().enumerate() {
             if material.origin.flags.is_edge_enabled
@@ -2059,7 +2059,7 @@ impl Model {
         let world = context.light.get_shadow_transform();
         let num_material = self.materials.len();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Model Draw Ground Shadow Encoder"),
+            label: Some("Model/CommandEncoder/GroundShadow"),
         });
         for (idx, material) in self.materials.iter().enumerate() {
             if material.origin.flags.is_casting_shadow_enabled
@@ -2166,7 +2166,7 @@ impl Model {
     ) {
         let num_material = self.materials.len();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Model Draw Shadow Map Encoder"),
+            label: Some("Model/CommandEncoder/ShadowMap"),
         });
         for (idx, material) in self.materials.iter().enumerate() {
             if material.is_casting_shadow_map_enabled()
@@ -3308,7 +3308,7 @@ impl Material {
             name = canonical_name.clone();
         }
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(format!("TextureBindGroup/Material {}", &canonical_name).as_str()),
+            label: Some(format!("Model/TextureBindGroup/Material {}", &canonical_name).as_str()),
             layout: bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -3587,7 +3587,7 @@ impl Material {
         device: &wgpu::Device,
     ) {
         self.texture_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some(format!("TextureBindGroup/Material").as_str()),
+            label: Some(format!("Model/TextureBindGroup/Material").as_str()),
             layout: bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
