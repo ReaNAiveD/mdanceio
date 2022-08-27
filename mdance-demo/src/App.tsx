@@ -1,11 +1,11 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useRef} from 'react';
 import './App.css';
 import {WasmClient} from 'mdanceio';
 import {readFile} from "./utils";
 
 function App() {
   const graph_display_ref = useRef<HTMLCanvasElement>(null);
-  const [client, initClient] = useState<WasmClient | null>(null);
+  const clientPromise = useRef<Promise<WasmClient>>();
   const modelFile = useRef<HTMLInputElement>(null)
   const onLoadModelClick = () => {
     modelFile.current?.click();
@@ -14,61 +14,60 @@ function App() {
   const onLoadTextureClick = () => {
     textureFile.current?.click()
   }
-  const onUpdateTextureClick = () => {
+  const onUpdateTextureClick = async () => {
+    const client = await clientPromise.current
     client?.update_bind_texture()
   }
-  const onRedrawClick = () => {
+  const onRedrawClick = async () => {
+    const client = await clientPromise.current
     client?.redraw()
   }
 
   useEffect(() => {
-    modelFile.current?.addEventListener('change', () => {
-      const files = modelFile.current?.files
-      if (!files || files.length === 0) {
-        console.log("No Files Selected")
-      }
-      else {
-        const file = files[0]
-        readFile(file).then(bytes => {
-          const data = new Uint8Array(bytes)
-          if (client) {
-            client.load_model(data);
-            client.redraw();
-          }
-        })
-      }
-    })
-  })
-  useEffect(() => {
-    textureFile.current?.addEventListener('change', () => {
-      const files = textureFile.current?.files
-      if (!files || files.length === 0) {
-        console.log("No Texture Selected")
-      }
-      else {
-        for (let idx = 0; idx < files.length; idx++) {
-          const file = files[idx];
-          readFile(file).then(bytes => {
+    if (modelFile.current) {
+      modelFile.current.onchange = async () => {
+        const files = modelFile.current?.files
+        if (!files || files.length === 0) {
+          console.log("No Files Selected")
+        } else {
+          const file = files[0]
+          readFile(file).then(async bytes => {
             const data = new Uint8Array(bytes)
-            if (client) {
-              client.load_texture(file.name, data, true)
-            }
+            const client = await clientPromise.current;
+            client?.load_model(data);
+            client?.redraw();
           })
         }
       }
-    })
-  })
+    }
+  }, [modelFile.current])
+  useEffect(() => {
+    if (textureFile.current) {
+      textureFile.current.onchange = async () => {
+        const files = textureFile.current?.files
+        if (!files || files.length === 0) {
+          console.log("No Texture Selected")
+        } else {
+          for (let idx = 0; idx < files.length; idx++) {
+            const file = files[idx];
+            const bytes = await readFile(file);
+            const data = new Uint8Array(bytes)
+            const client = await clientPromise.current;
+            client?.load_texture(file.name, data, true);
+            }
+        }
+      }
+    }
+  }, [textureFile.current])
 
   useEffect(() => {
-    if (!client) {
-      import('mdanceio').then(module => {
-        const promise = module.WasmClient.new(graph_display_ref.current!, module.Backend.WebGPU)
-        promise.then(client => {
-          initClient(client)
-        })
-      })
-    }
-  })
+    import('mdanceio').then(module => {
+      if (!clientPromise.current) {
+        console.log("Use Effect")
+        clientPromise.current = module.WasmClient.new(graph_display_ref.current!, module.Backend.WebGPU)
+      }
+    })
+  }, [])
 
   return (
     <div className="App">
@@ -80,17 +79,6 @@ function App() {
         <button className="Load-Texture-Button" onClick={onLoadTextureClick}> Load Texture</button>
         <button className="Update-Texture-Button" onClick={onUpdateTextureClick}> Update Texture</button>
         <button className="Redraw-Button" onClick={onRedrawClick}> Redraw</button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
       </header>
     </div>
   );
