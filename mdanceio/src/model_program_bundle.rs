@@ -635,7 +635,6 @@ impl<'a> CommonPass<'a> {
             })
         });
 
-        encoder.push_debug_group("ModelProgramBundle::execute");
         let mut uniform_bind = self.cache.uniform_cache.borrow_mut();
         let uniform_bind_group = uniform_bind.bind_group(queue);
         {
@@ -678,7 +677,6 @@ impl<'a> CommonPass<'a> {
                 0..1,
             );
         }
-        encoder.pop_debug_group();
     }
 }
 
