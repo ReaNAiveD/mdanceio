@@ -187,10 +187,10 @@ fn fs_main(
         let texcoord0 = fin.shadow0 / fin.shadow0.w;
         let satu_texc = saturate_v2(texcoord0.xy);
         let toon_color = textureSample(toon_texture, toon_texture_sampler, vec2<f32>(0.0, 1.0));
+        var coverage = shadow_coverage(texcoord0, model_parameters.shadow_map_size);
         if (satu_texc.x == texcoord0.x && satu_texc.y == texcoord0.y) {
             var shadow_color = material_color;
             shadow_color = vec4<f32>(shadow_color.rgb * (toon_color.rgb * model_parameters.toon_texture_blend_factor.rgb) * model_parameters.toon_texture_blend_factor.a, shadow_color.a * toon_color.a);
-            var coverage = shadow_coverage(texcoord0, model_parameters.shadow_map_size);
             coverage = min(saturate(dot(fin.normal, light_position) * toon_factor), coverage);
             material_color = mix(shadow_color, material_color, coverage);
         }
