@@ -74,13 +74,14 @@ impl WasmClient {
 
             let trace_dir = std::env::var("WGPU_TRACE");
             log::info!("Getting Render Device and Queue..");
-            // TODO: wo may need to set feature and limit, ref to https://github.com/gfx-rs/wgpu/blob/master/wgpu/examples/framework.rs
+            let features = adapter.features();
+            let limits = adapter.limits();
             let (device, queue) = adapter
                 .request_device(
                     &wgpu::DeviceDescriptor {
                         label: None,
-                        features: wgpu::Features::empty(),
-                        limits: wgpu::Limits::default(),
+                        features,
+                        limits,
                     },
                     trace_dir.ok().as_ref().map(std::path::Path::new),
                 )
