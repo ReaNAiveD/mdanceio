@@ -452,11 +452,7 @@ impl<'a> CommonPass<'a> {
                     dst_factor: wgpu::BlendFactor::One,
                     operation: wgpu::BlendOperation::Add, // default
                 },
-                alpha: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::One,
-                    dst_factor: wgpu::BlendFactor::Zero,
-                    operation: wgpu::BlendOperation::Max,
-                },
+                alpha: wgpu::BlendComponent::REPLACE,
             },
             wgpu::ColorWrites::ALL,
         )
@@ -470,11 +466,7 @@ impl<'a> CommonPass<'a> {
                     dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                     operation: wgpu::BlendOperation::Add, // default
                 },
-                alpha: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::One,
-                    dst_factor: wgpu::BlendFactor::Zero,
-                    operation: wgpu::BlendOperation::Max,
-                },
+                alpha: wgpu::BlendComponent::REPLACE,
             },
             wgpu::ColorWrites::ALL,
         )

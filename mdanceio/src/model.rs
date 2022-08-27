@@ -2,7 +2,6 @@ use std::{
     collections::{HashMap, HashSet},
     f32::consts::PI,
     iter,
-    time::Instant,
 };
 
 use cgmath::{
@@ -1850,7 +1849,6 @@ impl Model {
                         context.shadow_fallback_bind,
                         context.texture_fallback_bind,
                     ) {
-                        let time_1 = Instant::now();
                         pass.set_global_parameters(self);
                         pass.set_camera_parameters(
                             context.camera,

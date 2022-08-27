@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use instant::{Duration, Instant};
 
 use crate::error::MdanceioError;
 

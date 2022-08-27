@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Instant};
+use std::collections::HashMap;
 
 use cgmath::{ElementWise, Vector2, Vector3, Vector4, VectorSpace};
 
@@ -849,7 +849,6 @@ impl Project {
 impl Project {
     pub fn update(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         // TODO: seek if playing
-        let start = Instant::now();
         if self.is_playing() && self.continue_playing() {
             self.audio_player.update();
             let fps = self.preferred_motion_fps.value;
@@ -872,13 +871,11 @@ impl Project {
                     0f32
                 }
             });
-            let seek_start = Instant::now();
             self.internal_seek_precisely(
                 (frame_index as f32 * inverted_fpx_rate) as u32,
                 amount,
                 delta,
             );
-            log::info!("Internal Seek Use {:?}", Instant::now() - seek_start);
         }
         // TODO: simulate if simulation anytime
         for (_, model) in &mut self.model_handle_map {
@@ -886,7 +883,6 @@ impl Project {
         }
         // TODO: mark all animated images updatable
         // TODO: render background video
-        log::info!("Full Update Use {:?}", Instant::now() - start);
     }
 
     fn restore_state(&mut self, state: &SaveState, force_seek: bool) {
@@ -1526,7 +1522,6 @@ impl Project {
     ) {
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        encoder.push_debug_group("Project::clearViewportPass");
         let depth_stencil_attachment_view = &self.viewport_primary_pass.depth_view;
         {
             let pipeline = self.clear_pass.get_pipeline(
@@ -1566,7 +1561,6 @@ impl Project {
             _render_pass.set_pipeline(&pipeline);
             _render_pass.draw(0..4, 0..1)
         }
-        encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
     }
 
@@ -1643,9 +1637,6 @@ impl Project {
         encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
         log::info!("Submit new viewport task");
-        queue.on_submitted_work_done(|| {
-            log::info!("Submission finished");
-        })
     }
 
     pub fn draw_viewport_with_depth(
@@ -1681,9 +1672,6 @@ impl Project {
         encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
         log::info!("Submit new viewport task");
-        queue.on_submitted_work_done(|| {
-            log::info!("Submission finished");
-        })
     }
 
     fn _draw_viewport(

@@ -145,6 +145,7 @@ impl ShadowCamera {
     }
 
     pub fn clear(&mut self, clear_pass: &ClearPass, device: &wgpu::Device, queue: &wgpu::Queue) {
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let pipeline = clear_pass.get_pipeline(
@@ -152,7 +153,6 @@ impl ShadowCamera {
             wgpu::TextureFormat::Depth24PlusStencil8,
             device,
         );
-        encoder.push_debug_group("ShadowCamera::clear");
         {
             let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ShadowCamera/Clear/Pass"),
@@ -185,8 +185,8 @@ impl ShadowCamera {
             _render_pass.set_pipeline(&pipeline);
             _render_pass.draw(0..4, 0..1);
         }
-        encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
+        device.pop_error_scope();
     }
 
     fn get_view_matrix(

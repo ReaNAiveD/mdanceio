@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import './App.css';
-import {WasmClient} from "mdanceio";
+import {WasmClient} from 'mdanceio';
 import {readFile} from "./utils";
 
 function App() {
@@ -51,7 +51,7 @@ function App() {
           readFile(file).then(bytes => {
             const data = new Uint8Array(bytes)
             if (client) {
-              client.load_texture(file.name, data)
+              client.load_texture(file.name, data, true)
             }
           })
         }
@@ -62,12 +62,9 @@ function App() {
   useEffect(() => {
     if (!client) {
       import('mdanceio').then(module => {
-        module.default(undefined).then(output => {
-          console.log(output)
-          const promise = module.WasmClient.new(graph_display_ref.current!)
-          promise.then(client => {
-            initClient(client)
-          })
+        const promise = module.WasmClient.new(graph_display_ref.current!, module.Backend.WebGPU)
+        promise.then(client => {
+          initClient(client)
         })
       })
     }

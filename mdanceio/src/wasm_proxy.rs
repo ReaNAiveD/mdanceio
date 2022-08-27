@@ -18,6 +18,13 @@ impl<T> CanvasSize<T> {
 }
 
 #[wasm_bindgen]
+pub enum Backend {
+    All,
+    WebGPU,
+    WebGL,
+}
+
+#[wasm_bindgen]
 pub struct WasmClient {
     instance: wgpu::Instance,
     surface: wgpu::Surface,
@@ -33,21 +40,21 @@ pub struct WasmClient {
 /// 我希望通过WasmClient为JS层调用提供接口。JS层应自行处理渲染请求频率，通知视口resize，点击，拖动等事件，并处理好可能有的回调。
 #[wasm_bindgen]
 impl WasmClient {
-    pub fn new(canvas: &web_sys::HtmlCanvasElement) -> js_sys::Promise {
-        // let query_string = web_sys::window().unwrap().location().search().unwrap();
-        // let level: log::Level = parse_url_query_string(&query_string, "RUST_LOG")
-        //     .map(|x| x.parse().ok())
-        //     .flatten()
-        //     .unwrap_or(log::Level::Error);
+
+    pub fn new(canvas: &web_sys::HtmlCanvasElement, backend: Backend) -> js_sys::Promise {
         let level: log::Level = log::Level::Trace;
         console_log::init_with_level(level).expect("could not initialize logger");
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
 
         log::info!("Initializing the surface...");
 
-        let backend = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
+        let backends = match backend {
+            Backend::All => wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all()),
+            Backend::WebGPU => wgpu::Backends::BROWSER_WEBGPU,
+            Backend::WebGL => wgpu::Backends::GL,
+        };
 
-        let instance = wgpu::Instance::new(wgpu::Backends::BROWSER_WEBGPU);
+        let instance = wgpu::Instance::new(backends);
         let (size, surface) = unsafe {
             let size = CanvasSize::new(canvas.width(), canvas.height());
             let surface = instance.create_surface_from_canvas(&canvas);
@@ -56,7 +63,7 @@ impl WasmClient {
         wasm_bindgen_futures::future_to_promise(async move {
             let adapter = wgpu::util::initialize_adapter_from_env_or_default(
                 &instance,
-                backend,
+                backends,
                 Some(&surface),
             )
             .await
@@ -66,6 +73,7 @@ impl WasmClient {
             log::info!("Using {} ({:?})", adapter_info.name, adapter_info.backend);
 
             let trace_dir = std::env::var("WGPU_TRACE");
+            log::info!("Getting Render Device and Queue..");
             // TODO: wo may need to set feature and limit, ref to https://github.com/gfx-rs/wgpu/blob/master/wgpu/examples/framework.rs
             let (device, queue) = adapter
                 .request_device(
@@ -78,19 +86,19 @@ impl WasmClient {
                 )
                 .await
                 .expect("Unable to find a suitable GPU adapter!");
-            log::info!("Got Render Device and Queue");
 
+            log::info!("Configuring Surface...");
             let surface_format = surface.get_supported_formats(&adapter)[0];
             let config = wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 format: surface_format,
                 width: size.width,
                 height: size.height,
-                present_mode: wgpu::PresentMode::Mailbox,
+                present_mode: wgpu::PresentMode::Fifo,
             };
             surface.configure(&device, &config);
-            log::info!("Finish Configure Surface");
 
+            log::info!("Building MDanceIO Service...");
             let service = BaseApplicationService::new(
                 // &config,
                 &adapter,

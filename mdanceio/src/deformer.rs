@@ -1,4 +1,4 @@
-use std::{mem, time::Instant};
+use std::mem;
 
 use wgpu::util::DeviceExt;
 
@@ -280,10 +280,7 @@ impl Deformer {
             edge_scale_factor: model.edge_size(camera),
             padding: 0,
         };
-        let time_0 = Instant::now();
         queue.write_buffer(&self.argument_buffer, 0, bytemuck::bytes_of(&argument));
-        log::info!("Write Argument Buffer use {:?}", Instant::now() - time_0);
-        let time_1 = Instant::now();
         queue.write_buffer(
             &self.matrix_buffer,
             0,
@@ -292,14 +289,11 @@ impl Deformer {
                     [..],
             ),
         );
-        log::info!("Write Matrix Buffer use {:?}", Instant::now() - time_1);
-        let time_2 = Instant::now();
         queue.write_buffer(
             &self.morph_weight_buffer,
             0,
             bytemuck::cast_slice(&Self::build_morph_weight_buffer_data(model.morphs())[..]),
         );
-        log::info!("Write Morph Weight Buffer use {:?}", Instant::now() - time_2);
     }
 
     pub fn execute(&self, output_buffer: &wgpu::Buffer, device: &wgpu::Device, queue: &wgpu::Queue) {

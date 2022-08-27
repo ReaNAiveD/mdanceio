@@ -966,6 +966,7 @@ dependencies = [
  "console_log",
  "glow",
  "image",
+ "instant",
  "js-sys",
  "log",
  "log4rs",
