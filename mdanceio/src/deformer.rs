@@ -297,7 +297,7 @@ impl Deformer {
     }
 
     pub fn execute(&self, output_buffer: &wgpu::Buffer, device: &wgpu::Device, queue: &wgpu::Queue) {
-        log::info!("Executing Skin Deformer...");
+        log::debug!("Executing Skin Deformer...");
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Deformer/BindGroup"),
             layout: &self.bind_group_layout,

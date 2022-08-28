@@ -38,6 +38,18 @@
 }
 
 .Main-Canvas {
-  width: 300px;
-  height: 150px;
+  width: 800px;
+  height: 600px;
+}
+
+.Texture-list {
+  margin: 5px 0;
+}
+
+.Texture-path {
+  font-size: small;
+}
+
+.Hint {
+  font-size: small;
 }

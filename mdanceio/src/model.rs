@@ -1829,7 +1829,7 @@ impl Model {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        log::info!("Model Start Drawing Color");
+        log::debug!("Model Start Drawing Color");
         let num_material = self.materials.len();
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Model/CommandEncoder/Color"),
@@ -1874,7 +1874,7 @@ impl Model {
         let mut index_offset = 0usize;
         for (idx, material) in self.materials.iter().enumerate() {
             let num_indices = material.origin.num_vertex_indices;
-            log::info!(
+            log::debug!(
                 "Render Material, Index count: {}; Offset: {}",
                 num_indices,
                 index_offset
@@ -1935,7 +1935,7 @@ impl Model {
             index_offset += num_indices;
         }
         queue.submit(iter::once(encoder.finish()));
-        log::info!("Model Finish Drawing Color");
+        log::debug!("Model Finish Drawing Color");
     }
 
     fn draw_edge(

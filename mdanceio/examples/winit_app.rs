@@ -155,7 +155,7 @@ impl State {
     fn update(&mut self) {}
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-        log::info!("Start rendering");
+        log::debug!("Start rendering");
         let output = self.surface.get_current_texture()?;
         let view = output
             .texture

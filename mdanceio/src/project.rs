@@ -978,8 +978,8 @@ impl Project {
     }
 
     fn internal_seek_precisely(&mut self, frame_index: u32, amount: f32, delta: f32) {
-        log::info!("Before Internal seek: {:?}", self.local_frame_index);
-        log::info!("Seek to {:?}", frame_index);
+        log::debug!("Before Internal seek: {:?}", self.local_frame_index);
+        log::debug!("Seek to {:?}", frame_index);
         if self.transform_performed_at.0 != Motion::MAX_KEYFRAME_INDEX
             && frame_index != self.transform_performed_at.0
         {
@@ -1618,7 +1618,7 @@ impl Project {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        log::info!("Start drawing viewport");
+        log::debug!("Start drawing viewport");
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.push_debug_group("Project::draw_viewport");
@@ -1636,7 +1636,7 @@ impl Project {
         self.local_frame_index.1 = 0;
         encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
-        log::info!("Submit new viewport task");
+        log::debug!("Submit new viewport task");
     }
 
     pub fn draw_viewport_with_depth(
@@ -1646,7 +1646,7 @@ impl Project {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        log::info!("Start drawing viewport");
+        log::debug!("Start drawing viewport");
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.push_debug_group("Project::draw_viewport");
@@ -1671,7 +1671,7 @@ impl Project {
         self.local_frame_index.1 = 0;
         encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
-        log::info!("Submit new viewport task");
+        log::debug!("Submit new viewport task");
     }
 
     fn _draw_viewport(
@@ -1682,7 +1682,7 @@ impl Project {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        log::info!("Start internal drawing viewport");
+        log::debug!("Start internal drawing viewport");
         for (handle, drawable) in &self.model_handle_map {
             drawable.draw(
                 view,
@@ -1717,7 +1717,7 @@ impl Project {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        log::info!("Start internal drawing viewport");
+        log::debug!("Start internal drawing viewport");
         for (handle, drawable) in &self.model_handle_map {
             drawable.draw(
                 view,

@@ -21,7 +21,7 @@ impl<T> CanvasSize<T> {
 pub enum Backend {
     All,
     WebGPU,
-    WebGL,
+    // WebGL,
 }
 
 #[wasm_bindgen]
@@ -40,8 +40,10 @@ pub struct WasmClient {
 /// 我希望通过WasmClient为JS层调用提供接口。JS层应自行处理渲染请求频率，通知视口resize，点击，拖动等事件，并处理好可能有的回调。
 #[wasm_bindgen]
 impl WasmClient {
-
-    pub fn new(canvas: &web_sys::HtmlCanvasElement, backend: Backend) -> js_sys::Promise {
+    pub fn new(
+        canvas: &web_sys::HtmlCanvasElement,
+        backend: Backend,
+    ) -> js_sys::Promise {
         let level: log::Level = log::Level::Trace;
         console_log::init_with_level(level).expect("could not initialize logger");
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -51,7 +53,6 @@ impl WasmClient {
         let backends = match backend {
             Backend::All => wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all()),
             Backend::WebGPU => wgpu::Backends::BROWSER_WEBGPU,
-            Backend::WebGL => wgpu::Backends::GL,
         };
 
         let instance = wgpu::Instance::new(backends);
@@ -152,6 +153,7 @@ impl WasmClient {
 
     pub fn load_model(&mut self, data: &[u8]) {
         self.service.load_model(data, &self.device, &self.queue);
+        self.service.enable_all_model_shadow_map(true);
     }
 
     pub fn load_model_motion(&mut self, data: &[u8]) {
@@ -164,6 +166,14 @@ impl WasmClient {
 
     pub fn load_light_motion(&mut self, data: &[u8]) {
         self.service.load_light_motion(data);
+    }
+
+    pub fn get_texture_names(&self) -> Box<[JsValue]> {
+        self.service
+            .get_model_texture_paths(1)
+            .iter()
+            .map(|path| path.into())
+            .collect()
     }
 
     pub fn load_texture(&mut self, key: &str, data: &[u8], update_bind: bool) {
@@ -198,7 +208,12 @@ impl WasmClient {
     }
 
     pub fn update(&mut self) {
-        self.service.update_current_project(&self.device, &self.queue);
+        self.service
+            .update_current_project(&self.device, &self.queue);
+    }
+
+    pub fn play(&mut self) {
+        self.service.play()
     }
 }
 

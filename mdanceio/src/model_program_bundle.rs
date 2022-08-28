@@ -470,7 +470,7 @@ impl<'a> CommonPass<'a> {
         model: &Model,
         config: &PassExecuteConfiguration,
     ) {
-        log::info!("Start Executing");
+        log::debug!("Start Executing");
         let is_add_blend = model.is_add_blend_enabled();
         let is_depth_enabled = buffer.is_depth_enabled();
         let key = CommonPassCacheKey {
@@ -481,7 +481,7 @@ impl<'a> CommonPass<'a> {
             is_depth_enabled,
             is_offscreen_render_pass_active: false,
         };
-        log::info!("Getting Pipeline");
+        log::debug!("Getting Pipeline");
         let mut cache = self.cache.pipeline_cache.borrow_mut();
         let pipeline = cache.entry(key).or_insert_with(|| {
             let vertex_size = mem::size_of::<crate::model::VertexUnit>();
@@ -581,11 +581,7 @@ impl<'a> CommonPass<'a> {
                     format: wgpu::TextureFormat::Depth24PlusStencil8,
                     depth_write_enabled: is_depth_enabled,
                     depth_compare: if is_depth_enabled {
-                        // // Walk Around https://github.com/gfx-rs/wgpu/pull/2984
-                        // #[cfg(not(target_arch = "wasm32"))]
                         wgpu::CompareFunction::LessEqual
-                        // #[cfg(target_arch = "wasm32")]
-                        // {wgpu::CompareFunction::Always}
                     } else {
                         wgpu::CompareFunction::Always
                     },
@@ -624,7 +620,7 @@ impl<'a> CommonPass<'a> {
         let mut uniform_bind = self.cache.uniform_cache.borrow_mut();
         let uniform_bind_group = uniform_bind.bind_group(queue);
         {
-            log::info!("Begin Render Pass");
+            log::debug!("Begin Render Pass");
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ModelProgramBundle/RenderPass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
