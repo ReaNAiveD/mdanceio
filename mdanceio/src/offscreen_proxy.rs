@@ -84,7 +84,9 @@ impl OffscreenProxy {
     }
 
     pub fn load_model(&mut self, data: &[u8]) -> Result<ModelHandle, MdanceioError> {
-        self.application.load_model(data, &self.device, &self.queue)
+        let handle = self.application.load_model(data, &self.device, &self.queue)?;
+        self.application.enable_all_model_shadow_map(true);
+        Ok(handle)
     }
 
     pub fn load_texture(&mut self, key: &str, data: &[u8], update_bind: bool) {
