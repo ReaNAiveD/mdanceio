@@ -160,18 +160,40 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
     let model_data = std::fs::read("tests/example/Alicia/MMD/Alicia_solid.pmx")?;
     let model_handle = application.load_model(&model_data, &device, &queue)?;
+    application.enable_all_model_shadow_map(true);
     drop(model_data);
     let texture_dir = std::fs::read_dir("tests/example/Alicia/FBX/").unwrap();
     for texture_file in texture_dir {
-        let texture_file = texture_file.unwrap();
-        let texture_data = std::fs::read(texture_file.path())?;
-        application.load_texture(
-            texture_file.file_name().to_str().unwrap(),
-            &texture_data,
-            false,
-            &device,
-            &queue,
-        );
+        let texture_first_entry = texture_file.unwrap();
+        if texture_first_entry.metadata().unwrap().is_file() {
+            let texture_data = std::fs::read(texture_first_entry.path())?;
+            application.load_texture(
+                texture_first_entry.file_name().to_str().unwrap(),
+                &texture_data,
+                false,
+                &device,
+                &queue,
+            );
+        } else if texture_first_entry.metadata().unwrap().is_dir() {
+            for texture_file in std::fs::read_dir(texture_first_entry.path()).unwrap() {
+                let texture_file = texture_file.unwrap();
+                if texture_file.metadata().unwrap().is_file() {
+                    let texture_data = std::fs::read(texture_file.path())?;
+                    application.load_texture(
+                        format!(
+                            "{}/{}",
+                            texture_first_entry.file_name().to_str().unwrap(),
+                            texture_file.file_name().to_str().unwrap()
+                        )
+                        .as_str(),
+                        &texture_data,
+                        false,
+                        &device,
+                        &queue,
+                    );
+                }
+            }
+        }
     }
     application.update_bind_texture(&device);
     let motion_data = std::fs::read("tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
