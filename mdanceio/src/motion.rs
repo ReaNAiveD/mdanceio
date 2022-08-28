@@ -146,7 +146,7 @@ impl Motion {
                 dirty: false,
             }),
             Err(status) => Err(MdanceioError::from_nanoem(
-                "Cannot load the model: ",
+                "Cannot load the motion: ",
                 status,
             )),
         }
