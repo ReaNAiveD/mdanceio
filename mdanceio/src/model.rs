@@ -6,7 +6,7 @@ use std::{
 
 use cgmath::{
     AbsDiffEq, ElementWise, InnerSpace, Matrix3, Matrix4, Quaternion, Rad, Rotation3, SquareMatrix,
-    Vector3, Vector4, VectorSpace, Zero,
+    Vector3, Vector4, VectorSpace, Zero, Euler,
 };
 use nanoem::{
     model::{ModelMorphCategory, ModelRigidBodyTransformType},
@@ -2899,42 +2899,11 @@ impl Bone {
         upper_limit: &Vector3<f32>,
         lower_limit: &Vector3<f32>,
     ) -> Quaternion<f32> {
-        let rad_90_deg = 90f32.to_radians();
-        let matrix: Matrix3<f32> = orientation.into();
-        if lower_limit.x > -rad_90_deg && upper_limit.x < rad_90_deg {
-            let radians = Vector3::new(
-                matrix[1][2].asin(),
-                (-matrix[0][2]).atan2(matrix[2][2]),
-                (-matrix[1][0]).atan2(matrix[1][1]),
-            );
-            let r = radians.clamp_element_wise(*lower_limit, *upper_limit);
-            let x = Quaternion::from_axis_angle(Vector3::unit_x(), Rad(r.x));
-            let y = Quaternion::from_axis_angle(Vector3::unit_y(), Rad(r.y));
-            let z = Quaternion::from_axis_angle(Vector3::unit_z(), Rad(r.z));
-            z * x * y
-        } else if lower_limit.y > -rad_90_deg && upper_limit.y < rad_90_deg {
-            let radians = Vector3::new(
-                (-matrix[2][1]).atan2(matrix[2][2]),
-                matrix[2][0].asin(),
-                (-matrix[1][0]).atan2(matrix[0][0]),
-            );
-            let r = radians.clamp_element_wise(*lower_limit, *upper_limit);
-            let x = Quaternion::from_axis_angle(Vector3::unit_x(), Rad(r.x));
-            let y = Quaternion::from_axis_angle(Vector3::unit_y(), Rad(r.y));
-            let z = Quaternion::from_axis_angle(Vector3::unit_z(), Rad(r.z));
-            x * y * z
-        } else {
-            let radians = Vector3::new(
-                (-matrix[2][1]).atan2(matrix[1][1]),
-                (-matrix[0][2]).atan2(matrix[0][0]),
-                matrix[0][1].asin(),
-            );
-            let r = radians.clamp_element_wise(*lower_limit, *upper_limit);
-            let x = Quaternion::from_axis_angle(Vector3::unit_x(), Rad(r.x));
-            let y = Quaternion::from_axis_angle(Vector3::unit_y(), Rad(r.y));
-            let z = Quaternion::from_axis_angle(Vector3::unit_z(), Rad(r.z));
-            y * z * x
-        }
+        let mut euler = Euler::from(orientation);
+        euler.x = Rad(euler.x.0.clamp(lower_limit.x, upper_limit.x));
+        euler.y = Rad(euler.y.0.clamp(lower_limit.y, upper_limit.y));
+        euler.z = Rad(euler.z.0.clamp(lower_limit.z, upper_limit.z));
+        euler.into()
     }
 }
 
