@@ -1,4 +1,7 @@
-use crate::{base_application_service::BaseApplicationService, injector::Injector, error::MdanceioError, project::ModelHandle};
+use crate::{
+    base_application_service::BaseApplicationService, error::MdanceioError, injector::Injector,
+    project::ModelHandle,
+};
 
 pub struct OffscreenProxy {
     texture: wgpu::Texture,
@@ -84,7 +87,9 @@ impl OffscreenProxy {
     }
 
     pub fn load_model(&mut self, data: &[u8]) -> Result<ModelHandle, MdanceioError> {
-        let handle = self.application.load_model(data, &self.device, &self.queue)?;
+        let handle = self
+            .application
+            .load_model(data, &self.device, &self.queue)?;
         self.application.enable_all_model_shadow_map(true);
         Ok(handle)
     }
@@ -92,6 +97,10 @@ impl OffscreenProxy {
     pub fn load_texture(&mut self, key: &str, data: &[u8], update_bind: bool) {
         self.application
             .load_texture(key, data, update_bind, &self.device, &self.queue);
+    }
+
+    pub fn update_texture_bind(&mut self) {
+        self.application.update_bind_texture(&self.device);
     }
 
     pub fn load_model_motion(&mut self, data: &[u8]) -> Result<(), MdanceioError> {
