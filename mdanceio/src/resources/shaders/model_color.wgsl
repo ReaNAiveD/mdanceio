@@ -41,7 +41,7 @@ struct FragmentInput {
     @location(5) shadow0: vec4<f32>,
 }
 
-let alpha_test_threshold: f32 = 0.005;
+// let alpha_test_threshold: f32 = 0.005;
 
 struct ModelParameters {
     model_matrix: mat4x4<f32>,
@@ -119,8 +119,8 @@ fn is_sphere_texture_as_sub_texture() -> bool {
     return model_parameters.sphere_texture_type.y != 0.0;
 }
 
-let threshold_type1: f32 = 1500.0;
-let threshold_type2: f32 = 8000.0;
+// let threshold_type1: f32 = 1500.0;
+// let threshold_type2: f32 = 8000.0;
 
 fn shadow_coverage(texcoord: vec4<f32>, shadow_map_size: vec4<f32>) -> f32 {
     let receiver_depth = texcoord.z;
@@ -128,10 +128,10 @@ fn shadow_coverage(texcoord: vec4<f32>, shadow_map_size: vec4<f32>) -> f32 {
     var component = saturate(receiver_depth - shadow_map_depth);
     let coverage_type_int: i32 = i32(shadow_map_size.w);
     if (coverage_type_int == 2) {
-        component = saturate(component * threshold_type2 * texcoord.y - 0.3);
+        component = saturate(component * 8000.0/*threshold_type2*/ * texcoord.y - 0.3);
     } 
     else if (coverage_type_int == 1) {
-        component = saturate(component * threshold_type1 - 0.3);
+        component = saturate(component * 1500.0/*threshold_type1*/ - 0.3);
     }
     return 1.0 - component;
 }
@@ -156,7 +156,7 @@ fn vs_main(
     return vout;
 }
 
-let toon_factor: f32 = 3.0;
+// let toon_factor: f32 = 3.0;
 
 @fragment
 fn fs_main(
@@ -191,7 +191,7 @@ fn fs_main(
         if (satu_texc.x == texcoord0.x && satu_texc.y == texcoord0.y) {
             var shadow_color = material_color;
             shadow_color = vec4<f32>(shadow_color.rgb * (toon_color.rgb * model_parameters.toon_texture_blend_factor.rgb) * model_parameters.toon_texture_blend_factor.a, shadow_color.a * toon_color.a);
-            coverage = min(saturate(dot(fin.normal, light_position) * toon_factor), coverage);
+            coverage = min(saturate(dot(fin.normal, light_position) * 3.0/*toon_factor*/), coverage);
             material_color = mix(shadow_color, material_color, coverage);
         }
     }
@@ -212,5 +212,4 @@ fn fs_main(
         material_color = vec4<f32>(material_color.rgb + model_parameters.material_specular.rgb * model_parameters.light_color.rgb * spec, material_color.a);
     }
     return saturate_v4(material_color);
-    // return vec4<f32>(0.0, 0.0, 0.0, 1.0);
 }

@@ -446,28 +446,14 @@ impl<'a> CommonPass<'a> {
 
     fn get_add_blend_state(&self) -> (wgpu::BlendState, wgpu::ColorWrites) {
         (
-            wgpu::BlendState {
-                color: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::SrcAlpha,
-                    dst_factor: wgpu::BlendFactor::One,
-                    operation: wgpu::BlendOperation::Add, // default
-                },
-                alpha: wgpu::BlendComponent::REPLACE,
-            },
+            wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING,
             wgpu::ColorWrites::ALL,
         )
     }
 
     fn get_alpha_blend_state(&self) -> (wgpu::BlendState, wgpu::ColorWrites) {
         (
-            wgpu::BlendState {
-                color: wgpu::BlendComponent {
-                    src_factor: wgpu::BlendFactor::SrcAlpha,
-                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                    operation: wgpu::BlendOperation::Add, // default
-                },
-                alpha: wgpu::BlendComponent::REPLACE,
-            },
+            wgpu::BlendState::ALPHA_BLENDING,
             wgpu::ColorWrites::ALL,
         )
     }
@@ -510,7 +496,7 @@ impl<'a> CommonPass<'a> {
                     label: Some("ModelProgramBundle/PipelineLayout"),
                     bind_group_layouts: &[
                         config.texture_bind_layout,
-                        &self.cache.uniform_cache.borrow().bind_layout(),
+                        self.cache.uniform_cache.borrow().bind_layout(),
                         config.shadow_bind_layout,
                     ],
                     push_constant_ranges: &[],
@@ -595,7 +581,11 @@ impl<'a> CommonPass<'a> {
                     format: wgpu::TextureFormat::Depth24PlusStencil8,
                     depth_write_enabled: is_depth_enabled,
                     depth_compare: if is_depth_enabled {
+                        // // Walk Around https://github.com/gfx-rs/wgpu/pull/2984
+                        // #[cfg(not(target_arch = "wasm32"))]
                         wgpu::CompareFunction::LessEqual
+                        // #[cfg(target_arch = "wasm32")]
+                        // {wgpu::CompareFunction::Always}
                     } else {
                         wgpu::CompareFunction::Always
                     },
@@ -626,11 +616,7 @@ impl<'a> CommonPass<'a> {
                     conservative: false,
                 },
                 depth_stencil: Some(depth_state),
-                multisample: wgpu::MultisampleState {
-                    count: 1, // TODO: be configured by pixel format
-                    mask: !0,
-                    alpha_to_coverage_enabled: false,
-                },
+                multisample: wgpu::MultisampleState::default(),
                 multiview: None,
             })
         });
@@ -660,9 +646,9 @@ impl<'a> CommonPass<'a> {
                     }
                 }),
             });
-            rpass.set_pipeline(&pipeline);
+            rpass.push_debug_group("ModelProgramBundle/CommonPass/execute");
+            rpass.set_pipeline(pipeline);
             rpass.set_bind_group(0, self.texture_bind, &[]);
-
             rpass.set_bind_group(
                 1,
                 uniform_bind_group,
@@ -676,6 +662,7 @@ impl<'a> CommonPass<'a> {
                 0,
                 0..1,
             );
+            rpass.pop_debug_group();
         }
     }
 }

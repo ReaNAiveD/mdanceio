@@ -5,7 +5,7 @@ struct VertexOutput {
 @vertex
 fn vs_main(@location(0) position: vec4<f32>) -> VertexOutput {
     var result: VertexOutput;
-    result.position = vec4<f32>(position.x, position.y, 0.5, 0.0);
+    result.position = vec4<f32>(position.x, position.y, 1.0, 1.0);
     return result;
 }
 

@@ -41,7 +41,7 @@ struct FragmentInput {
     @location(5) shadow0: vec4<f32>,
 };
 
-let alpha_test_threshold: f32 = 0.005;
+// let alpha_test_threshold: f32 = 0.005;
 
 struct ModelParameters {
     model_matrix: mat4x4<f32>,
@@ -142,7 +142,7 @@ fn coverage_alpha(frag_input: FragmentInput, rgba: vec4<f32>) -> vec4<f32> {
         let y = 1.0 - saturate(dot(normal, light_position) * 16.0 + 0.5);
         result.a = result.a * textureSample(toon_texture, toon_texture_sampler, vec2<f32>(0.0, y)).a;
     }
-    if (result.a - alpha_test_threshold < 0.0) {
+    if (result.a - 0.005/*alpha_test_threshold*/ < 0.0) {
         discard;
     }
     return result;

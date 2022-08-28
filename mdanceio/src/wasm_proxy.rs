@@ -192,6 +192,14 @@ impl WasmClient {
     pub fn update_bind_texture(&mut self) {
         self.service.update_bind_texture(&self.device);
     }
+
+    pub fn seek(&mut self, frame_index: u32) {
+        self.service.seek(frame_index);
+    }
+
+    pub fn update(&mut self) {
+        self.service.update_current_project(&self.device, &self.queue);
+    }
 }
 
 /// Parse the query string as returned by `web_sys::window()?.location().search()?` and get a

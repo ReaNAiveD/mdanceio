@@ -467,7 +467,7 @@ impl Model {
                                 }
                                 references
                                     .entry(bone_index)
-                                    .or_insert(HashSet::new())
+                                    .or_insert_with(|| HashSet::new())
                                     .insert(vertex.base.index);
                             }
                         }
@@ -513,7 +513,7 @@ impl Model {
                 log::trace!("Len(vertices): {}", vertices.len());
                 let mut vertex_buffer_data: Vec<VertexUnit> = vec![];
                 for vertex in &vertices {
-                    vertex_buffer_data.push(vertex.simd.clone().into());
+                    vertex_buffer_data.push(vertex.simd.into());
                 }
                 log::trace!("Len(vertex_buffer): {}", vertex_buffer_data.len());
                 let edge_size =
@@ -1882,7 +1882,7 @@ impl Model {
             let buffer = pass::Buffer::new(
                 num_indices,
                 index_offset,
-                &self.vertex_buffers[1 - self.stage_vertex_buffer_index as usize],
+                &self.vertex_buffers[1 - self.stage_vertex_buffer_index],
                 &self.index_buffer,
                 true,
             );
