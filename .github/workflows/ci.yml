@@ -23,6 +23,11 @@ jobs:
 
     - name: Install wasm-pack
       run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      
+    - name: caching
+      uses: Swatinem/rust-cache@v1
+      with:
+        key: wasm-pack-b
 
     - name: Build
       run: wasm-pack build mdanceio --out-dir ../target/pkg
@@ -61,6 +66,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+      
+    - name: caching
+      uses: Swatinem/rust-cache@v1
+      with:
+        key: ${{ matrix.target }}-b
 
     - name: Build Example
       run: cargo build --package mdanceio --example winit_app --release
@@ -82,23 +92,31 @@ jobs:
 
     - name: Install wasm-pack
       run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      
+    - name: caching
+      uses: Swatinem/rust-cache@v1
+      with:
+        key: wasm-pack-web-demo-b
 
     - name: Build Wasm Pack
       run: wasm-pack build mdanceio --out-dir ../target/pkg
+
     - name: Use Node.js 16.x
       uses: actions/setup-node@v3
       with:
         node-version: 16.x
         cache: 'npm'
-        cache-dependency-path: mdanceio-demo/package-lock.json
+        cache-dependency-path: mdance-demo/package-lock.json
+
     - name: Install Dependencies
-      working-directory: ./mdanceio-demo
+      working-directory: ./mdance-demo
       run: npm install
+
     - name: Build
-      working-directory: ./mdanceio-demo
+      working-directory: ./mdance-demo
       run: npm run build
     
     - uses: actions/upload-artifact@v3
       with:
         name: mdanceio-web
-        path: mdanceio-demo/build/
+        path: mdance-demo/build/
