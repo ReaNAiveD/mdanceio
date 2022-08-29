@@ -34,7 +34,7 @@ jobs:
     
     - uses: actions/upload-artifact@v3
       with:
-        name: mdanceio-npm
+        name: npm-package
         path: target/pkg/
   
   build-example:
@@ -118,5 +118,5 @@ jobs:
     
     - uses: actions/upload-artifact@v3
       with:
-        name: mdanceio-web
+        name: mdanceio-web-demo
         path: mdance-demo/build/
