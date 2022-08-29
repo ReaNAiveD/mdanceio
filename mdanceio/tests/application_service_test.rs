@@ -158,11 +158,11 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
     let mut application = BaseApplicationService::new(&adapter, &device, &queue, injector);
 
-    let model_data = std::fs::read("tests/example/Alicia/MMD/Alicia_solid.pmx")?;
+    let model_data = std::fs::read("tests/example/砂糖/砂糖.pmx")?;
     let model_handle = application.load_model(&model_data, &device, &queue)?;
     application.enable_all_model_shadow_map(true);
     drop(model_data);
-    let texture_dir = std::fs::read_dir("tests/example/Alicia/FBX/").unwrap();
+    let texture_dir = std::fs::read_dir("tests/example/砂糖").unwrap();
     for texture_file in texture_dir {
         let texture_first_entry = texture_file.unwrap();
         if texture_first_entry.metadata().unwrap().is_file() {
@@ -196,10 +196,10 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
         }
     }
     application.update_bind_texture(&device);
-    let motion_data = std::fs::read("tests/example/Alicia/MMD Motion/2 for test 1.vmd")?;
+    let motion_data = std::fs::read("tests/example/神里绫华_传说任务.vmd")?;
     application.load_model_motion(&motion_data);
     drop(motion_data);
-    application.seek(20);
+    application.seek(609);
     application.update_current_project(&device, &queue);
     application.draw_default_pass(&texture_view, &device, &queue);
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {

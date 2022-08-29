@@ -5,8 +5,8 @@ use std::{
 };
 
 use cgmath::{
-    AbsDiffEq, ElementWise, InnerSpace, Matrix3, Matrix4, Quaternion, Rad, Rotation3, SquareMatrix,
-    Vector3, Vector4, VectorSpace, Zero, Euler,
+    AbsDiffEq, ElementWise, Euler, InnerSpace, Matrix3, Matrix4, One, Quaternion, Rad, Rotation3,
+    SquareMatrix, Vector3, Vector4, VectorSpace, Zero,
 };
 use nanoem::{
     model::{ModelMorphCategory, ModelRigidBodyTransformType},
@@ -139,11 +139,14 @@ pub struct Model {
     bone_index_hash_map: HashMap<MaterialIndex, HashMap<BoneIndex, usize>>,
     bones_by_name: HashMap<String, BoneIndex>,
     morphs_by_name: HashMap<String, MorphIndex>,
+    /// Map from target bone to constraint containing it
     bone_to_constraints: HashMap<BoneIndex, ConstraintIndex>,
     outside_parents: HashMap<BoneIndex, (String, String)>,
     bone_bound_rigid_bodies: HashMap<BoneIndex, RigidBodyIndex>,
+    /// Map from joint bone to constraint containing it
     constraint_joint_bones: HashMap<BoneIndex, ConstraintIndex>,
     inherent_bones: HashMap<BoneIndex, HashSet<BoneIndex>>,
+    /// Set of all effector bones
     constraint_effector_bones: HashSet<BoneIndex>,
     parent_bone_tree: HashMap<BoneIndex, Vec<BoneIndex>>,
     pub shared_fallback_bone: Bone,
@@ -320,10 +323,7 @@ impl Model {
                         {
                             constraint_effector_bones.insert(effector_bone.base.index);
                         }
-                        if opaque.constraints.len() > 0 {
-                            bone_to_constraints
-                                .insert(bone.base.index, nanoem_constraint.base.index);
-                        }
+                        bone_to_constraints.insert(bone.base.index, nanoem_constraint.base.index);
                     }
                 }
                 let mut bone_set: HashSet<BoneIndex> = HashSet::new();
@@ -418,11 +418,11 @@ impl Model {
                         normal_transform: Matrix4::identity(),
                         skinning_transform: Matrix4::identity(),
                     },
-                    local_orientation: Quaternion::zero(),
-                    local_inherent_orientation: Quaternion::zero(),
-                    local_morph_orientation: Quaternion::zero(),
-                    local_user_orientation: Quaternion::zero(),
-                    constraint_joint_orientation: Quaternion::zero(),
+                    local_orientation: Quaternion::one(),
+                    local_inherent_orientation: Quaternion::one(),
+                    local_morph_orientation: Quaternion::one(),
+                    local_user_orientation: Quaternion::one(),
+                    constraint_joint_orientation: Quaternion::one(),
                     local_translation: Vector3::zero(),
                     local_inherent_translation: Vector3::zero(),
                     local_morph_translation: Vector3::zero(),
@@ -815,6 +815,11 @@ impl Model {
                         outside_parent_bone_map,
                     );
                     self.solve_all_constraints();
+                    // TODO: Optimize bone transform apply path, such as building a graph
+                    self.apply_all_bones_transform(
+                        SimulationTiming::Before,
+                        outside_parent_bone_map,
+                    );
                     self.synchronize_all_rigid_body_kinematics(motion, frame_index, physics_engine);
                     self.synchronize_all_rigid_bodies_transform_feedback_to_simulation(
                         physics_engine,
@@ -1000,11 +1005,11 @@ impl Model {
             if constraint.states.enabled
                 && usize::try_from(constraint.origin.target_bone_index)
                     .ok()
-                    .map(|idx| self.bones.get(idx))
+                    .and_then(|idx| self.bones.get(idx))
                     .is_some()
                 && usize::try_from(constraint.origin.effector_bone_index)
                     .ok()
-                    .map(|idx| self.bones.get(idx))
+                    .and_then(|idx| self.bones.get(idx))
                     .is_some()
             {
                 let num_iterations = constraint.origin.num_iterations;
@@ -1182,7 +1187,7 @@ impl Model {
                         .ok()
                         .and_then(|idx| self.bones.get_mut(idx))
                     {
-                        joint_bone.constraint_joint_orientation = Quaternion::zero();
+                        joint_bone.constraint_joint_orientation = Quaternion::one();
                     }
                 }
             }
@@ -1282,9 +1287,6 @@ impl Model {
         timing: SimulationTiming,
         outside_parent_bone_map: &HashMap<(String, String), Bone>,
     ) {
-        if timing == SimulationTiming::Before {
-            self.bounding_box.reset();
-        }
         // TODO: Here nanoem use a ordered bone. If any sort to bone happened, I will change logic here.
         for idx in 0..self.bones.len() {
             let bone = &self.bones[idx];
@@ -1303,8 +1305,18 @@ impl Model {
                     .ok()
                     .and_then(|idx| self.bones.get(idx))
                     .cloned();
-                let parent_bone_and_is_constraint_joint_bone_active =
-                    parent_bone.as_ref().map(|bone| {
+                let parent_origin_world_transform = parent_bone.map(|bone| {
+                    (
+                        f128_to_vec3(bone.origin.origin),
+                        bone.matrices.world_transform,
+                    )
+                });
+                let parent_inherent_bone = usize::try_from(bone.origin.parent_inherent_bone_index)
+                    .ok()
+                    .and_then(|idx| self.bones.get(idx))
+                    .cloned();
+                let parent_inherent_bone_and_is_constraint_joint_bone_active =
+                    parent_inherent_bone.as_ref().map(|bone| {
                         (
                             bone,
                             Some(true)
@@ -1325,7 +1337,8 @@ impl Model {
                     .get(&idx)
                     .and_then(|op_path| outside_parent_bone_map.get(op_path));
                 self.bones[idx].apply_all_local_transform(
-                    parent_bone_and_is_constraint_joint_bone_active,
+                    parent_inherent_bone_and_is_constraint_joint_bone_active,
+                    parent_origin_world_transform,
                     effector_bone_local_user_orientation,
                     is_constraint_joint_bone_active,
                 );
@@ -1606,8 +1619,11 @@ impl Model {
         physics_simulation_time_step: f32,
         outside_parent_bone_map: &HashMap<(String, String), Bone>,
     ) {
+        self.bounding_box.reset();
         self.apply_all_bones_transform(SimulationTiming::Before, outside_parent_bone_map);
         self.solve_all_constraints();
+        // TODO: Optimize bone transform apply path, such as building a graph
+        self.apply_all_bones_transform(SimulationTiming::Before, outside_parent_bone_map);
         if physics_engine.simulation_mode == SimulationMode::EnableAnytime {
             self.synchronize_all_rigid_bodies_transform_feedback_to_simulation(physics_engine);
             physics_engine.step(physics_simulation_time_step);
@@ -2344,7 +2360,7 @@ impl Default for BoneFrameTransform {
     fn default() -> Self {
         Self {
             translation: Vector3::zero(),
-            orientation: Quaternion::zero(),
+            orientation: Quaternion::one(),
             interpolation: BoneKeyframeInterpolation {
                 translation_x: KeyframeInterpolationPoint {
                     bezier_control_point: Bone::DEFAULT_BEZIER_CONTROL_POINT.into(),
@@ -2684,12 +2700,12 @@ impl Bone {
             .abs_diff_eq(&Vector3::zero(), Vector3::<f32>::default_epsilon())
             && self
                 .local_orientation
-                .abs_diff_eq(&Quaternion::zero(), Quaternion::<f32>::default_epsilon())
+                .abs_diff_eq(&Quaternion::one(), Quaternion::<f32>::default_epsilon())
         {
             self.update_local_transform_to(
                 parent_origin_world_transform,
                 &Vector3::zero(),
-                &Quaternion::zero(),
+                &Quaternion::one(),
             );
         } else {
             let translation = self.local_translation;
@@ -2733,19 +2749,19 @@ impl Bone {
         self.local_morph_translation =
             Vector3::zero().lerp(f128_to_vec3(morph.translation), weight);
         self.local_morph_orientation =
-            Quaternion::zero().slerp(f128_to_quat(morph.orientation), weight);
+            Quaternion::one().slerp(f128_to_quat(morph.orientation), weight);
     }
 
     pub fn update_local_orientation(
         &mut self,
-        parent_bone_and_is_constraint_joint_bone_active: Option<(&Self, bool)>,
+        parent_inherent_bone_and_is_constraint_joint_bone_active: Option<(&Self, bool)>,
         effector_bone_local_user_orientation: Option<Quaternion<f32>>,
         is_constraint_joint_bone_active: bool,
     ) {
         if self.origin.flags.has_inherent_orientation {
-            let mut orientation = Quaternion::<f32>::zero();
+            let mut orientation = Quaternion::<f32>::one();
             if let Some((parent_bone, parent_is_constraint_joint_bone_active)) =
-                parent_bone_and_is_constraint_joint_bone_active
+                parent_inherent_bone_and_is_constraint_joint_bone_active
             {
                 if parent_bone.origin.flags.has_local_inherent {
                     orientation = Quaternion::<f32>::from(mat4_truncate(
@@ -2767,7 +2783,7 @@ impl Bone {
                     orientation =
                         orientation.slerp(effector_bone_local_user_orientation, coefficient);
                 } else {
-                    orientation = Quaternion::zero().slerp(orientation, coefficient);
+                    orientation = Quaternion::one().slerp(orientation, coefficient);
                 }
             }
             let local_orientation = if is_constraint_joint_bone_active {
@@ -2786,10 +2802,10 @@ impl Bone {
         }
     }
 
-    fn update_local_translation(&mut self, parent_bone: Option<&Bone>) {
+    fn update_local_translation(&mut self, parent_inherent_bone: Option<&Bone>) {
         let mut translation = self.local_user_translation;
         if self.origin.flags.has_inherent_translation {
-            if let Some(parent_bone) = parent_bone {
+            if let Some(parent_bone) = parent_inherent_bone {
                 if parent_bone.origin.flags.has_local_inherent {
                     translation += parent_bone.matrices.local_transform[3].truncate();
                 } else if parent_bone.origin.flags.has_inherent_translation {
@@ -2819,22 +2835,20 @@ impl Bone {
 
     pub fn apply_all_local_transform(
         &mut self,
-        parent_bone_and_is_constraint_joint_bone_active: Option<(&Self, bool)>,
+        parent_inherent_bone_and_is_constraint_joint_bone_active: Option<(&Self, bool)>,
+        parent_origin_world_transform: Option<(Vector3<f32>, Matrix4<f32>)>,
         effector_bone_local_user_orientation: Option<Quaternion<f32>>,
         is_constraint_joint_bone_active: bool,
     ) {
         self.update_local_orientation(
-            parent_bone_and_is_constraint_joint_bone_active,
+            parent_inherent_bone_and_is_constraint_joint_bone_active,
             effector_bone_local_user_orientation,
             is_constraint_joint_bone_active,
         );
-        self.update_local_translation(parent_bone_and_is_constraint_joint_bone_active.map(|v| v.0));
-        self.update_local_transform(parent_bone_and_is_constraint_joint_bone_active.map(|v| {
-            (
-                f128_to_vec3(v.0.origin.origin),
-                v.0.matrices.world_transform,
-            )
-        }));
+        self.update_local_translation(
+            parent_inherent_bone_and_is_constraint_joint_bone_active.map(|v| v.0),
+        );
+        self.update_local_transform(parent_origin_world_transform);
         // We deprecate constraint embedded in bone. All constraints saved in model.constraints
         // self.solve_constraint(constraint, num_iterations, bones)
     }
@@ -2850,8 +2864,8 @@ impl Bone {
     }
 
     pub fn reset_local_transform(&mut self) {
-        self.local_orientation = Quaternion::zero();
-        self.local_inherent_orientation = Quaternion::zero();
+        self.local_orientation = Quaternion::one();
+        self.local_inherent_orientation = Quaternion::one();
         self.local_translation = Vector3::zero();
         self.local_inherent_translation = Vector3::zero();
         self.interpolation = BoneKeyframeInterpolation {
@@ -2875,12 +2889,12 @@ impl Bone {
     }
 
     pub fn reset_morph_transform(&mut self) {
-        self.local_morph_orientation = Quaternion::zero();
+        self.local_morph_orientation = Quaternion::one();
         self.local_morph_translation = Vector3::zero();
     }
 
     pub fn reset_user_transform(&mut self) {
-        self.local_user_orientation = Quaternion::zero();
+        self.local_user_orientation = Quaternion::one();
         self.local_user_translation = Vector3::zero();
         self.states.dirty = false;
     }
@@ -2921,7 +2935,7 @@ pub struct ConstraintJoint {
 impl Default for ConstraintJoint {
     fn default() -> Self {
         Self {
-            orientation: Quaternion::zero(),
+            orientation: Quaternion::one(),
             translation: Vector3::zero(),
             target_direction: Vector3::zero(),
             effector_direction: Vector3::zero(),
