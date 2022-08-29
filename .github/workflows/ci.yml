@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  push:
+    branches: [ "master" ]
+    tags: [v0.*]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build
+      run: cargo build --release --lib
+      
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build
+      run: cargo build --release --lib
+
+  build-wasm:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install wasm-pack
+      run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+    - name: Build
+      run: wasm-pack build mdanceio --out-dir ../target/pkg
+    
+    - uses: actions/upload-artifact@v3
+      with:
+        name: mdanceio-npm
+        path: target/pkg/
+  
+  build-example:
+    strategy: 
+      fail-fast: false
+      matrix: 
+        include:
+          # Windows
+          - name: Windows x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin-name: winit_app.exe
+            artifact-name: winit_app_windows_x86_64.exe
+          # Linux
+          - name: Linux x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin-name: winit_app
+            artifact-name: winit_app_ubuntu_x86_64
+          # MacOS
+          - name: MacOS x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            bin-name: winit_app
+            artifact-name: winit_app_macos_x86_64
+    
+    name: Build Winit Demo ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build Example
+      run: cargo build --package mdanceio --example winit_app --release
+    
+    - uses: actions/upload-artifact@v3
+      with:
+        name: ${{ matrix.artifact-name }}
+        path: target/release/examples/${{ matrix.bin-name }}
+
+  build-demo-node:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Use Node.js 16.x
+      uses: actions/setup-node@v3
+      with:
+        node-version: 16.x
+        cache: 'npm'
+    - name: Install Dependencies
+      working-directory: ./mdanceio-demo
+      run: npm install
+    - name: Build
+      working-directory: ./mdanceio-demo
+      run: npm run build
+    
+    - uses: actions/upload-artifact@v3
+      with:
+        name: mdanceio-web
+        path: mdanceio-demo/build/
