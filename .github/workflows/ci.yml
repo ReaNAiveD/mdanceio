@@ -11,26 +11,12 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-latest
-
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Build
-      run: cargo build --release --lib
-      
-  build-windows:
-    runs-on: windows-latest
-
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Build
-      run: cargo build --release --lib
 
   build-wasm:
     runs-on: ubuntu-latest
+
+    env:
+      RUSTFLAGS: --cfg=web_sys_unstable_apis
 
     steps:
     - uses: actions/checkout@v3
@@ -56,7 +42,7 @@ jobs:
             os: windows-latest
             target: x86_64-pc-windows-msvc
             bin-name: winit_app.exe
-            artifact-name: winit_app_windows_x86_64.exe
+            artifact-name: winit_app_windows_x86_64
           # Linux
           - name: Linux x86_64
             os: ubuntu-latest
@@ -84,17 +70,27 @@ jobs:
         name: ${{ matrix.artifact-name }}
         path: target/release/examples/${{ matrix.bin-name }}
 
-  build-demo-node:
+  build-web-demo:
 
     runs-on: ubuntu-latest
 
+    env:
+      RUSTFLAGS: --cfg=web_sys_unstable_apis
+
     steps:
     - uses: actions/checkout@v3
+
+    - name: Install wasm-pack
+      run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+    - name: Build Wasm Pack
+      run: wasm-pack build mdanceio --out-dir ../target/pkg
     - name: Use Node.js 16.x
       uses: actions/setup-node@v3
       with:
         node-version: 16.x
         cache: 'npm'
+        cache-dependency-path: mdanceio-demo/package-lock.json
     - name: Install Dependencies
       working-directory: ./mdanceio-demo
       run: npm install
