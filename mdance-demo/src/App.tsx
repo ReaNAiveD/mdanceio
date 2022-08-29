@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import './App.css';
 import {WasmClient} from 'mdanceio';
 import {readFile} from "./utils";
@@ -22,13 +22,13 @@ function App() {
   }
   const requestRef = useRef<number>();
   const [playing, setPlaying] = useState(false)
-  const playUpdate: FrameRequestCallback = async time => {
+  const playUpdate: FrameRequestCallback = useCallback(async time => {
     if (playing) {
       const client = await clientPromise.current
       client?.redraw()
     }
     requestRef.current = requestAnimationFrame(playUpdate);
-  }
+  }, [playing])
   const onPlayClick = async () => {
     setPlaying(true)
     const client = await clientPromise.current
@@ -61,7 +61,7 @@ function App() {
         }
       }
     }
-  }, [modelFile.current])
+  }, [textureNeededPaths, modelFile])
   useEffect(() => {
     if (textureFile.current) {
       textureFile.current.onchange = async () => {
@@ -80,7 +80,7 @@ function App() {
         }
       }
     }
-  }, [textureFile.current, textureNamePrefix])
+  }, [textureFile, textureNamePrefix])
   useEffect(() => {
     if (motionFile.current) {
       motionFile.current.onchange = async () => {
@@ -98,7 +98,7 @@ function App() {
         }
       }
     }
-  }, [motionFile.current])
+  }, [motionFile])
 
   useEffect(() => {
     requestRef.current = requestAnimationFrame(playUpdate);
@@ -107,7 +107,7 @@ function App() {
         cancelAnimationFrame(requestRef.current)
       }
     };
-  }, [playing]); // Make sure the effect runs only once
+  }, [playing, playUpdate]); // Make sure the effect runs only once
   useEffect(() => {
     import('mdanceio').then(module => {
       if (!clientPromise.current) {
