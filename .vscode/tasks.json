@@ -5,6 +5,28 @@
             "label": "rust: cargo build",
             "type": "cargo",
             "command": "build",
+            "args": [
+                "--release",
+                "--lib"
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "options": {
+                "env": {}
+            }
+        },
+        {
+            "label": "rust: cargo build example winit",
+            "type": "cargo",
+            "command": "build",
+            "args": [
+                "--package",
+                "mdanceio",
+                "--example",
+                "winit_app",
+                "--release"
+            ],
             "problemMatcher": [
                 "$rustc"
             ],
@@ -76,6 +98,46 @@
             "options": {
                 "env": {}
             }
+        },
+        {
+            "label": "exec: example winit",
+            "type": "shell",
+            "command": "target/release/examples/winit_app.exe",
+            "args": [
+                "--model",
+                "C:\\Users\\NAiveD\\Documents\\Model\\砂糖\\砂糖.pmx",
+                "--texture",
+                "C:\\Users\\NAiveD\\Documents\\Model\\砂糖",
+                "--motion",
+                "mdanceio/tests/example/Alicia/MMD Motion/2 for test 1.vmd"
+            ],
+            "problemMatcher": [],
+            "options": {
+                "env": {}
+            }
+        },
+        {
+            "label": "npm: start - mdance-demo",
+            "type": "npm",
+            "script": "start",
+            "path": "mdance-demo",
+            "problemMatcher": [],
+            "dependsOn": [
+                "wasm: pack"
+            ],
+            "detail": "react-app-rewired start"
+        },
+        {
+            "label": "npm: build - mdance-demo",
+            "type": "npm",
+            "script": "build",
+            "path": "mdance-demo",
+            "group": "build",
+            "problemMatcher": [],
+            "dependsOn": [
+                "wasm: pack"
+            ],
+            "detail": "react-app-rewired build"
         }
     ]
 }
