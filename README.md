@@ -1,5 +1,7 @@
 # MDanceIO
 
+[![Build Status](https://github.com/ReaNAiveD/mdanceio/workflows/CI/badge.svg)](https://github.com/ReaNAiveD/mdanceio/actions)
+
 `mdanceio` is a cross-platform MMD(MikuMikuDance) compatible implementation. It targets at browser though WebGPU on wasm. Rewrite [nanoem](https://github.com/hkrn/nanoem) in Rust. 
 
 This project is still in initial development phase. 
@@ -18,7 +20,7 @@ There is another project build on `mdanceio` which provides basic MMD rendering 
 
 You can fetch models and motions from [模之屋(PlayBox)](https://www.aplaybox.com/), a community sharing character models. 
 
-The project build is likely buggy and unfinished. You can try the following model and motion which is tested and working to get started. 
+The project build is likely buggy and unfinished. You can try the following model and motion which is tested and welling working to get started. 
 
 - Model: [【原神】砂糖Sucrose](https://www.aplaybox.com/details/model/LXbOVepFhfRw)
     - ◆模型提供：miHoYo
@@ -33,6 +35,14 @@ The example will play a model with specific motion in a native window.
 ```bash
 cargo run --package mdanceio --example winit_app -- --model <Model Path> --motion <Motion Path>
 ```
+
+You can build as an executable as well. 
+
+```bash
+cargo build --package mdanceio --example winit_app --release
+```
+
+You can also fetch the executable in Actions. 
 
 ### WebGPU Demo
 
@@ -60,10 +70,50 @@ npm install
 npm run start
 ```
 
+You can also fetch prebuilt web bundle in Actions. 
+
+### Could Rendering
+
+I have a demo project about how to use mdanceio as a rendering service [here](https://github.com/ReaNAiveD/mdrs). 
+
+The service uses WebRTC to communicate with the browser. 
+
+You can follow its guidance to play with it. 
+
 ## Target Platform Support
+
+| Platform | Support |
+| ------ | :----: |
+| Windows | ✅ |
+| Linux | 🆗 |
+| MacOS | 🆗 |
+| Browser | ✅(WebGPU only) |
+| Android | 🛠️(ARcore) |
+| OpenXR | 🛠️ |
+
+> ✅ = First Class Support
+> 🆗 = Best Effort Support
+> 🛠️ = Unsupported, but planned
 
 ## File Format Support
 
+### Model Format
+
+| Format | Support |
+| --- | :---: |
+| PMX | ✅ |
+| PMD | ❌ |
+
+### Motion Format
+
+| Format | Support |
+| --- | :---: |
+| VMD | ✅ |
+| NMD | ❌ |
+
 ## Future Plan
 
-## Thanks
+- The core functionality has not yet completed. We will cover all MikuMikuDance features in the future. 
+- I'm interested in supporting `mdanceio` in an AR/VR environment. We will extract SDK for ARcore usage and provide a demo. 
+- Provide an architecture that supports cloud rendering will. 
+- Provide support for MME or similar technologies. 
