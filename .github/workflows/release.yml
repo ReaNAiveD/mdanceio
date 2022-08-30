@@ -35,7 +35,7 @@ jobs:
     - name: Install wasm-pack
       run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       
-    - name: caching
+    - name: Cache Rust
       uses: Swatinem/rust-cache@v1
       with:
         key: wasm-pack-web-demo-b
@@ -54,15 +54,18 @@ jobs:
       working-directory: ./mdance-demo
       run: npm install
 
-    - name: Build
+    - name: Build Demo Pages
       working-directory: ./mdance-demo
-      run: npm run build
+      run: npm run build-pages
+
     - name: Setup Pages
       uses: actions/configure-pages@v2
+
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v1
       with:
         path: mdance-demo/build/
+
     - name: Deploy to GitHub Pages
       id: deployment
       uses: actions/deploy-pages@v1
