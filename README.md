@@ -1,6 +1,8 @@
 # MDanceIO
 
 [![Build Status](https://github.com/ReaNAiveD/mdanceio/workflows/CI/badge.svg)](https://github.com/ReaNAiveD/mdanceio/actions)
+[![NPM](https://img.shields.io/npm/v/mdanceio.svg)](https://www.npmjs.com/package/mdanceio)
+[![Crate](https://img.shields.io/crates/v/mdanceio.svg)](https://crates.io/crates/mdanceio)
 
 `mdanceio` is a cross-platform MMD(MikuMikuDance) compatible implementation. It targets at browser though WebGPU on wasm. Rewrite [nanoem](https://github.com/hkrn/nanoem) in Rust. 
 
