@@ -1,6 +1,8 @@
 # MDanceIO
 
 [![Build Status](https://github.com/ReaNAiveD/mdanceio/workflows/CI/badge.svg)](https://github.com/ReaNAiveD/mdanceio/actions)
+[![NPM](https://img.shields.io/npm/v/mdanceio.svg)](https://www.npmjs.com/package/mdanceio)
+[![Crate](https://img.shields.io/crates/v/mdanceio.svg)](https://crates.io/crates/mdanceio)
 
 `mdanceio` is a cross-platform MMD(MikuMikuDance) compatible implementation. It targets at browser though WebGPU on wasm. Rewrite [nanoem](https://github.com/hkrn/nanoem) in Rust. 
 
@@ -12,7 +14,7 @@ I built this project mainly to learn Rust and WebGPU. I hope to provide a MikuMi
 
 `mdanceio` works as a crate that provides MMD rendering service on a specific `Surface`, `TextureView` or `Canvas`. Or it can directly return a BytesArray. 
 
-There is another project build on `mdanceio` which provides basic MMD rendering service via WebRTC. 
+There is another [project](https://github.com/ReaNAiveD/mdrs) build on `mdanceio` which provides basic MMD remote rendering service via WebRTC. 
 
 ## Getting Started
 
@@ -45,6 +47,8 @@ cargo build --package mdanceio --example winit_app --release
 You can also fetch the executable in Actions. 
 
 ### WebGPU Demo
+
+You can visit the demo [here](https://reanaived.github.io/mdanceio)(requires Chrome Canary with `#enable-unsafe-webgpu` enabled). 
 
 #### Prerequisite
 
