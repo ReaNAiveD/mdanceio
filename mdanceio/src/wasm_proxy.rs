@@ -40,10 +40,7 @@ pub struct WasmClient {
 /// 我希望通过WasmClient为JS层调用提供接口。JS层应自行处理渲染请求频率，通知视口resize，点击，拖动等事件，并处理好可能有的回调。
 #[wasm_bindgen]
 impl WasmClient {
-    pub fn new(
-        canvas: &web_sys::HtmlCanvasElement,
-        backend: Backend,
-    ) -> js_sys::Promise {
+    pub fn new(canvas: &web_sys::HtmlCanvasElement, backend: Backend) -> js_sys::Promise {
         let level: log::Level = log::Level::Trace;
         console_log::init_with_level(level).expect("could not initialize logger");
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -56,11 +53,8 @@ impl WasmClient {
         };
 
         let instance = wgpu::Instance::new(backends);
-        let (size, surface) = unsafe {
-            let size = CanvasSize::new(canvas.width(), canvas.height());
-            let surface = instance.create_surface_from_canvas(&canvas);
-            (size, surface)
-        };
+        let size = CanvasSize::new(canvas.width(), canvas.height());
+        let surface = instance.create_surface_from_canvas(&canvas);
         wasm_bindgen_futures::future_to_promise(async move {
             let adapter = wgpu::util::initialize_adapter_from_env_or_default(
                 &instance,
@@ -151,21 +145,32 @@ impl WasmClient {
         frame.present();
     }
 
-    pub fn load_model(&mut self, data: &[u8]) {
-        self.service.load_model(data, &self.device, &self.queue);
-        self.service.enable_all_model_shadow_map(true);
+    pub fn load_model(&mut self, data: &[u8]) -> Result<(), JsValue> {
+        match self.service.load_model(data, &self.device, &self.queue) {
+            Ok(handle) => {
+                let _ = self.service.enable_shadow_map(handle, true);
+                Ok(())
+            }
+            Err(e) => Err(e.to_string().into()),
+        }
     }
 
-    pub fn load_model_motion(&mut self, data: &[u8]) {
-        self.service.load_model_motion(data);
+    pub fn load_model_motion(&mut self, data: &[u8]) -> Result<(), JsValue> {
+        self.service
+            .load_model_motion(data)
+            .map_err(|e| e.to_string().into())
     }
 
-    pub fn load_camera_motion(&mut self, data: &[u8]) {
-        self.service.load_camera_motion(data);
+    pub fn load_camera_motion(&mut self, data: &[u8]) -> Result<(), JsValue> {
+        self.service
+            .load_camera_motion(data)
+            .map_err(|e| e.to_string().into())
     }
 
-    pub fn load_light_motion(&mut self, data: &[u8]) {
-        self.service.load_light_motion(data);
+    pub fn load_light_motion(&mut self, data: &[u8]) -> Result<(), JsValue> {
+        self.service
+            .load_light_motion(data)
+            .map_err(|e| e.to_string().into())
     }
 
     pub fn get_texture_names(&self) -> Box<[JsValue]> {
@@ -215,22 +220,4 @@ impl WasmClient {
     pub fn play(&mut self) {
         self.service.play()
     }
-}
-
-/// Parse the query string as returned by `web_sys::window()?.location().search()?` and get a
-/// specific key out of it.
-pub fn parse_url_query_string<'a>(query: &'a str, search_key: &str) -> Option<&'a str> {
-    let query_string = query.strip_prefix('?')?;
-
-    for pair in query_string.split('&') {
-        let mut pair = pair.split('=');
-        let key = pair.next()?;
-        let value = pair.next()?;
-
-        if key == search_key {
-            return Some(value);
-        }
-    }
-
-    None
 }

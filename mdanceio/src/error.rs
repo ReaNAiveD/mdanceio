@@ -89,4 +89,13 @@ impl MdanceioError {
             domain: DomainType::Application,
         }
     }
+
+    pub fn model_not_found() -> Self {
+        Self {
+            reason: "Model not Found".to_owned(),
+            recovery_suggestion: "".to_owned(),
+            code: 100,
+            domain: DomainType::Application,
+        }
+    }
 }
