@@ -160,7 +160,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
     let model_data = std::fs::read("tests/example/砂糖/砂糖.pmx")?;
     let model_handle = application.load_model(&model_data, &device, &queue)?;
-    application.enable_all_model_shadow_map(true);
+    application.enable_shadow_map(model_handle, true)?;
     drop(model_data);
     let texture_dir = std::fs::read_dir("tests/example/砂糖").unwrap();
     for texture_file in texture_dir {

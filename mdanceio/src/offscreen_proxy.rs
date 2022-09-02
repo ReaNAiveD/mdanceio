@@ -90,7 +90,7 @@ impl OffscreenProxy {
         let handle = self
             .application
             .load_model(data, &self.device, &self.queue)?;
-        self.application.enable_all_model_shadow_map(true);
+        self.application.enable_shadow_map(handle, true)?;
         Ok(handle)
     }
 

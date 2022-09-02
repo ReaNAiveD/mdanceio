@@ -103,7 +103,7 @@ impl State {
             .application
             .load_model(&model_data, &self.device, &self.queue)?;
         drop(model_data);
-        self.application.enable_all_model_shadow_map(true);
+        self.application.enable_shadow_map(model_handle, true)?;
         log::info!("Loading Texture...");
         let texture_dir = std::fs::read_dir(texture_dir).unwrap();
         for texture_file in texture_dir {

@@ -82,9 +82,12 @@ impl BaseApplicationService {
         self.project.play();
     }
 
-    pub fn enable_all_model_shadow_map(&mut self, value: bool) {
-        if let Some(model) = self.project.active_model_mut() {
+    pub fn enable_shadow_map(&mut self, handle: ModelHandle, value: bool) -> Result<(), MdanceioError> {
+        if let Some(model) = self.project.model_mut(handle) {
             model.set_shadow_map_enabled(value);
+            Ok(())
+        } else {
+            Err(MdanceioError::model_not_found())
         }
     }
 
