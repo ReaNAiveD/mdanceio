@@ -25,8 +25,8 @@ use crate::{
     pass,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
     utils::{
-        f128_to_isometry, f128_to_quat, f128_to_vec3, f128_to_vec4, from_isometry,
-        lerp_f32, mat4_truncate, to_isometry, to_na_vec3, Invert,
+        f128_to_isometry, f128_to_quat, f128_to_vec3, f128_to_vec4, from_isometry, lerp_f32,
+        mat4_truncate, to_isometry, to_na_vec3, Invert,
     },
 };
 
@@ -3855,23 +3855,17 @@ impl RigidBody {
         .linear_damping(rigid_body.linear_damping);
         let size = rigid_body.size;
         let mut collider_builder = match rigid_body.shape_type {
-            nanoem::model::ModelRigidBodyShapeType::Unknown => (None, f32::INFINITY),
-            nanoem::model::ModelRigidBodyShapeType::Sphere => (
-                Some(rapier3d::geometry::ColliderBuilder::ball(size[0])),
-                4f32 * PI * size[0].powi(3) / 3f32,
+            nanoem::model::ModelRigidBodyShapeType::Unknown => None,
+            nanoem::model::ModelRigidBodyShapeType::Sphere => {
+                Some(rapier3d::geometry::ColliderBuilder::ball(size[0]))
+            }
+
+            nanoem::model::ModelRigidBodyShapeType::Box => Some(
+                rapier3d::geometry::ColliderBuilder::cuboid(size[0], size[1], size[2]),
             ),
-            nanoem::model::ModelRigidBodyShapeType::Box => (
-                Some(rapier3d::geometry::ColliderBuilder::cuboid(
-                    size[0], size[1], size[2],
-                )),
-                size[0] * size[1] * size[2],
-            ),
-            nanoem::model::ModelRigidBodyShapeType::Capsule => (
-                Some(rapier3d::geometry::ColliderBuilder::capsule_y(
-                    size[1] / 2f32,
-                    size[0],
-                )),
-                PI * size[0] * size[0] * (4f32 / 3f32 * size[0] + size[1]),
+
+            nanoem::model::ModelRigidBodyShapeType::Capsule => Some(
+                rapier3d::geometry::ColliderBuilder::capsule_y(size[1] / 2f32, size[0]),
             ),
         };
         let mut mass = rigid_body.mass;
@@ -3880,9 +3874,9 @@ impl RigidBody {
         {
             mass = 0f32;
         }
-        collider_builder.0 = collider_builder.0.map(|builder| {
+        collider_builder = collider_builder.map(|builder| {
             builder
-                .density(mass / collider_builder.1)
+                .mass(mass)
                 .friction(rigid_body.friction)
                 .restitution(rigid_body.restitution)
                 .collision_groups(rapier3d::geometry::InteractionGroups::new(
@@ -3893,7 +3887,7 @@ impl RigidBody {
         let rigid_body_handle = physics_engine
             .rigid_body_set
             .insert(rigid_body_builder.build());
-        let physics_collider = collider_builder.0.map(|collider_builder| {
+        let physics_collider = collider_builder.map(|collider_builder| {
             physics_engine.collider_set.insert_with_parent(
                 collider_builder.build(),
                 rigid_body_handle,
@@ -4188,7 +4182,9 @@ impl Joint {
             ) {
                 if max - min < max_limit && max - min > 0f32 {
                     joint.set_limits(axis, [min, max]);
-                    joint.set_motor(axis, 0f32, 0f32, stiffness, 0f32);
+                    if stiffness > 0f32 {
+                        joint.set_motor(axis, 0f32, 0f32, stiffness, 1f32);
+                    }
                 } else if min == max {
                     joint.lock_axes(axis.into());
                 }

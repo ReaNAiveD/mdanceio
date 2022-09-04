@@ -60,7 +60,7 @@ pub fn to_na_vec3(v: Vector3<f32>) -> nalgebra::Vector3<f32> {
 
 pub fn to_na_mat3(v: Matrix3<f32>) -> nalgebra::Matrix3<f32> {
     nalgebra::Matrix3::new(
-        v[0][0], v[0][1], v[0][2], v[1][0], v[1][1], v[1][2], v[2][0], v[2][1], v[2][2],
+        v[0][0], v[1][0], v[2][0], v[0][1], v[1][1], v[2][1], v[0][2], v[1][2], v[2][2],
     )
 }
 
