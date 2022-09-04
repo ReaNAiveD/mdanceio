@@ -525,7 +525,7 @@ impl Project {
         let directional_light = DirectionalLight::new();
 
         let mut physics_engine = Box::new(PhysicsEngine::new());
-        physics_engine.simulation_mode = SimulationMode::Disable;
+        physics_engine.simulation_mode = SimulationMode::EnablePlaying;
 
         let object_handler_allocator = HandleAllocator::new();
 
@@ -1334,7 +1334,7 @@ impl Project {
     fn internal_perform_physics_simulation(&mut self, delta: f32) {
         if self.is_physics_simulation_enabled() {
             self.physics_engine.step(delta);
-            for (_, model) in &mut self.model_handle_map {
+            for model in &mut self.model_handle_map.values_mut() {
                 if model.is_physics_simulation_enabled() {
                     model.synchronize_all_rigid_bodies_transform_feedback_from_simulation(
                         RigidBodyFollowBone::Perform,

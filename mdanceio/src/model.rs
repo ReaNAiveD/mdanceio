@@ -25,8 +25,8 @@ use crate::{
     pass,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
     utils::{
-        f128_to_quat, f128_to_vec3, f128_to_vec4, from_na_mat4, lerp_f32, mat4_truncate,
-        to_isometry, to_na_vec3, CompareElementWise, Invert,
+        f128_to_isometry, f128_to_quat, f128_to_vec3, f128_to_vec4, from_isometry, lerp_f32,
+        mat4_truncate, to_isometry, to_na_vec3, Invert,
     },
 };
 
@@ -373,7 +373,7 @@ impl Model {
                     .iter()
                     .map(|label| Label::from_nanoem(label, language_type))
                     .collect();
-                let rigid_bodies = opaque
+                let rigid_bodies: Vec<RigidBody> = opaque
                     .rigid_bodies
                     .iter()
                     .map(|rigid_body| {
@@ -401,7 +401,9 @@ impl Model {
                 let joints = opaque
                     .joints
                     .iter()
-                    .map(|joint| Joint::from_nanoem(joint, language_type))
+                    .map(|joint| {
+                        Joint::from_nanoem(joint, language_type, &rigid_bodies, physics_engine)
+                    })
                     .collect();
                 let soft_bodies = opaque
                     .soft_bodies
@@ -953,7 +955,7 @@ impl Model {
                 let parent_bone = usize::try_from(bone.origin.parent_bone_index)
                     .ok()
                     .and_then(|idx| self.bones.get(idx))
-                    .map(|bone| bone.clone());
+                    .cloned();
                 rigid_body.synchronize_transform_feedback_from_simulation(
                     self.bones.get_mut(bone_idx).unwrap(),
                     (&parent_bone).as_ref(),
@@ -2493,16 +2495,13 @@ impl Bone {
     }
 
     fn translate(v: &Vector3<f32>, m: &Matrix4<f32>) -> Matrix4<f32> {
-        // m * Matrix4::from_translation(*v)
-        let mut result = *m;
-        result[3] = result * v.extend(1f32);
-        result
+        m * Matrix4::from_translation(*v)
     }
 
     fn shrink_3x3(m: &Matrix4<f32>) -> Matrix4<f32> {
         let mut result = *m;
         result[3] = Vector4::new(0f32, 0f32, 0f32, 1f32);
-        return result;
+        result
     }
 
     pub fn synchronize_motion(
@@ -2616,78 +2615,76 @@ impl Bone {
         physics_engine: &mut PhysicsEngine,
     ) -> BoneFrameTransform {
         if let Some(keyframe) = motion.find_bone_keyframe(&self.canonical_name, frame_index) {
-            return BoneFrameTransform {
+            BoneFrameTransform {
                 translation: f128_to_vec3(keyframe.translation),
                 orientation: f128_to_quat(keyframe.orientation),
                 interpolation: BoneKeyframeInterpolation::build(keyframe.interpolation),
-            };
-        } else {
-            if let (Some(prev_frame), Some(next_frame)) = motion
-                .opaque
-                .search_closest_bone_keyframes(&self.canonical_name, frame_index)
-            {
-                let interval = next_frame.base.frame_index - prev_frame.base.frame_index;
-                let coef = Motion::coefficient(
-                    prev_frame.base.frame_index,
-                    next_frame.base.frame_index,
-                    frame_index,
-                );
-                let prev_translation = f128_to_vec3(prev_frame.translation);
-                let next_translation = f128_to_vec3(next_frame.translation);
-                let prev_orientation = f128_to_quat(prev_frame.orientation);
-                let next_orientation = f128_to_quat(next_frame.orientation);
-                let prev_enabled = prev_frame.is_physics_simulation_enabled;
-                let next_enabled = next_frame.is_physics_simulation_enabled;
-                let frame_transform = if prev_enabled && !next_enabled && rigid_body.is_some() {
-                    BoneFrameTransform {
-                        translation: self.local_user_translation.lerp(next_translation, coef),
-                        orientation: self.local_user_orientation.slerp(next_orientation, coef),
-                        interpolation: BoneKeyframeInterpolation::build(next_frame.interpolation),
-                    }
-                } else {
-                    BoneFrameTransform {
-                        translation: Vector3::new(
-                            motion.lerp_value_interpolation(
-                                &next_frame.interpolation.translation_x,
-                                prev_translation.x,
-                                next_translation.x,
-                                interval,
-                                coef,
-                            ),
-                            motion.lerp_value_interpolation(
-                                &next_frame.interpolation.translation_y,
-                                prev_translation.y,
-                                next_translation.y,
-                                interval,
-                                coef,
-                            ),
-                            motion.lerp_value_interpolation(
-                                &next_frame.interpolation.translation_z,
-                                prev_translation.z,
-                                next_translation.z,
-                                interval,
-                                coef,
-                            ),
-                        ),
-                        orientation: motion.slerp_interpolation(
-                            &next_frame.interpolation.orientation,
-                            &prev_orientation,
-                            &next_orientation,
+            }
+        } else if let (Some(prev_frame), Some(next_frame)) = motion
+            .opaque
+            .search_closest_bone_keyframes(&self.canonical_name, frame_index)
+        {
+            let interval = next_frame.base.frame_index - prev_frame.base.frame_index;
+            let coef = Motion::coefficient(
+                prev_frame.base.frame_index,
+                next_frame.base.frame_index,
+                frame_index,
+            );
+            let prev_translation = f128_to_vec3(prev_frame.translation);
+            let next_translation = f128_to_vec3(next_frame.translation);
+            let prev_orientation = f128_to_quat(prev_frame.orientation);
+            let next_orientation = f128_to_quat(next_frame.orientation);
+            let prev_enabled = prev_frame.is_physics_simulation_enabled;
+            let next_enabled = next_frame.is_physics_simulation_enabled;
+            let frame_transform = if prev_enabled && !next_enabled && rigid_body.is_some() {
+                BoneFrameTransform {
+                    translation: self.local_user_translation.lerp(next_translation, coef),
+                    orientation: self.local_user_orientation.slerp(next_orientation, coef),
+                    interpolation: BoneKeyframeInterpolation::build(next_frame.interpolation),
+                }
+            } else {
+                BoneFrameTransform {
+                    translation: Vector3::new(
+                        motion.lerp_value_interpolation(
+                            &next_frame.interpolation.translation_x,
+                            prev_translation.x,
+                            next_translation.x,
                             interval,
                             coef,
                         ),
-                        interpolation: BoneKeyframeInterpolation::build(next_frame.interpolation),
-                    }
-                };
-                if prev_enabled && next_enabled {
-                    if let Some(rigid_body) = rigid_body {
-                        rigid_body.disable_kinematic(physics_engine);
-                    }
+                        motion.lerp_value_interpolation(
+                            &next_frame.interpolation.translation_y,
+                            prev_translation.y,
+                            next_translation.y,
+                            interval,
+                            coef,
+                        ),
+                        motion.lerp_value_interpolation(
+                            &next_frame.interpolation.translation_z,
+                            prev_translation.z,
+                            next_translation.z,
+                            interval,
+                            coef,
+                        ),
+                    ),
+                    orientation: motion.slerp_interpolation(
+                        &next_frame.interpolation.orientation,
+                        &prev_orientation,
+                        &next_orientation,
+                        interval,
+                        coef,
+                    ),
+                    interpolation: BoneKeyframeInterpolation::build(next_frame.interpolation),
                 }
-                return frame_transform;
-            } else {
-                return BoneFrameTransform::default();
+            };
+            if prev_enabled && next_enabled {
+                if let Some(rigid_body) = rigid_body {
+                    rigid_body.disable_kinematic(physics_engine);
+                }
             }
+            frame_transform
+        } else {
+            BoneFrameTransform::default()
         }
     }
 
@@ -2904,8 +2901,8 @@ impl Bone {
     }
 
     pub fn has_unit_x_constraint(&self) -> bool {
-        &self.canonical_name == Self::LEFT_KNEE_IN_JAPANESE
-            || &self.canonical_name == Self::RIGHT_KNEE_IN_JAPANESE
+        self.canonical_name == Self::LEFT_KNEE_IN_JAPANESE
+            || self.canonical_name == Self::RIGHT_KNEE_IN_JAPANESE
     }
 
     pub fn constrain_orientation(
@@ -3734,20 +3731,18 @@ impl Morph {
     fn synchronize_weight(&mut self, motion: &Motion, name: &str, frame_index: u32) -> f32 {
         if let Some(keyframe) = motion.find_morph_keyframe(name, frame_index) {
             keyframe.weight
+        } else if let (Some(prev_frame), Some(next_frame)) = motion
+            .opaque
+            .search_closest_morph_keyframes(name, frame_index)
+        {
+            let coef = Motion::coefficient(
+                prev_frame.base.frame_index,
+                next_frame.base.frame_index,
+                frame_index,
+            );
+            lerp_f32(prev_frame.weight, next_frame.weight, coef)
         } else {
-            if let (Some(prev_frame), Some(next_frame)) = motion
-                .opaque
-                .search_closest_morph_keyframes(name, frame_index)
-            {
-                let coef = Motion::coefficient(
-                    prev_frame.base.frame_index,
-                    next_frame.base.frame_index,
-                    frame_index,
-                );
-                lerp_f32(prev_frame.weight, next_frame.weight, coef)
-            } else {
-                0f32
-            }
+            0f32
         }
     }
 }
@@ -3789,9 +3784,11 @@ pub struct RigidBodyStates {
     pub editing_masked: bool,
 }
 
+#[derive(Debug)]
 pub struct RigidBody {
     // TODO: physics engine and shape mesh and engine rigid_body
     physics_rigid_body: rapier3d::dynamics::RigidBodyHandle,
+    physics_collider: Option<rapier3d::geometry::ColliderHandle>,
     initial_world_transform: nalgebra::Isometry3<f32>,
     global_torque_force: (Vector3<f32>, bool),
     global_velocity_force: (Vector3<f32>, bool),
@@ -3831,10 +3828,7 @@ impl RigidBody {
         }
         let orientation = rigid_body.orientation;
         let origin = rigid_body.origin;
-        let mut world_transform = nalgebra::Isometry3::new(
-            nalgebra::vector![origin[0], origin[1], origin[2]],
-            nalgebra::vector![orientation[0], orientation[1], orientation[2]],
-        );
+        let mut world_transform = f128_to_isometry(origin, orientation);
         let mut initial_world_transform = world_transform;
         if rigid_body.is_bone_relative {
             if let Some(bone) = usize::try_from(rigid_body.bone_index)
@@ -3861,23 +3855,17 @@ impl RigidBody {
         .linear_damping(rigid_body.linear_damping);
         let size = rigid_body.size;
         let mut collider_builder = match rigid_body.shape_type {
-            nanoem::model::ModelRigidBodyShapeType::Unknown => (None, f32::INFINITY),
-            nanoem::model::ModelRigidBodyShapeType::Sphere => (
-                Some(rapier3d::geometry::ColliderBuilder::ball(size[0])),
-                4f32 * PI * size[0].powi(3) / 3f32,
+            nanoem::model::ModelRigidBodyShapeType::Unknown => None,
+            nanoem::model::ModelRigidBodyShapeType::Sphere => {
+                Some(rapier3d::geometry::ColliderBuilder::ball(size[0]))
+            }
+
+            nanoem::model::ModelRigidBodyShapeType::Box => Some(
+                rapier3d::geometry::ColliderBuilder::cuboid(size[0], size[1], size[2]),
             ),
-            nanoem::model::ModelRigidBodyShapeType::Box => (
-                Some(rapier3d::geometry::ColliderBuilder::cuboid(
-                    size[0], size[1], size[2],
-                )),
-                size[0] * size[1] * size[2],
-            ),
-            nanoem::model::ModelRigidBodyShapeType::Capsule => (
-                Some(rapier3d::geometry::ColliderBuilder::capsule_y(
-                    size[1] / 2f32,
-                    size[0],
-                )),
-                PI * size[0] * size[0] * (4f32 / 3f32 * size[0] + size[1]),
+
+            nanoem::model::ModelRigidBodyShapeType::Capsule => Some(
+                rapier3d::geometry::ColliderBuilder::capsule_y(size[1] / 2f32, size[0]),
             ),
         };
         let mut mass = rigid_body.mass;
@@ -3886,9 +3874,9 @@ impl RigidBody {
         {
             mass = 0f32;
         }
-        collider_builder.0 = collider_builder.0.map(|builder| {
+        collider_builder = collider_builder.map(|builder| {
             builder
-                .density(mass / collider_builder.1)
+                .mass(mass)
                 .friction(rigid_body.friction)
                 .restitution(rigid_body.restitution)
                 .collision_groups(rapier3d::geometry::InteractionGroups::new(
@@ -3899,13 +3887,13 @@ impl RigidBody {
         let rigid_body_handle = physics_engine
             .rigid_body_set
             .insert(rigid_body_builder.build());
-        if let Some(collider_builder) = &collider_builder.0 {
-            let collider_handle = physics_engine.collider_set.insert_with_parent(
+        let physics_collider = collider_builder.map(|collider_builder| {
+            physics_engine.collider_set.insert_with_parent(
                 collider_builder.build(),
                 rigid_body_handle,
                 &mut physics_engine.rigid_body_set,
-            );
-        }
+            )
+        });
         Self {
             global_torque_force: (Vector3::zero(), false),
             global_velocity_force: (Vector3::zero(), false),
@@ -3916,6 +3904,7 @@ impl RigidBody {
             states: RigidBodyStates::default(),
             origin: rigid_body.clone(),
             physics_rigid_body: rigid_body_handle,
+            physics_collider,
             initial_world_transform,
         }
     }
@@ -4100,7 +4089,7 @@ impl RigidBody {
                     physics_rigid_body.set_position(world_transform, true);
                 }
                 let skinning_transform =
-                    from_na_mat4((world_transform * initial_transform.inverse()).to_homogeneous());
+                    from_isometry(world_transform * initial_transform.inverse());
                 bone.update_skinning_transform(skinning_transform);
                 if let Some(parent_bone) = parent_bone {
                     let offset =
@@ -4143,13 +4132,18 @@ pub struct Joint {
     // TODO: physics engine and shape mesh and engine rigid_body
     name: String,
     canonical_name: String,
+    physics_joint: Option<rapier3d::dynamics::ImpulseJointHandle>,
     states: JointStates,
     origin: NanoemJoint,
 }
 
 impl Joint {
-    pub fn from_nanoem(joint: &NanoemJoint, language: nanoem::common::LanguageType) -> Self {
-        // TODO: should resolve physic engine
+    pub fn from_nanoem(
+        joint: &NanoemJoint,
+        language: nanoem::common::LanguageType,
+        rigid_bodies: &[RigidBody],
+        physics_engine: &mut PhysicsEngine,
+    ) -> Self {
         let mut name = joint.get_name(language).to_owned();
         let mut canonical_name = joint
             .get_name(nanoem::common::LanguageType::default())
@@ -4160,9 +4154,104 @@ impl Joint {
         if name.is_empty() {
             name = canonical_name.clone();
         }
+        let orientation = joint.orientation;
+        let origin = joint.origin;
+        let world_transform = f128_to_isometry(origin, orientation);
+        let rigid_body_a = usize::try_from(joint.rigid_body_a_index)
+            .ok()
+            .and_then(|idx| rigid_bodies.get(idx));
+        let rigid_body_b = usize::try_from(joint.rigid_body_b_index)
+            .ok()
+            .and_then(|idx| rigid_bodies.get(idx));
+        let physics_joint = if let (Some(rigid_body_a), Some(rigid_body_b)) =
+            (rigid_body_a, rigid_body_b)
+        {
+            let mut physics_joint = rapier3d::dynamics::GenericJoint::default();
+            let local_frame_a = rigid_body_a.initial_world_transform.inverse() * world_transform;
+            let local_frame_b = rigid_body_b.initial_world_transform.inverse() * world_transform;
+            physics_joint.set_local_frame1(local_frame_a);
+            physics_joint.set_local_frame2(local_frame_b);
+
+            fn limit(
+                joint: &mut rapier3d::dynamics::GenericJoint,
+                axis: rapier3d::dynamics::JointAxis,
+                min: f32,
+                max: f32,
+                max_limit: f32,
+                stiffness: f32,
+            ) {
+                if max - min < max_limit && max - min > 0f32 {
+                    joint.set_limits(axis, [min, max]);
+                    if stiffness > 0f32 {
+                        joint.set_motor(axis, 0f32, 0f32, stiffness, 1f32);
+                    }
+                } else if min == max {
+                    joint.lock_axes(axis.into());
+                }
+            }
+
+            limit(
+                &mut physics_joint,
+                rapier3d::dynamics::JointAxis::X,
+                joint.linear_lower_limit[0],
+                joint.linear_upper_limit[0],
+                100.,
+                joint.linear_stiffness[0],
+            );
+            limit(
+                &mut physics_joint,
+                rapier3d::dynamics::JointAxis::Y,
+                joint.linear_lower_limit[1],
+                joint.linear_upper_limit[1],
+                100.,
+                joint.linear_stiffness[1],
+            );
+            limit(
+                &mut physics_joint,
+                rapier3d::dynamics::JointAxis::Z,
+                joint.linear_lower_limit[2],
+                joint.linear_upper_limit[2],
+                100.,
+                joint.linear_stiffness[2],
+            );
+            limit(
+                &mut physics_joint,
+                rapier3d::dynamics::JointAxis::AngX,
+                joint.angular_lower_limit[0],
+                joint.angular_upper_limit[0],
+                PI * 2.,
+                joint.angular_stiffness[0],
+            );
+            limit(
+                &mut physics_joint,
+                rapier3d::dynamics::JointAxis::AngY,
+                joint.angular_lower_limit[1],
+                joint.angular_upper_limit[1],
+                PI * 2.,
+                joint.angular_stiffness[1],
+            );
+            limit(
+                &mut physics_joint,
+                rapier3d::dynamics::JointAxis::AngZ,
+                joint.angular_lower_limit[2],
+                joint.angular_upper_limit[2],
+                PI * 2.,
+                joint.angular_stiffness[2],
+            );
+            Some(physics_engine.impulse_joint_set.insert(
+                rigid_body_a.physics_rigid_body,
+                rigid_body_b.physics_rigid_body,
+                physics_joint,
+                true,
+            ))
+        } else {
+            None
+        };
+
         Self {
             name,
             canonical_name,
+            physics_joint,
             states: JointStates::default(),
             origin: joint.clone(),
         }

@@ -1,8 +1,7 @@
 use cgmath::{
-    perspective, BaseFloat, BaseNum, InnerSpace, Matrix3, Matrix4, Quaternion, Rad, SquareMatrix,
-    Vector3, Vector4,
+    perspective, BaseFloat, BaseNum, InnerSpace, Matrix3, Matrix4, Quaternion,
+    Rad, SquareMatrix, Vector3, Vector4,
 };
-use nalgebra::Isometry3;
 
 pub fn f128_to_vec3(v: [f32; 4]) -> Vector3<f32> {
     Vector3 {
@@ -18,6 +17,13 @@ pub fn f128_to_vec4(v: [f32; 4]) -> Vector4<f32> {
 
 pub fn f128_to_quat(v: [f32; 4]) -> Quaternion<f32> {
     v.into()
+}
+
+pub fn f128_to_isometry(origin: [f32; 4], orientation: [f32; 4]) -> nalgebra::Isometry3<f32> {
+    nalgebra::Isometry::from_parts(
+        nalgebra::Translation3::new(origin[0], origin[1], origin[2]),
+        nalgebra::UnitQuaternion::from_euler_angles(orientation[2], orientation[0], orientation[1]),
+    )
 }
 
 pub fn mat4_truncate<S>(v: Matrix4<S>) -> Matrix3<S>
@@ -54,11 +60,11 @@ pub fn to_na_vec3(v: Vector3<f32>) -> nalgebra::Vector3<f32> {
 
 pub fn to_na_mat3(v: Matrix3<f32>) -> nalgebra::Matrix3<f32> {
     nalgebra::Matrix3::new(
-        v[0][0], v[0][1], v[0][2], v[1][0], v[1][1], v[1][2], v[2][0], v[2][1], v[2][2],
+        v[0][0], v[1][0], v[2][0], v[0][1], v[1][1], v[2][1], v[0][2], v[1][2], v[2][2],
     )
 }
 
-pub fn to_isometry(v: Matrix4<f32>) -> Isometry3<f32> {
+pub fn to_isometry(v: Matrix4<f32>) -> nalgebra::Isometry3<f32> {
     nalgebra::Isometry {
         rotation: nalgebra::UnitQuaternion::from_matrix(&to_na_mat3(mat4_truncate(v))),
         translation: nalgebra::Translation {
@@ -67,11 +73,38 @@ pub fn to_isometry(v: Matrix4<f32>) -> Isometry3<f32> {
     }
 }
 
+pub fn from_isometry(iso: nalgebra::Isometry3<f32>) -> Matrix4<f32> {
+    from_na_mat4(iso.to_homogeneous())
+}
+
 pub fn from_na_mat4(v: nalgebra::Matrix4<f32>) -> Matrix4<f32> {
     Matrix4::new(
-        v.m11, v.m12, v.m13, v.m14, v.m21, v.m22, v.m23, v.m24, v.m31, v.m32, v.m33, v.m34, v.m41,
-        v.m42, v.m43, v.m44,
+        v.m11, v.m21, v.m31, v.m41, v.m12, v.m22, v.m32, v.m42, v.m13, v.m23, v.m33, v.m43, v.m14,
+        v.m24, v.m34, v.m44,
     )
+}
+
+#[test]
+fn test_na_mat_trans() {
+    let o = (1f32, 2f32, 3f32);
+    let it = nalgebra::Isometry3::translation(1f32, 2f32, 3f32);
+    let ct = from_isometry(it);
+    let iv = nalgebra::Point3::new(o.0, o.1, o.2);
+    let cv = Vector4::new(o.0, o.1, o.2, 1f32);
+    let it2 = to_isometry(ct);
+    let ip = it * iv;
+    let cp = ct * cv;
+    let ip2 = it2 * iv;
+    assert_eq!(ip.x, cp.x);
+    assert_eq!(ip.y, cp.y);
+    assert_eq!(ip.z, cp.z);
+    assert_eq!(cp.w, 1f32);
+    assert_eq!(ip.x, ip2.x);
+    assert_eq!(ip.y, ip2.y);
+    assert_eq!(ip.z, ip2.z);
+    println!("I {:?}", it * iv);
+    println!("C {:?}", ct * cv);
+    println!("I2 {:?}", it2 * iv);
 }
 
 pub trait CompareElementWise<Rhs = Self> {
