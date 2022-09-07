@@ -31,12 +31,5 @@ mod translator;
 mod utils;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_proxy;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}
+// #[cfg(target_os = "android")]
+// uniffi_macros::include_scaffolding!("android_gl_proxy");

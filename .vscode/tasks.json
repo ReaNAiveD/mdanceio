@@ -54,6 +54,50 @@
             }
         },
         {
+            "type": "cargo",
+            "command": "build",
+            "args": [
+                "--target",
+                "aarch64-linux-android",
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "label": "rust: cargo build-android64",
+            "options": {
+                "env": {
+                    "ANDROID_API": "33",
+                    "ANDROID_NDK_ROOT": "${userHome}/Android/Sdk/ndk/25.1.8937393",
+                    "TOOLCHAIN": "${userHome}/Android/Sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64",
+                    "CC": "${userHome}/Android/Sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang",
+                    "CXX": "${userHome}/Android/Sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang++",
+                    "LD": "${userHome}/Android/Sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/ld",
+                }
+            }
+        },
+        {
+            "type": "cargo",
+            "command": "build",
+            "args": [
+                "--target",
+                "armv7-linux-androideabi",
+            ],
+            "problemMatcher": [
+                "$rustc"
+            ],
+            "label": "rust: cargo build-android32",
+            "options": {
+                "env": {
+                    "ANDROID_API": "33",
+                    "ANDROID_NDK_ROOT": "${userHome}/Android/Sdk/ndk/25.1.8937393",
+                    "TOOLCHAIN": "${env:ANDROID_NDK_ROOT}/toolchains/llvm/prebuilt/linux-x86_64",
+                    "CC": "${env:TOOLCHAIN}/bin/armv7a-linux-androideabi${ANDROID_API}-clang",
+                    "CXX": "${env:TOOLCHAIN}/bin/armv7a-linux-androideabi${ANDROID_API}-clang++",
+                    "LD": "${env:TOOLCHAIN}/bin/ld",
+                }
+            }
+        },
+        {
             "label": "wasm: bindgen",
             "type": "shell",
             "command": "wasm-bindgen --out-dir target/wasm-bundle target/wasm32-unknown-unknown/debug/mdanceio.wasm",
