@@ -1,3 +1,6 @@
+#![allow(unknown_lints)]
+
+pub mod android_proxy;
 mod audio_player;
 pub mod base_application_service;
 mod bezier_curve;
@@ -31,5 +34,8 @@ mod translator;
 mod utils;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_proxy;
+
+use android_proxy::AndroidProxy;
+
 // #[cfg(target_os = "android")]
-// uniffi_macros::include_scaffolding!("android_gl_proxy");
+uniffi_macros::include_scaffolding!("mdanceio");

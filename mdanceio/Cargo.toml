@@ -6,6 +6,7 @@ edition = "2021"
 description = "MDanceIO is a MMD(MikuMikuDance) compatible implementation targeting at browser through wasm. "
 repository = "https://github.com/ReaNAiveD/mdanceio"
 license = "MIT"
+exclude = ["/android"]
 
 [lib]
 crate-type = ["cdylib"]
@@ -25,6 +26,8 @@ cgmath = "0.18.0"
 rapier3d = { version = "0.14.0", features = ["simd-stable"] }
 nalgebra = { version = "0.31.1" }
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
+uniffi = "0.19.6"
+uniffi_macros = "0.19.6"
 
 [dependencies.image]
 version = "0.24"
@@ -47,8 +50,6 @@ chrono = "0.4.19"
 [target.'cfg(target_os = "android")'.dependencies]
 glow = "0.11.2"
 wgpu-hal = "0.13.2"
-uniffi = "0.19.3"
-uniffi_macros = "0.19.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.82"
@@ -187,4 +188,4 @@ web-sys = { version = "0.3.58", features = ["Location"] }
 
 # [target.'cfg(target_os = "android")'.build-dependencies]
 [build-dependencies]
-uniffi_build = { version="0.19.3", features = [ "builtin-bindgen" ] }
+uniffi_build = { version="0.19.6", features = [ "builtin-bindgen" ] }
