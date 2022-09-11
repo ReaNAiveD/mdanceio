@@ -6,6 +6,7 @@ buildscript {
 
     ext {
         kotlin_version = '1.7.0'
+        jna_version = '5.8.0'
         android_gradle_plugin_version = '7.2.2'
         androidx_test_version = '1.4.0'
         junit_version = '4.13'
