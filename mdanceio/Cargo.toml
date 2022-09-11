@@ -9,7 +9,7 @@ license = "MIT"
 exclude = ["/android"]
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [[test]]
 name = "mdanceio-tests"

@@ -1,5 +1,5 @@
 namespace mdanceio { };
 
 interface AndroidProxy {
-    constructor();
+    constructor(u32 width, u32 height);
 };
