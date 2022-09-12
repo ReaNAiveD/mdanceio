@@ -1,2 +1,0 @@
-[target.aarch64-linux-android]
-linker = "../../Android/Sdk/ndk/25.1.8937393/toolchains/llvm/prebuilt/linux-x86_64/bin/ld"

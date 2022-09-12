@@ -38,6 +38,10 @@ android {
             includeAndroidResources = true
         }
     }
+    
+    sourceSets {
+        main.jniLibs.srcDirs += "${project.rootDir}/target/jniLibs"
+    }
 
     libraryVariants.all  { variant ->
         def uniffiGeneratedPath = "generated/source/uniffi/${variant.name}/java"
@@ -51,6 +55,22 @@ android {
             inputs.file "${project.rootDir}/Cargo.lock"
         }
         variant.registerJavaGeneratingTask(t.get(), new File(buildDir, uniffiGeneratedPath))
+
+        def tso = tasks.register("generate${variant.name.capitalize()}SoBindings", Exec) {
+            workingDir project.rootDir
+            commandLine 'cargo', 'ndk', "-t", 'arm64-v8a', '-t', 'armeabi-v7a', '-t', 'x86_64', '-t', 'x86', '-o', "${project.rootDir}/target/jniLibs", "build", "--release"
+            outputs.dir "${project.rootDir}/target/jniLibs"
+            // Re-generate if the interface definition changes.
+            inputs.dir "${project.projectDir}/../src"
+            // Re-generate if our uniffi-bindgen version changes.
+            inputs.file "${project.rootDir}/Cargo.lock"
+        }
+        def productFlavor = ""
+        variant.productFlavors.each {
+            productFlavor += "${it.name.capitalize()}"
+        }
+        def buildType = "${variant.buildType.name.capitalize()}"
+        tasks["merge${productFlavor}${buildType}JniLibFolders"].dependsOn(tso.get())
     }
 }
 
