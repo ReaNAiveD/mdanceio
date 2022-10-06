@@ -36,6 +36,7 @@ mod utils;
 pub mod wasm_proxy;
 
 use android_proxy::AndroidProxy;
+use android_proxy::MdanceioAndroidError;
 
 // #[cfg(target_os = "android")]
 uniffi_macros::include_scaffolding!("mdanceio");
