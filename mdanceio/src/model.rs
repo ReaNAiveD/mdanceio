@@ -3880,8 +3880,12 @@ impl RigidBody {
                 .friction(rigid_body.friction)
                 .restitution(rigid_body.restitution)
                 .collision_groups(rapier3d::geometry::InteractionGroups::new(
-                    0x1 << rigid_body.collision_group_id.clamp(0, 15),
-                    (rigid_body.collision_mask & 0xffff) as u32,
+                    rapier3d::geometry::Group::from_bits_truncate(
+                        0x1u32 << rigid_body.collision_group_id.clamp(0, 15),
+                    ),
+                    rapier3d::geometry::Group::from_bits_truncate(
+                        (rigid_body.collision_mask & 0xffff) as u32,
+                    ),
                 ))
         });
         let rigid_body_handle = physics_engine
