@@ -100,7 +100,7 @@ impl Pass {
         sample_count: u32,
         device: &wgpu::Device,
     ) -> Self {
-        let depth_texture_format = wgpu::TextureFormat::Depth24PlusStencil8;
+        let depth_texture_format = wgpu::TextureFormat::Depth16Unorm;
         let (color_texture, color_view, depth_texture, depth_view, sampler) = Self::_update(
             name,
             size,
@@ -183,7 +183,7 @@ impl Pass {
             mip_level_count: 1,
             sample_count,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            format: wgpu::TextureFormat::Depth16Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         });
         let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());

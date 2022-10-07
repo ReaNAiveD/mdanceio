@@ -40,7 +40,7 @@ impl State {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::empty(),
+                features: wgpu::Features::empty(),
                     // WebGL doesn't support all of wgpu's features, so if
                     // we're building for the web we'll have to disable some.
                     limits: if cfg!(target_arch = "wasm32") {
@@ -54,12 +54,14 @@ impl State {
             )
             .await
             .unwrap();
+        log::info!("{:?}", device.features());
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface.get_supported_formats(&adapter)[0],
             width: size.width,
             height: size.height,
             present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
         };
         surface.configure(&device, &config);
 
@@ -169,14 +171,13 @@ impl State {
 
 #[tokio::main]
 pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
-    let app = clap::App::new("mdrs")
+    let app = clap::Command::new("mdrs")
         .version("0.1.0")
         .author("NAiveD <nice-die@live.com>")
-        .setting(clap::AppSettings::DeriveDisplayOrder)
+        .subcommand_required(false)
         .arg(
             clap::Arg::new("width")
                 .long("width")
-                .short('w')
                 .default_value("800")
                 .value_parser(clap::value_parser!(u32).range(1..))
                 .help("Width of render target texture"),
@@ -184,7 +185,6 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
         .arg(
             clap::Arg::new("height")
                 .long("height")
-                .short('h')
                 .default_value("600")
                 .value_parser(clap::value_parser!(u32).range(1..))
                 .help("Height of render target texture"),

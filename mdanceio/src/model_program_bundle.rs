@@ -570,7 +570,7 @@ impl<'a> CommonPass<'a> {
             let depth_state = if config.technique_type == TechniqueType::Shadow && is_depth_enabled
             {
                 wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth24PlusStencil8,
+                    format: wgpu::TextureFormat::Depth16Unorm,
                     depth_write_enabled: true,
                     depth_compare: wgpu::CompareFunction::Less,
                     stencil: wgpu::StencilState::default(),
@@ -578,7 +578,7 @@ impl<'a> CommonPass<'a> {
                 }
             } else {
                 wgpu::DepthStencilState {
-                    format: wgpu::TextureFormat::Depth24PlusStencil8,
+                    format: wgpu::TextureFormat::Depth16Unorm,
                     depth_write_enabled: is_depth_enabled,
                     depth_compare: if is_depth_enabled {
                         wgpu::CompareFunction::LessEqual
