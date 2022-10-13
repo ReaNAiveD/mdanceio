@@ -1,15 +1,3 @@
-fn saturate(x: f32) -> f32 {
-  return clamp(x, 0.0, 1.0);
-}
-
-fn saturate_v2(x: vec2<f32>) -> vec2<f32> {
-    return clamp(x, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-}
-
-fn saturate_v4(x: vec4<f32>) -> vec4<f32> {
-    return clamp(x, vec4<f32>(0.0, 0.0, 0.0, 0.0), vec4<f32>(1.0, 1.0, 1.0, 1.0));
-}
-
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
@@ -150,7 +138,7 @@ fn vs_main(
     vout.eye = model_parameters.camera_position.xyz - (model_parameters.model_matrix * position).xyz;
     vout.texcoord0 = vin.texcoord0;
     vout.texcoord1 = sphere;
-    vout.color0 = saturate_v4(vec4<f32>(color, model_parameters.material_diffuse.a));
+    vout.color0 = saturate(vec4<f32>(color, model_parameters.material_diffuse.a));
     vout.shadow0 = model_parameters.light_view_projection_matrix * position;
     // TODO: when NANOEM_IO_HAS_POINT
     return vout;
@@ -185,7 +173,7 @@ fn fs_main(
     let light_position = -model_parameters.light_direction.xyz;
     if (has_shadow_map_texture()) {
         let texcoord0 = fin.shadow0 / fin.shadow0.w;
-        let satu_texc = saturate_v2(texcoord0.xy);
+        let satu_texc = saturate(texcoord0.xy);
         let toon_color = textureSample(toon_texture, toon_texture_sampler, vec2<f32>(0.0, 1.0));
         var coverage = shadow_coverage(texcoord0, model_parameters.shadow_map_size);
         if (satu_texc.x == texcoord0.x && satu_texc.y == texcoord0.y) {
@@ -211,5 +199,5 @@ fn fs_main(
         let spec = pow(specular_angle, specular_power);
         material_color = vec4<f32>(material_color.rgb + model_parameters.material_specular.rgb * model_parameters.light_color.rgb * spec, material_color.a);
     }
-    return saturate_v4(material_color);
+    return saturate(material_color);
 }

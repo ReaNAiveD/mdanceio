@@ -1,15 +1,3 @@
-fn saturate(x: f32) -> f32 {
-    return clamp(x, 0.0, 1.0);
-}
-
-fn saturate_v2(x: vec2<f32>) -> vec2<f32> {
-    return clamp(x, vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 1.0));
-}
-
-fn saturate_v4(x: vec4<f32>) -> vec4<f32> {
-    return clamp(x, vec4<f32>(0.0, 0.0, 0.0, 0.0), vec4<f32>(1.0, 1.0, 1.0, 1.0));
-}
-
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
