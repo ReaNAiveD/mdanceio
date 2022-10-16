@@ -21,7 +21,7 @@ impl<T> CanvasSize<T> {
 pub enum Backend {
     All,
     WebGPU,
-    // WebGL,
+    WebGL,
 }
 
 #[wasm_bindgen]
@@ -50,6 +50,7 @@ impl WasmClient {
         let backends = match backend {
             Backend::All => wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all()),
             Backend::WebGPU => wgpu::Backends::BROWSER_WEBGPU,
+            Backend::WebGL => wgpu::Backends::GL,
         };
 
         let instance = wgpu::Instance::new(backends);

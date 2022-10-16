@@ -1,10 +1,15 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import './App.css';
 import {WasmClient} from 'mdanceio';
 import {readFile} from "./utils";
 
 function App() {
   const graph_display_ref = useRef<HTMLCanvasElement>(null);
+  const use_webgpu = useMemo(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    let param_webgpu = urlParams.get("webgpu");
+    return param_webgpu && param_webgpu.toLowerCase() !== "false" && param_webgpu !== "0"
+  }, []);
   const clientPromise = useRef<Promise<WasmClient>>();
   const modelFile = useRef<HTMLInputElement>(null)
   const onLoadModelClick = () => {
@@ -112,10 +117,11 @@ function App() {
     import('mdanceio').then(module => {
       if (!clientPromise.current) {
         console.log("Creating WasmClient...")
-        clientPromise.current = module.WasmClient.new(graph_display_ref.current!, module.Backend.WebGPU)
+        let backend = use_webgpu? module.Backend.WebGPU: module.Backend.WebGL;
+        clientPromise.current = module.WasmClient.new(graph_display_ref.current!, backend)
       }
     })
-  }, [])
+  }, [use_webgpu])
 
   return (
     <div className="App">
