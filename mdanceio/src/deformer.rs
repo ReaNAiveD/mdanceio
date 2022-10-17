@@ -1,11 +1,18 @@
 use std::mem;
 
+use cgmath::{Matrix4, Quaternion, Vector3, VectorSpace, Zero};
 use wgpu::util::DeviceExt;
 
 use crate::{
     camera::Camera,
     model::{Bone, Model, Morph, Vertex, VertexUnit},
+    utils::{f128_to_vec3, mat4_truncate},
 };
+
+pub enum Deformer {
+    Wgpu(Box<WgpuDeformer>),
+    Software(CommonDeformer),
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Zeroable, bytemuck::Pod)]
@@ -16,7 +23,8 @@ struct Argument {
     pub padding: u32,
 }
 
-pub struct Deformer {
+#[derive(Debug)]
+pub struct WgpuDeformer {
     shader: wgpu::ShaderModule,
     bind_group_layout: wgpu::BindGroupLayout,
     input_buffer: wgpu::Buffer,
@@ -31,9 +39,8 @@ pub struct Deformer {
     num_max_morph_items: usize,
 }
 
-impl Deformer {
+impl WgpuDeformer {
     pub fn new(
-        vertex_buffer_data: &[VertexUnit],
         vertices: &[Vertex],
         bones: &[Bone],
         fallback_bone: &Bone,
@@ -41,6 +48,7 @@ impl Deformer {
         edge_size: f32,
         device: &wgpu::Device,
     ) -> Self {
+        let vertex_buffer_data: Vec<VertexUnit> = vertices.iter().map(|v| v.simd.into()).collect();
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader/Deformer"),
             source: wgpu::ShaderSource::Wgsl(
@@ -49,7 +57,7 @@ impl Deformer {
         });
         let input_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Deformer/InputBuffer"),
-            contents: bytemuck::cast_slice(vertex_buffer_data),
+            contents: bytemuck::cast_slice(&vertex_buffer_data[..]),
             usage: wgpu::BufferUsages::STORAGE,
         });
         let num_vertices = vertices.len();
@@ -224,9 +232,7 @@ impl Deformer {
         });
         let morph_weight_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Deformer/MorphBuffer"),
-            contents: bytemuck::cast_slice(
-                &Self::build_morph_weight_buffer_data(morphs)[..],
-            ),
+            contents: bytemuck::cast_slice(&Self::build_morph_weight_buffer_data(morphs)[..]),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
         let num_groups = ((num_vertices as f32) / 256f32).ceil() as u32 + 1;
@@ -246,10 +252,7 @@ impl Deformer {
         }
     }
 
-    fn build_matrix_buffer_data(
-        bones: &[Bone],
-        fallback_bone: &Bone,
-    ) -> Vec<[[f32; 4]; 4]> {
+    fn build_matrix_buffer_data(bones: &[Bone], fallback_bone: &Bone) -> Vec<[[f32; 4]; 4]> {
         let mut matrix_buffer_data = vec![[[0f32; 4]; 4]; bones.len().max(1)];
         for (idx, bone) in bones.iter().enumerate() {
             matrix_buffer_data[idx] = bone.matrices.skinning_transform.into();
@@ -268,12 +271,7 @@ impl Deformer {
         morph_weight_buffer_data
     }
 
-    pub fn update_buffer(
-        &self,
-        model: &Model,
-        camera: &dyn Camera,
-        queue: &wgpu::Queue,
-    ) {
+    pub fn update_buffer(&self, model: &Model, camera: &dyn Camera, queue: &wgpu::Queue) {
         let argument = Argument {
             num_vertices: self.num_vertices as u32,
             num_max_morph_items: self.num_max_morph_items as u32,
@@ -285,8 +283,7 @@ impl Deformer {
             &self.matrix_buffer,
             0,
             bytemuck::cast_slice(
-                &Self::build_matrix_buffer_data(model.bones(), &model.shared_fallback_bone)
-                    [..],
+                &Self::build_matrix_buffer_data(model.bones(), &model.shared_fallback_bone)[..],
             ),
         );
         queue.write_buffer(
@@ -296,7 +293,12 @@ impl Deformer {
         );
     }
 
-    pub fn execute(&self, output_buffer: &wgpu::Buffer, device: &wgpu::Device, queue: &wgpu::Queue) {
+    pub fn execute(
+        &self,
+        output_buffer: &wgpu::Buffer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
         log::debug!("Executing Skin Deformer...");
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Deformer/BindGroup"),
@@ -345,5 +347,179 @@ impl Deformer {
         }
         command_encoder.pop_debug_group();
         queue.submit(Some(command_encoder.finish()));
+    }
+}
+
+#[derive(Debug)]
+pub struct CommonDeformer {
+    vertex_buffer_data: Vec<VertexUnit>,
+}
+
+impl CommonDeformer {
+    pub fn new(vertices: &[Vertex]) -> Self {
+        let vertex_buffer_data: Vec<VertexUnit> = vertices.iter().map(|v| v.simd.into()).collect();
+        Self { vertex_buffer_data }
+    }
+
+    pub fn execute_model(
+        &self,
+        model: &Model,
+        camera: &dyn Camera,
+        output_buffer: &wgpu::Buffer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        self.execute(
+            model.vertices(),
+            model.bones(),
+            model.morphs(),
+            model.edge_size(camera),
+            output_buffer,
+            device,
+            queue,
+        )
+    }
+
+    pub fn execute(
+        &self,
+        vertices: &[Vertex],
+        bones: &[Bone],
+        morphs: &[Morph],
+        edge_size: f32,
+        output_buffer: &wgpu::Buffer,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        let mut output = self.vertex_buffer_data.clone();
+        let mut vertex_position_deltas = vec![Vector3::zero(); vertices.len()];
+        for morph in morphs {
+            match &morph.origin.typ {
+                nanoem::model::ModelMorphType::Vertex(items) => {
+                    for item in items {
+                        if let Some((vertex_idx, _)) = usize::try_from(item.vertex_index)
+                            .ok()
+                            .and_then(|idx| vertices.get(idx).map(|v| (idx, v)))
+                        {
+                            let position = f128_to_vec3(item.position);
+                            vertex_position_deltas[vertex_idx] += position * morph.weight();
+                        }
+                    }
+                }
+                nanoem::model::ModelMorphType::Group(_)
+                | nanoem::model::ModelMorphType::Bone(_)
+                | nanoem::model::ModelMorphType::Texture(_)
+                | nanoem::model::ModelMorphType::Uva1(_)
+                | nanoem::model::ModelMorphType::Uva2(_)
+                | nanoem::model::ModelMorphType::Uva3(_)
+                | nanoem::model::ModelMorphType::Uva4(_)
+                | nanoem::model::ModelMorphType::Material(_)
+                | nanoem::model::ModelMorphType::Flip(_)
+                | nanoem::model::ModelMorphType::Impulse(_) => {}
+            }
+        }
+        for (idx, vertex) in vertices.iter().enumerate() {
+            match vertex.origin.typ {
+                nanoem::model::ModelVertexType::UNKNOWN => {
+                    output[idx].position = vertex.origin.origin;
+                    output[idx].normal = vertex.origin.normal;
+                }
+                nanoem::model::ModelVertexType::BDEF1 => {
+                    let m = bones[vertex.origin.bone_indices[0] as usize]
+                        .matrices
+                        .skinning_transform;
+                    let pos = m
+                        * (f128_to_vec3(vertex.origin.origin) + vertex_position_deltas[idx])
+                            .extend(1f32);
+                    output[idx].position = (pos / pos.w).into();
+                    output[idx].normal = (mat4_truncate(m) * f128_to_vec3(vertex.origin.normal))
+                        .extend(0f32)
+                        .into();
+                }
+                nanoem::model::ModelVertexType::BDEF2 => {
+                    let weight = vertex.origin.bone_weights[0];
+                    let m0 = bones[vertex.origin.bone_indices[0] as usize]
+                        .matrices
+                        .skinning_transform;
+                    let m1 = bones[vertex.origin.bone_indices[1] as usize]
+                        .matrices
+                        .skinning_transform;
+                    let pos = (f128_to_vec3(vertex.origin.origin) + vertex_position_deltas[idx])
+                        .extend(1f32);
+                    let normal = f128_to_vec3(vertex.origin.normal);
+                    let pos = (m1 * pos).lerp(m0 * pos, weight);
+                    output[idx].position = (pos / pos.w).into();
+                    output[idx].normal = (mat4_truncate(m1) * normal)
+                        .lerp(mat4_truncate(m0) * normal, weight)
+                        .extend(0f32)
+                        .into();
+                }
+                nanoem::model::ModelVertexType::BDEF4 | nanoem::model::ModelVertexType::QDEF => {
+                    let weights = vertex.origin.bone_weights;
+                    let m0 = bones[vertex.origin.bone_indices[0] as usize]
+                        .matrices
+                        .skinning_transform;
+                    let m1 = bones[vertex.origin.bone_indices[1] as usize]
+                        .matrices
+                        .skinning_transform;
+                    let m2 = bones[vertex.origin.bone_indices[2] as usize]
+                        .matrices
+                        .skinning_transform;
+                    let m3 = bones[vertex.origin.bone_indices[3] as usize]
+                        .matrices
+                        .skinning_transform;
+                    let pos = (f128_to_vec3(vertex.origin.origin) + vertex_position_deltas[idx])
+                        .extend(1f32);
+                    let normal = f128_to_vec3(vertex.origin.normal);
+                    let pos = m0 * pos * weights[0]
+                        + m1 * pos * weights[1]
+                        + m2 * pos * weights[2]
+                        + m3 * pos * weights[3];
+                    output[idx].position = (pos / pos.w).into();
+                    output[idx].normal = (mat4_truncate(m0) * normal * weights[0]
+                        + mat4_truncate(m1) * normal * weights[1]
+                        + mat4_truncate(m2) * normal * weights[2]
+                        + mat4_truncate(m3) * normal * weights[3])
+                        .extend(0f32)
+                        .into();
+                }
+                nanoem::model::ModelVertexType::SDEF => {
+                    let weights = vertex.origin.bone_weights;
+                    let m0 = bones[vertex.origin.bone_indices[0] as usize]
+                        .matrices
+                        .skinning_transform;
+                    let m1 = bones[vertex.origin.bone_indices[1] as usize]
+                        .matrices
+                        .skinning_transform;
+                    let sdef_c = f128_to_vec3(vertex.origin.sdef_c);
+                    let sdef_r0 = f128_to_vec3(vertex.origin.sdef_r0);
+                    let sdef_r1 = f128_to_vec3(vertex.origin.sdef_r1);
+                    let sdef_i = sdef_r0 * weights[0] + sdef_r1 * weights[1];
+                    let sdef_r0_n = sdef_c + sdef_r0 - sdef_i;
+                    let sdef_r1_n = sdef_c + sdef_r1 - sdef_i;
+                    let r0 = (m0 * sdef_r0_n.extend(1f32)).truncate();
+                    let r1 = (m1 * sdef_r1_n.extend(1f32)).truncate();
+                    let c0 = (m0 * sdef_c.extend(1f32)).truncate();
+                    let c1 = (m1 * sdef_c.extend(1f32)).truncate();
+                    let delta = (r0 + c0 - sdef_c) * weights[0] + (r1 + c1 - sdef_c) * weights[1];
+                    let t = (sdef_c + delta) * 0.5f32;
+                    let p = (f128_to_vec3(vertex.origin.origin) + vertex_position_deltas[idx]
+                        - sdef_c)
+                        .extend(1f32);
+                    let q0 = Quaternion::from(mat4_truncate(m0));
+                    let q1 = Quaternion::from(mat4_truncate(m1));
+                    let m = Matrix4::from(q1.slerp(q0, weights[0]));
+                    output[idx].position = ((m * p).truncate() + t).extend(1f32).into();
+                    output[idx].normal = (mat4_truncate(m) * f128_to_vec3(vertex.origin.normal))
+                        .extend(0f32)
+                        .into();
+                }
+            }
+            output[idx].edge = ((f128_to_vec3(output[idx].position)
+                + f128_to_vec3(output[idx].normal) * vertex.origin.edge_size)
+                * edge_size)
+                .extend(output[idx].edge[3])
+                .into();
+        }
+        queue.write_buffer(output_buffer, 0u64, bytemuck::cast_slice(&output[..]));
     }
 }

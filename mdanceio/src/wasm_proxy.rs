@@ -18,13 +18,6 @@ impl<T> CanvasSize<T> {
 }
 
 #[wasm_bindgen]
-pub enum Backend {
-    All,
-    WebGPU,
-    // WebGL,
-}
-
-#[wasm_bindgen]
 pub struct WasmClient {
     instance: wgpu::Instance,
     surface: wgpu::Surface,
@@ -40,17 +33,14 @@ pub struct WasmClient {
 /// 我希望通过WasmClient为JS层调用提供接口。JS层应自行处理渲染请求频率，通知视口resize，点击，拖动等事件，并处理好可能有的回调。
 #[wasm_bindgen]
 impl WasmClient {
-    pub fn new(canvas: &web_sys::HtmlCanvasElement, backend: Backend) -> js_sys::Promise {
+    pub fn new(canvas: &web_sys::HtmlCanvasElement) -> js_sys::Promise {
         let level: log::Level = log::Level::Trace;
         console_log::init_with_level(level).expect("could not initialize logger");
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
 
         log::info!("Initializing the surface...");
 
-        let backends = match backend {
-            Backend::All => wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all()),
-            Backend::WebGPU => wgpu::Backends::BROWSER_WEBGPU,
-        };
+        let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
 
         let instance = wgpu::Instance::new(backends);
         let size = CanvasSize::new(canvas.width(), canvas.height());
