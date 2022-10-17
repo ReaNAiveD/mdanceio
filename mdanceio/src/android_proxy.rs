@@ -4,6 +4,7 @@ use crate::{
     base_application_service::BaseApplicationService, error::MdanceioError, injector::Injector,
 };
 
+#[cfg(target_os = "android")]
 fn create_main_views(
     device: &wgpu::Device,
     extent: wgpu::Extent3d,
