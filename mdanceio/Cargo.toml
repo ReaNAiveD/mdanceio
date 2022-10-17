@@ -17,8 +17,11 @@ path = "tests/root.rs"
 [[example]]
 name = "winit_app"
 
+[features]
+webgl = ["wgpu/webgl"]
+
 [dependencies]
-wgpu = { version = "0.14.0", features = ["trace", "webgl"] }
+wgpu = { version = "0.14.0", features = ["trace"] }
 log = "0.4"
 bytemuck = { version = "1.12.1", features = ["derive"] }
 cgmath = "0.18.0"

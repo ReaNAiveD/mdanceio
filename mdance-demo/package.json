@@ -11,6 +11,7 @@
     "@types/react": "^18.0.17",
     "@types/react-dom": "^18.0.6",
     "mdanceio": "file:../target/pkg",
+    "@webgl-supports/mdanceio": "file:../target/pkg-webgl",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-scripts": "5.0.1",

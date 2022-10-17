@@ -114,13 +114,23 @@ function App() {
     };
   }, [playing, playUpdate]); // Make sure the effect runs only once
   useEffect(() => {
-    import('mdanceio').then(module => {
-      if (!clientPromise.current) {
-        console.log("Creating WasmClient...")
-        let backend = use_webgpu? module.Backend.WebGPU: module.Backend.WebGL;
-        clientPromise.current = module.WasmClient.new(graph_display_ref.current!, backend)
-      }
-    })
+    if (use_webgpu) {
+      import('mdanceio').then(module => {
+        if (!clientPromise.current) {
+          console.log("Creating WasmClient...")
+          console.log("MDanceIO prefers WebGPU as Backend")
+          clientPromise.current = module.WasmClient.new(graph_display_ref.current!)
+        }
+      })
+    } else {
+      import('@webgl-supports/mdanceio').then(module => {
+        if (!clientPromise.current) {
+          console.log("Creating WasmClient...")
+          console.log("MDanceIO prefers WebGL as Backend")
+          clientPromise.current = module.WasmClient.new(graph_display_ref.current!)
+        }
+      })
+    }
   }, [use_webgpu])
 
   return (
@@ -140,7 +150,9 @@ function App() {
         <div><span className="Hint">Texture Prefix</span> <input type="text" value={textureNamePrefix} onChange={(e) =>
           setTextureNamePrefix(e.target.value)
         }/></div>
-        <div className="Hint">We use the texture file name to match needed texture. If texture file is behind a directory, add the directory path as prefix when loading. </div>
+        <div className="Hint">We use the texture file name to match needed texture. If texture file is behind a
+          directory, add the directory path as prefix when loading.
+        </div>
         <button className="Load-Texture-Button" onClick={onLoadTextureClick}> Load Texture</button>
         <button className="Load-Motion-Button" onClick={onLoadMotionClick}> Load Motion</button>
         <button className="Play-Button" disabled={playing} onClick={onPlayClick}> Play</button>

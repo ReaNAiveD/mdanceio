@@ -35,15 +35,9 @@
             }
         },
         {
-            "label": "rust: cargo build-wasm",
-            "type": "cargo",
-            "command": "build",
-            "args": [
-                "--no-default-features",
-                "--target",
-                "wasm32-unknown-unknown",
-                "--lib"
-            ],
+            "label": "wasm: pack",
+            "type": "shell",
+            "command": "wasm-pack build mdanceio --out-dir ../target/pkg",
             "problemMatcher": [
                 "$rustc"
             ],
@@ -54,18 +48,9 @@
             }
         },
         {
-            "label": "wasm: bindgen",
+            "label": "wasm: pack-webgl",
             "type": "shell",
-            "command": "wasm-bindgen --out-dir target/wasm-bundle target/wasm32-unknown-unknown/debug/mdanceio.wasm",
-            "dependsOn": [
-                "rust: cargo build-wasm"
-            ],
-            "problemMatcher": []
-        },
-        {
-            "label": "wasm: pack",
-            "type": "shell",
-            "command": "wasm-pack build mdanceio --out-dir ../target/pkg",
+            "command": "wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl",
             "problemMatcher": [
                 "$rustc"
             ],
@@ -126,7 +111,8 @@
             "path": "mdance-demo",
             "problemMatcher": [],
             "dependsOn": [
-                "wasm: pack"
+                "wasm: pack",
+                "wasm: pack-webgl"
             ],
             "detail": "react-app-rewired start"
         },
@@ -138,7 +124,8 @@
             "group": "build",
             "problemMatcher": [],
             "dependsOn": [
-                "wasm: pack"
+                "wasm: pack",
+                "wasm: pack-webgl"
             ],
             "detail": "react-app-rewired build"
         }
