@@ -31,11 +31,19 @@ jobs:
 
     - name: Build
       run: wasm-pack build mdanceio --out-dir ../target/pkg
+
+    - name: Build with WebGL support
+      run: wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl
     
     - uses: actions/upload-artifact@v3
       with:
         name: npm-package
         path: target/pkg/
+    
+    - uses: actions/upload-artifact@v3
+      with:
+        name: npm-package-webgl
+        path: target/pkg-webgl/
   
   build-example:
     strategy: 
@@ -106,6 +114,9 @@ jobs:
 
     - name: Build Wasm Pack
       run: wasm-pack build mdanceio --out-dir ../target/pkg
+
+    - name: Build Wasm Pack with WebGL support
+      run: wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl
 
     - name: Use Node.js 16.x
       uses: actions/setup-node@v3

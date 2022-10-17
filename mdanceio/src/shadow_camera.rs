@@ -85,7 +85,7 @@ impl ShadowCamera {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            format: wgpu::TextureFormat::Depth16Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
         let fallback_color_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -111,7 +111,7 @@ impl ShadowCamera {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            format: wgpu::TextureFormat::Depth16Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
         });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -149,7 +149,7 @@ impl ShadowCamera {
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let pipeline = clear_pass.get_pipeline(
             &[wgpu::TextureFormat::R32Float],
-            wgpu::TextureFormat::Depth24PlusStencil8,
+            wgpu::TextureFormat::Depth16Unorm,
             device,
         );
         {

@@ -1,10 +1,15 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import './App.css';
 import {WasmClient} from 'mdanceio';
 import {readFile} from "./utils";
 
 function App() {
   const graph_display_ref = useRef<HTMLCanvasElement>(null);
+  const use_webgpu = useMemo(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    let param_webgpu = urlParams.get("webgpu");
+    return param_webgpu && param_webgpu.toLowerCase() !== "false" && param_webgpu !== "0"
+  }, []);
   const clientPromise = useRef<Promise<WasmClient>>();
   const modelFile = useRef<HTMLInputElement>(null)
   const onLoadModelClick = () => {
@@ -109,13 +114,24 @@ function App() {
     };
   }, [playing, playUpdate]); // Make sure the effect runs only once
   useEffect(() => {
-    import('mdanceio').then(module => {
-      if (!clientPromise.current) {
-        console.log("Creating WasmClient...")
-        clientPromise.current = module.WasmClient.new(graph_display_ref.current!, module.Backend.WebGPU)
-      }
-    })
-  }, [])
+    if (use_webgpu) {
+      import('mdanceio').then(module => {
+        if (!clientPromise.current) {
+          console.log("Creating WasmClient...")
+          console.log("MDanceIO prefers WebGPU as Backend")
+          clientPromise.current = module.WasmClient.new(graph_display_ref.current!)
+        }
+      })
+    } else {
+      import('@webgl-supports/mdanceio').then(module => {
+        if (!clientPromise.current) {
+          console.log("Creating WasmClient...")
+          console.log("MDanceIO prefers WebGL as Backend")
+          clientPromise.current = module.WasmClient.new(graph_display_ref.current!)
+        }
+      })
+    }
+  }, [use_webgpu])
 
   return (
     <div className="App">
@@ -134,7 +150,9 @@ function App() {
         <div><span className="Hint">Texture Prefix</span> <input type="text" value={textureNamePrefix} onChange={(e) =>
           setTextureNamePrefix(e.target.value)
         }/></div>
-        <div className="Hint">We use the texture file name to match needed texture. If texture file is behind a directory, add the directory path as prefix when loading. </div>
+        <div className="Hint">We use the texture file name to match needed texture. If texture file is behind a
+          directory, add the directory path as prefix when loading.
+        </div>
         <button className="Load-Texture-Button" onClick={onLoadTextureClick}> Load Texture</button>
         <button className="Load-Motion-Button" onClick={onLoadMotionClick}> Load Motion</button>
         <button className="Play-Button" disabled={playing} onClick={onPlayClick}> Play</button>

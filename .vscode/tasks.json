@@ -35,15 +35,22 @@
             }
         },
         {
-            "label": "rust: cargo build-wasm",
-            "type": "cargo",
-            "command": "build",
-            "args": [
-                "--no-default-features",
-                "--target",
-                "wasm32-unknown-unknown",
-                "--lib"
+            "label": "wasm: pack",
+            "type": "shell",
+            "command": "wasm-pack build mdanceio --out-dir ../target/pkg",
+            "problemMatcher": [
+                "$rustc"
             ],
+            "options": {
+                "env": {
+                    "RUSTFLAGS": "--cfg=web_sys_unstable_apis"
+                }
+            }
+        },
+        {
+            "label": "wasm: pack-webgl",
+            "type": "shell",
+            "command": "wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl",
             "problemMatcher": [
                 "$rustc"
             ],
@@ -78,28 +85,6 @@
                 "env": {
                     "ANDROID_NDK_HOME": "C:/Users/NAiveD/AppData/Local/Android/Sdk/ndk/25.1.8937393",
                     "JAVA_HOME": "C:\\Program Files\\Java\\jdk-11.0.12",
-                }
-            }
-        },
-        {
-            "label": "wasm: bindgen",
-            "type": "shell",
-            "command": "wasm-bindgen --out-dir target/wasm-bundle target/wasm32-unknown-unknown/debug/mdanceio.wasm",
-            "dependsOn": [
-                "rust: cargo build-wasm"
-            ],
-            "problemMatcher": []
-        },
-        {
-            "label": "wasm: pack",
-            "type": "shell",
-            "command": "wasm-pack build mdanceio --out-dir ../target/pkg",
-            "problemMatcher": [
-                "$rustc"
-            ],
-            "options": {
-                "env": {
-                    "RUSTFLAGS": "--cfg=web_sys_unstable_apis"
                 }
             }
         },
@@ -154,7 +139,8 @@
             "path": "mdance-demo",
             "problemMatcher": [],
             "dependsOn": [
-                "wasm: pack"
+                "wasm: pack",
+                "wasm: pack-webgl"
             ],
             "detail": "react-app-rewired start"
         },
@@ -166,7 +152,8 @@
             "group": "build",
             "problemMatcher": [],
             "dependsOn": [
-                "wasm: pack"
+                "wasm: pack",
+                "wasm: pack-webgl"
             ],
             "detail": "react-app-rewired build"
         }

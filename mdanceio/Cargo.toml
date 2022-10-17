@@ -18,12 +18,15 @@ path = "tests/root.rs"
 [[example]]
 name = "winit_app"
 
+[features]
+webgl = ["wgpu/webgl"]
+
 [dependencies]
-wgpu = { version = "0.13.1", features = ["trace"] }
+wgpu = { version = "0.14.0", features = ["trace"] }
 log = "0.4"
-bytemuck = { version = "1.11.0", features = ["derive"] }
+bytemuck = { version = "1.12.1", features = ["derive"] }
 cgmath = "0.18.0"
-rapier3d = { version = "0.14.0", features = ["simd-stable"] }
+rapier3d = { version = "0.15.0", features = ["simd-stable"] }
 nalgebra = { version = "0.31.1" }
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
 uniffi = "0.19.6"
@@ -39,28 +42,29 @@ path = "../nanoem"
 version = "0.1.0"
 
 [dev-dependencies]
-tokio = { version = "1.20.1", features = ["full"] }
-winit = "=0.26.1"
-clap = "3.2.17"
-png = "0.17.5"
+tokio = { version = "1.21.2", features = ["full"] }
+winit = "0.27.3"
+clap = "4.0.10"
+png = "0.17.6"
 # env_logger = "0.9.0"
 log4rs = "1.1.1"
-chrono = "0.4.19"
+chrono = "0.4.22"
 
 [target.'cfg(target_os = "android")'.dependencies]
 glow = "0.11.2"
-wgpu-hal = "0.13.2"
-wgt = { package = "wgpu-types", version="0.13.2"}
+wgpu-hal = "0.14.0"
+wgt = { package = "wgpu-types", version="0.14.0"}
 android_logger = "0.11"
 futures = "0.3"
 thiserror = "1.0"
 egl = { package = "khronos-egl", version = "4.1", features = ["dynamic"] }
 libloading = { version = "0.7" }
+uniffi = "0.20.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2.82"
-wasm-bindgen-futures = "0.4.32"
-web-sys = { version = "=0.3.58", features = [
+wasm-bindgen = "0.2.83"
+wasm-bindgen-futures = "0.4.33"
+web-sys = { version = "0.3.60", features = [
     "Document",
     "Navigator",
     "Node",
@@ -184,14 +188,14 @@ web-sys = { version = "=0.3.58", features = [
     "ImageBitmapRenderingContext",
     "Window",
 ] }
-js-sys = { version = "0.3.58" }
+js-sys = { version = "0.3.60" }
 console_error_panic_hook = "0.1.7"
 console_log = { version = "0.2.0", features = ["color"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 # We need the Location feature in the framework examples
-web-sys = { version = "0.3.58", features = ["Location"] }
+web-sys = { version = "0.3.60", features = ["Location"] }
 
 # [target.'cfg(target_os = "android")'.build-dependencies]
 [build-dependencies]
-uniffi_build = { version="0.19.6", features = [ "builtin-bindgen" ] }
+uniffi_build = { version="0.20.0", features = [ "builtin-bindgen" ] }

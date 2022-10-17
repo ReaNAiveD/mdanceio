@@ -16,7 +16,7 @@ use nanoem::{
 use crate::{
     bounding_box::BoundingBox,
     camera::{Camera, PerspectiveCamera},
-    deformer::Deformer,
+    deformer::{CommonDeformer, Deformer, WgpuDeformer},
     drawable::{DrawContext, DrawType, Drawable},
     error::MdanceioError,
     light::Light,
@@ -55,14 +55,14 @@ pub type SoftBodyIndex = usize;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct VertexUnit {
-    position: [f32; 4],
-    normal: [f32; 4],
-    texcoord: [f32; 4],
-    edge: [f32; 4],
-    uva: [[f32; 4]; 4],
-    weights: [f32; 4],
-    indices: [f32; 4],
-    info: [f32; 4], /* type,vertexIndex,edgeSize,padding */
+    pub position: [f32; 4],
+    pub normal: [f32; 4],
+    pub texcoord: [f32; 4],
+    pub edge: [f32; 4],
+    pub uva: [[f32; 4]; 4],
+    pub weights: [f32; 4],
+    pub indices: [f32; 4],
+    pub info: [f32; 4], /* type,vertexIndex,edgeSize,padding */
 }
 
 impl From<VertexSimd> for VertexUnit {
@@ -513,22 +513,22 @@ impl Model {
                 }
 
                 log::trace!("Len(vertices): {}", vertices.len());
-                let mut vertex_buffer_data: Vec<VertexUnit> = vec![];
-                for vertex in &vertices {
-                    vertex_buffer_data.push(vertex.simd.into());
-                }
-                log::trace!("Len(vertex_buffer): {}", vertex_buffer_data.len());
                 let edge_size =
                     Self::internal_edge_size(&bones, global_camera, edge_size_scale_factor);
-                let skin_deformer = Deformer::new(
-                    &vertex_buffer_data,
-                    &vertices,
-                    &bones,
-                    &shared_fallback_bone,
-                    &morphs,
-                    edge_size,
-                    device,
-                );
+
+                log::info!("{:?}", device.limits());
+                let skin_deformer = if device.limits().max_storage_buffers_per_shader_stage < 6 {
+                    Deformer::Software(CommonDeformer::new(&vertices))
+                } else {
+                    Deformer::Wgpu(Box::new(WgpuDeformer::new(
+                        &vertices,
+                        &bones,
+                        &shared_fallback_bone,
+                        &morphs,
+                        edge_size,
+                        device,
+                    )))
+                };
                 let bytes_per_vertex = std::mem::size_of::<VertexUnit>();
                 let unpadded_size = vertices.len() * bytes_per_vertex;
                 let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
@@ -536,13 +536,17 @@ impl Model {
                 let vertex_buffer_even = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some(format!("Model/{}/VertexBuffer/Even", canonical_name).as_str()),
                     size: (unpadded_size + padding) as u64,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
+                    usage: wgpu::BufferUsages::VERTEX
+                        | wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
                 let vertex_buffer_odd = device.create_buffer(&wgpu::BufferDescriptor {
                     label: Some(format!("Model/{}/VertexBuffer/Odd", canonical_name).as_str()),
                     size: (unpadded_size + padding) as u64,
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::STORAGE,
+                    usage: wgpu::BufferUsages::VERTEX
+                        | wgpu::BufferUsages::STORAGE
+                        | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
                 let vertex_buffers = [vertex_buffer_even, vertex_buffer_odd];
@@ -556,7 +560,20 @@ impl Model {
                     },
                 );
                 let mut stage_vertex_buffer_index = 0;
-                skin_deformer.execute(&vertex_buffers[stage_vertex_buffer_index], device, queue);
+                match &skin_deformer {
+                    Deformer::Wgpu(deformer) => {
+                        deformer.execute(&vertex_buffers[stage_vertex_buffer_index], device, queue);
+                    }
+                    Deformer::Software(deformer) => deformer.execute(
+                        &vertices,
+                        &bones,
+                        &morphs,
+                        edge_size,
+                        &vertex_buffers[stage_vertex_buffer_index],
+                        device,
+                        queue,
+                    ),
+                }
                 stage_vertex_buffer_index = 1 - stage_vertex_buffer_index;
 
                 let mut camera = Box::new(PerspectiveCamera::new());
@@ -1850,12 +1867,23 @@ impl Model {
         queue: &wgpu::Queue,
     ) {
         if self.states.dirty_staging_buffer {
-            self.skin_deformer.update_buffer(self, camera, queue);
-            self.skin_deformer.execute(
-                &self.vertex_buffers[self.stage_vertex_buffer_index],
-                device,
-                queue,
-            );
+            match &self.skin_deformer {
+                Deformer::Wgpu(deformer) => {
+                    deformer.update_buffer(self, camera, queue);
+                    deformer.execute(
+                        &self.vertex_buffers[self.stage_vertex_buffer_index],
+                        device,
+                        queue,
+                    );
+                }
+                Deformer::Software(deformer) => deformer.execute_model(
+                    self,
+                    camera,
+                    &self.vertex_buffers[self.stage_vertex_buffer_index],
+                    device,
+                    queue,
+                ),
+            }
             self.stage_vertex_buffer_index = 1 - self.stage_vertex_buffer_index;
             self.states.dirty_morph = false;
             self.states.dirty_staging_buffer = false;
@@ -3052,6 +3080,7 @@ impl Constraint {
     }
 }
 
+// TODO: Optimize duplicated vertex structure
 #[derive(Debug, Clone, Copy)]
 pub struct VertexSimd {
     // may use simd128
@@ -3880,8 +3909,12 @@ impl RigidBody {
                 .friction(rigid_body.friction)
                 .restitution(rigid_body.restitution)
                 .collision_groups(rapier3d::geometry::InteractionGroups::new(
-                    0x1 << rigid_body.collision_group_id.clamp(0, 15),
-                    (rigid_body.collision_mask & 0xffff) as u32,
+                    rapier3d::geometry::Group::from_bits_truncate(
+                        0x1u32 << rigid_body.collision_group_id.clamp(0, 15),
+                    ),
+                    rapier3d::geometry::Group::from_bits_truncate(
+                        (rigid_body.collision_mask & 0xffff) as u32,
+                    ),
                 ))
         });
         let rigid_body_handle = physics_engine
