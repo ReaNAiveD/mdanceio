@@ -29,7 +29,7 @@ fn create_main_views(
         color_texture.create_view(&wgpu::TextureViewDescriptor::default())
     };
     let depth_view = {
-        let depth_format = wgpu::TextureFormat::Depth24PlusStencil8;
+        let depth_format = wgpu::TextureFormat::Depth16Unorm;
         let depth_hal_texture =
             <wgpu_hal::api::Gles as wgpu_hal::Api>::Texture::default_framebuffer(depth_format);
         texture_desc.format = depth_format;
@@ -64,9 +64,19 @@ impl AndroidProxy {
 
     pub fn redraw(&self) {}
 
+    pub fn play(&self) {}
+
     pub fn load_model(&self, data: &Vec<u8>) -> Result<(), MdanceioAndroidError> {
         Ok(())
     }
+
+    pub fn load_model_motion(&self, data: &Vec<u8>) -> Result<(), MdanceioAndroidError> {
+        Ok(())
+    }
+
+    pub fn load_texture(&self, key: String, data: &Vec<u8>, update_bind: bool) {}
+
+    pub fn update_bind_texture(&self) {}
 }
 
 #[cfg(target_os = "android")]
@@ -174,6 +184,13 @@ impl AndroidProxy {
             .draw_default_pass(&self.color_view, &self.device, &self.queue);
     }
 
+    pub fn play(&self) {
+        self.service
+            .lock()
+            .expect("unable to get service draw lock")
+            .play();
+    }
+
     pub fn load_model(&self, data: &Vec<u8>) -> Result<(), MdanceioAndroidError> {
         let model_result = self
             .service
@@ -191,5 +208,28 @@ impl AndroidProxy {
             }
             Err(e) => Err(e.into()),
         }
+    }
+
+    pub fn load_model_motion(&self, data: &Vec<u8>) -> Result<(), MdanceioAndroidError> {
+        self.service
+            .lock()
+            .expect("unable to get service draw lock")
+            .load_model_motion(data)
+            .map(|_| ())
+            .map_err(|e| e.into())
+    }
+
+    pub fn load_texture(&self, key: String, data: &Vec<u8>, update_bind: bool) {
+        self.service
+            .lock()
+            .expect("unable to get service draw lock")
+            .load_texture(&key, data, update_bind, &self.device, &self.queue);
+    }
+
+    pub fn update_bind_texture(&self) {
+        self.service
+            .lock()
+            .expect("unable to get service draw lock")
+            .update_bind_texture(&self.device)
     }
 }

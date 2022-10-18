@@ -10,6 +10,15 @@ interface AndroidProxy {
 
     void redraw();
 
+    void play();
+
     [Throws=MdanceioAndroidError]
     void load_model([ByRef] sequence<u8> data);
+    
+    [Throws=MdanceioAndroidError]
+    void load_model_motion([ByRef] sequence<u8> data);
+
+    void load_texture(string key, [ByRef] sequence<u8> data, boolean update_bind);
+
+    void update_bind_texture();
 };
