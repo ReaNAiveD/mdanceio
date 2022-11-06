@@ -1,3 +1,5 @@
+use cgmath::Matrix4;
+
 use crate::{
     camera::PerspectiveCamera, light::DirectionalLight, model::Model,
     model_program_bundle::ModelProgramBundle, shadow_camera::ShadowCamera,
@@ -15,6 +17,7 @@ pub enum DrawType {
 
 pub struct DrawContext<'a> {
     pub effect: &'a mut ModelProgramBundle,
+    pub world: Option<Matrix4<f32>>,
     pub camera: &'a PerspectiveCamera,
     pub shadow: &'a ShadowCamera,
     pub light: &'a DirectionalLight,

@@ -64,6 +64,14 @@ impl AndroidProxy {
 
     pub fn redraw(&self) {}
 
+    pub fn redraw_from(
+        &self,
+        model_world: Vec<f32>,
+        camera_view: Vec<f32>,
+        camera_projection: Vec<f32>,
+    ) {
+    }
+
     pub fn play(&self) {}
 
     pub fn load_model(&self, data: &Vec<u8>) -> Result<(), MdanceioAndroidError> {
@@ -182,6 +190,34 @@ impl AndroidProxy {
             .lock()
             .expect("unable to get service draw lock")
             .draw_default_pass(&self.color_view, &self.device, &self.queue);
+    }
+
+    pub fn redraw_from(
+        &self,
+        model_world: Vec<f32>,
+        camera_view: Vec<f32>,
+        camera_projection: Vec<f32>,
+    ) {
+        let world: [f32; 16] = model_world.try_into().unwrap_or_else(|v: Vec<f32>| {
+            panic!("Expected a Vec of length {} but it was {}", 16, v.len())
+        });
+        let view: [f32; 16] = camera_view.try_into().unwrap_or_else(|v: Vec<f32>| {
+            panic!("Expected a Vec of length {} but it was {}", 16, v.len())
+        });
+        let projection: [f32; 16] = camera_projection.try_into().unwrap_or_else(|v: Vec<f32>| {
+            panic!("Expected a Vec of length {} but it was {}", 16, v.len())
+        });
+        self.service
+            .lock()
+            .expect("unable to get service draw lock")
+            .draw_from(
+                world,
+                view,
+                projection,
+                &self.color_view,
+                &self.device,
+                &self.queue,
+            );
     }
 
     pub fn play(&self) {

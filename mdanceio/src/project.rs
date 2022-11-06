@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cgmath::{ElementWise, Vector2, Vector3, Vector4, VectorSpace};
+use cgmath::{ElementWise, Matrix4, Vector2, Vector3, Vector4, VectorSpace};
 
 use crate::{
     audio_player::{AudioPlayer, ClockAudioPlayer},
@@ -19,7 +19,7 @@ use crate::{
     shadow_camera::ShadowCamera,
     time_line_segment::TimeLineSegment,
     translator::LanguageType,
-    utils::lerp_f32,
+    utils::{f32_array_to_mat4_col_major_order, lerp_f32},
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -83,8 +83,8 @@ impl HandleAllocator {
 
 struct Pass {
     name: String,
-    color_texture: wgpu::Texture,
-    color_view: wgpu::TextureView,
+    // color_texture: wgpu::Texture,
+    // color_view: wgpu::TextureView,
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
     color_texture_format: wgpu::TextureFormat,
@@ -101,7 +101,7 @@ impl Pass {
         device: &wgpu::Device,
     ) -> Self {
         let depth_texture_format = wgpu::TextureFormat::Depth16Unorm;
-        let (color_texture, color_view, depth_texture, depth_view, sampler) = Self::_update(
+        let (/*color_texture, color_view, */depth_texture, depth_view, sampler) = Self::_update(
             name,
             size,
             color_texture_format,
@@ -111,8 +111,8 @@ impl Pass {
         );
         Self {
             name: name.to_owned(),
-            color_texture,
-            color_view,
+            // color_texture,
+            // color_view,
             depth_texture,
             depth_view,
             color_texture_format,
@@ -128,7 +128,7 @@ impl Pass {
         sample_count: u32,
         device: &wgpu::Device,
     ) {
-        let (color_texture, color_view, depth_texture, depth_view, sampler) = Self::_update(
+        let (/*color_texture, color_view, */depth_texture, depth_view, sampler) = Self::_update(
             self.name.as_str(),
             size,
             color_texture_format,
@@ -136,8 +136,8 @@ impl Pass {
             sample_count,
             device,
         );
-        self.color_texture = color_texture;
-        self.color_view = color_view;
+        // self.color_texture = color_texture;
+        // self.color_view = color_view;
         self.color_texture_format = color_texture_format;
         self.depth_texture = depth_texture;
         self.depth_view = depth_view;
@@ -152,27 +152,27 @@ impl Pass {
         sample_count: u32,
         device: &wgpu::Device,
     ) -> (
-        wgpu::Texture,
-        wgpu::TextureView,
+        // wgpu::Texture,
+        // wgpu::TextureView,
         wgpu::Texture,
         wgpu::TextureView,
         wgpu::Sampler,
     ) {
         // TODO: Feature Query For msaa?
-        let color_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(format!("{}/ColorTexture", name).as_str()),
-            size: wgpu::Extent3d {
-                width: size.x as u32,
-                height: size.y as u32,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count,
-            dimension: wgpu::TextureDimension::D2,
-            format: color_texture_format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        });
-        let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // let color_texture = device.create_texture(&wgpu::TextureDescriptor {
+        //     label: Some(format!("{}/ColorTexture", name).as_str()),
+        //     size: wgpu::Extent3d {
+        //         width: size.x as u32,
+        //         height: size.y as u32,
+        //         depth_or_array_layers: 1,
+        //     },
+        //     mip_level_count: 1,
+        //     sample_count,
+        //     dimension: wgpu::TextureDimension::D2,
+        //     format: color_texture_format,
+        //     usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        // });
+        // let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some(format!("{}/DepthTexture", name).as_str()),
             size: wgpu::Extent3d {
@@ -198,8 +198,8 @@ impl Pass {
             ..Default::default()
         });
         (
-            color_texture,
-            color_view,
+            // color_texture,
+            // color_view,
             depth_texture,
             depth_view,
             common_sampler,
@@ -1494,6 +1494,7 @@ impl Project {
                     DrawType::ScriptExternalColor,
                     DrawContext {
                         camera: &self.camera,
+                        world: None,
                         shadow: &self.shadow_camera,
                         light: &self.light,
                         shared_fallback_texture: &self.fallback_texture,
@@ -1592,6 +1593,7 @@ impl Project {
                     DrawType::ShadowMap,
                     DrawContext {
                         camera: &self.camera,
+                        world: None,
                         shadow: &self.shadow_camera,
                         light: &self.light,
                         shared_fallback_texture: &self.fallback_texture,
@@ -1609,6 +1611,50 @@ impl Project {
                 )
             }
             // }
+        }
+    }
+
+    pub fn draw_shadow_map_from(
+        &mut self,
+        world: [f32; 16],
+        camera_view: [f32; 16],
+        camera_projection: [f32; 16],
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        if self.shadow_camera.is_enabled() {
+            self.shadow_camera.clear(&self.clear_pass, device, queue);
+            let mut new_camera = self.camera.clone();
+            new_camera.update_view_projection(
+                f32_array_to_mat4_col_major_order(camera_view),
+                f32_array_to_mat4_col_major_order(camera_projection),
+            );
+            for drawable in self.model_handle_map.values() {
+                let color_view = self.shadow_camera.color_image();
+                let depth_view = self.shadow_camera.depth_image();
+                drawable.draw(
+                    color_view,
+                    Some(depth_view),
+                    DrawType::ShadowMap,
+                    DrawContext {
+                        camera: &new_camera,
+                        world: Some(f32_array_to_mat4_col_major_order(world)),
+                        shadow: &self.shadow_camera,
+                        light: &self.light,
+                        shared_fallback_texture: &self.fallback_texture,
+                        viewport_texture_format: self.viewport_texture_format(),
+                        is_render_pass_viewport: self.is_render_pass_viewport(),
+                        all_models: &self.model_handle_map.values(),
+                        effect: &mut self.model_program_bundle,
+                        texture_bind_layout: &self.texture_bind_group_layout,
+                        shadow_bind_layout: &self.shadow_bind_group_layout,
+                        texture_fallback_bind: &self.texture_fallback_bind,
+                        shadow_fallback_bind: &self.shadow_fallback_bind,
+                    },
+                    device,
+                    queue,
+                )
+            }
         }
     }
 
@@ -1637,6 +1683,33 @@ impl Project {
         encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
         log::debug!("Submit new viewport task");
+    }
+
+    pub fn draw_viewport_from(
+        &mut self,
+        world: [f32; 16],
+        camera_view: [f32; 16],
+        camera_projection: [f32; 16],
+        view: &wgpu::TextureView,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        log::debug!("Start drawing viewport from");
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        encoder.push_debug_group("Project::draw_viewport_from");
+        self._draw_viewport_from(
+            world,
+            camera_view,
+            camera_projection,
+            self.draw_type,
+            view,
+            device,
+            queue,
+        );
+        self.local_frame_index.1 = 0;
+        encoder.pop_debug_group();
+        queue.submit(Some(encoder.finish()));
     }
 
     pub fn draw_viewport_with_depth(
@@ -1690,6 +1763,49 @@ impl Project {
                 typ,
                 DrawContext {
                     camera: &self.camera,
+                    world: None,
+                    shadow: &self.shadow_camera,
+                    light: &self.light,
+                    shared_fallback_texture: &self.fallback_texture,
+                    viewport_texture_format: self.viewport_texture_format(),
+                    is_render_pass_viewport: self.is_render_pass_viewport(),
+                    all_models: &self.model_handle_map.values(),
+                    effect: &mut self.model_program_bundle,
+                    texture_bind_layout: &self.texture_bind_group_layout,
+                    shadow_bind_layout: &self.shadow_bind_group_layout,
+                    texture_fallback_bind: &self.texture_fallback_bind,
+                    shadow_fallback_bind: &self.shadow_fallback_bind,
+                },
+                device,
+                queue,
+            );
+        }
+    }
+
+    fn _draw_viewport_from(
+        &mut self,
+        world: [f32; 16],
+        camera_view: [f32; 16],
+        camera_projection: [f32; 16],
+        typ: DrawType,
+        view: &wgpu::TextureView,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        log::debug!("Start internal drawing viewport");
+        let mut new_camera = self.camera.clone();
+        new_camera.update_view_projection(
+            f32_array_to_mat4_col_major_order(camera_view),
+            f32_array_to_mat4_col_major_order(camera_projection),
+        );
+        for drawable in self.model_handle_map.values() {
+            drawable.draw(
+                view,
+                Some(&self.viewport_primary_pass.depth_view),
+                typ,
+                DrawContext {
+                    camera: &new_camera,
+                    world: Some(f32_array_to_mat4_col_major_order(world)),
                     shadow: &self.shadow_camera,
                     light: &self.light,
                     shared_fallback_texture: &self.fallback_texture,
@@ -1725,6 +1841,7 @@ impl Project {
                 typ,
                 DrawContext {
                     camera: &self.camera,
+                    world: None,
                     shadow: &self.shadow_camera,
                     light: &self.light,
                     shared_fallback_texture: &self.fallback_texture,
