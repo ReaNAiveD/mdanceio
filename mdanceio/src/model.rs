@@ -1922,7 +1922,7 @@ impl Model {
                         pass.set_global_parameters(self);
                         pass.set_camera_parameters(
                             context.camera,
-                            &Self::INITIAL_WORLD_MATRIX,
+                            &context.world.unwrap_or(Self::INITIAL_WORLD_MATRIX),
                             self,
                             device,
                         );
@@ -1931,7 +1931,7 @@ impl Model {
                         pass.set_material_parameters(material, technique_type, device);
                         pass.set_shadow_map_parameters(
                             context.shadow,
-                            &Self::INITIAL_WORLD_MATRIX,
+                            &context.world.unwrap_or(Self::INITIAL_WORLD_MATRIX),
                             context.camera,
                             context.light,
                             technique_type,
@@ -2043,7 +2043,7 @@ impl Model {
                         pass.set_global_parameters(self);
                         pass.set_camera_parameters(
                             context.camera,
-                            &Self::INITIAL_WORLD_MATRIX,
+                            &context.world.unwrap_or(Self::INITIAL_WORLD_MATRIX),
                             self,
                             device,
                         );
@@ -2259,7 +2259,7 @@ impl Model {
                         pass.set_global_parameters(self);
                         pass.set_camera_parameters(
                             context.camera,
-                            &Self::INITIAL_WORLD_MATRIX,
+                            &context.world.unwrap_or(Self::INITIAL_WORLD_MATRIX),
                             self,
                             device,
                         );
@@ -2267,7 +2267,7 @@ impl Model {
                         pass.set_all_model_parameters(self, context.all_models);
                         pass.set_shadow_map_parameters(
                             context.shadow,
-                            &Self::INITIAL_WORLD_MATRIX,
+                            &context.world.unwrap_or(Self::INITIAL_WORLD_MATRIX),
                             context.camera,
                             context.light,
                             technique_type,

@@ -4,7 +4,6 @@ use image::GenericImageView;
 use crate::{
     error::MdanceioError,
     injector::Injector,
-    model::NanoemTexture,
     project::{ModelHandle, Project},
 };
 use std::{collections::HashMap, io::Cursor};
@@ -36,16 +35,30 @@ impl BaseApplicationService {
         self.project.update(device, queue);
     }
 
-    pub fn draw_default_pass_with_depth(
+    pub fn draw_from(
         &mut self,
+        model_world: [f32; 16],
+        camera_view: [f32; 16],
+        camera_projection: [f32; 16],
         view: &wgpu::TextureView,
-        depth_view: &wgpu::TextureView,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        self.project.draw_shadow_map(device, queue);
-        self.project
-            .draw_viewport_with_depth(view, depth_view, device, queue);
+        self.project.draw_shadow_map_from(
+            model_world,
+            camera_view,
+            camera_projection,
+            device,
+            queue,
+        );
+        self.project.draw_viewport_from(
+            model_world,
+            camera_view,
+            camera_projection,
+            view,
+            device,
+            queue,
+        );
         self.project.update(device, queue);
     }
 
@@ -82,7 +95,11 @@ impl BaseApplicationService {
         self.project.play();
     }
 
-    pub fn enable_shadow_map(&mut self, handle: ModelHandle, value: bool) -> Result<(), MdanceioError> {
+    pub fn enable_shadow_map(
+        &mut self,
+        handle: ModelHandle,
+        value: bool,
+    ) -> Result<(), MdanceioError> {
         if let Some(model) = self.project.model_mut(handle) {
             model.set_shadow_map_enabled(value);
             Ok(())

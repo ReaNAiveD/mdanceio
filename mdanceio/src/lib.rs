@@ -1,3 +1,6 @@
+#![allow(unknown_lints)]
+
+pub mod android_proxy;
 mod audio_player;
 pub mod base_application_service;
 mod bezier_curve;
@@ -32,11 +35,8 @@ mod utils;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_proxy;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        let result = 2 + 2;
-        assert_eq!(result, 4);
-    }
-}
+use android_proxy::AndroidProxy;
+use android_proxy::MdanceioAndroidError;
+
+// #[cfg(target_os = "android")]
+uniffi_macros::include_scaffolding!("mdanceio");

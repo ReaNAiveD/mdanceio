@@ -3,3 +3,13 @@
 .vscode/tasks.json
 /target
 /test/example/
+
+*.iml
+.gradle
+.idea
+.DS_Store
+build
+captures
+.externalNativeBuild
+.cxx
+local.properties

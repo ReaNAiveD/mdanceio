@@ -1,0 +1,26 @@
+namespace mdanceio { };
+
+[Error]
+enum MdanceioAndroidError {
+    "CommonError",
+};
+
+interface AndroidProxy {
+    constructor(u32 width, u32 height);
+
+    void redraw();
+
+    void redraw_from(sequence<f32> model_world, sequence<f32> camera_view, sequence<f32> camera_projection);
+
+    void play();
+
+    [Throws=MdanceioAndroidError]
+    void load_model([ByRef] sequence<u8> data);
+    
+    [Throws=MdanceioAndroidError]
+    void load_model_motion([ByRef] sequence<u8> data);
+
+    void load_texture(string key, [ByRef] sequence<u8> data, boolean update_bind);
+
+    void update_bind_texture();
+};

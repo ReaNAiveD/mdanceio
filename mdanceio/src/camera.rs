@@ -568,6 +568,11 @@ impl PerspectiveCamera {
     pub fn is_dirty(&self) -> bool {
         self.dirty
     }
+
+    pub fn update_view_projection(&mut self, view: Matrix4<f32>, projection: Matrix4<f32>) {
+        self.view_matrix = view;
+        self.projection_matrix = projection;
+    }
 }
 
 impl Camera for PerspectiveCamera {
