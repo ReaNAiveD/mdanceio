@@ -3,6 +3,7 @@ plugins {
     id 'kotlin-android'
     id 'org.mozilla.rust-android-gradle.rust-android'
     id 'maven-publish'
+    id 'signing'
 }
 
 android {
@@ -103,15 +104,18 @@ task sourcesJar(type: Jar) {
 publishing {
     publications {
         aar(MavenPublication) {
+            groupId = rootProject.ext.library.groupId
+            artifactId = "mdanceio-ar"
+            version = rootProject.ext.library.version
+
             project.afterEvaluate {
                 from components.release
             }
 
             pom {
-                groupId = rootProject.ext.library.groupId
-                artifactId = "mdanceio-ar"
+                name = "mdanceio-ar"
                 description = "MikuMikuDance compatible implementation used in ArCore context"
-                version = rootProject.ext.library.version
+                url = "https://github.com/ReaNAiveD/mdanceio"
                 packaging = "aar"
 
                 license {
@@ -134,4 +138,13 @@ publishing {
             }
         }
     }
+}
+
+signing {
+    useInMemoryPgpKeys(
+        rootProject.ext["signing.keyId"],
+        rootProject.ext["signing.key"],
+        rootProject.ext["signing.password"],
+    )
+    sign publishing.publications
 }
