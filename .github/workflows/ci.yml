@@ -137,3 +137,44 @@ jobs:
       with:
         name: mdanceio-web-demo
         path: mdance-demo/build/
+
+  build-aar:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      
+    - name: caching
+      uses: Swatinem/rust-cache@v1
+      with:
+        key: build-aar-b
+    
+    - name: Update build target
+      run: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
+    
+    - name: Install cargo Binary Tools
+      run: cargo install cargo-ndk && cargo install uniffi_bindgen
+
+    - name: Set up JDK 11
+      uses: actions/setup-java@v3
+      with:
+        java-version: '11'
+        distribution: 'temurin'
+        server-id: github
+        settings-path: ${{ github.workspace }}
+
+    - name: Install NDK
+      if: steps.ndk-cache.outputs.cache-hit != 'true'
+      run: echo "y" | sudo /usr/local/lib/android/sdk/tools/bin/sdkmanager --install "ndk;25.1.8937393"
+
+    - name: Build with Gradle
+      uses: gradle/gradle-build-action@v2.3.3
+      with:
+        arguments: :mdanceio-ar:build
+    
+    - name: Upload build aar
+      uses: actions/upload-artifact@v3
+      with:
+        name: build-aar
+        path: build/outputs/aar
