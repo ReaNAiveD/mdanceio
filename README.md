@@ -31,6 +31,8 @@ The project build is likely buggy and unfinished. You can try the following mode
 - Motion: [神里凌华传说任务舞蹈](https://www.aplaybox.com/details/motion/EkgMGiVYgOuZ)
     - 动作：Lct火红枣
 
+The demo GIFs in this README use the above model and motion. 
+
 ### Example
 
 The example will play a model with specific motion in a native window. 
@@ -77,13 +79,21 @@ npm run start
 
 You can also fetch prebuilt web bundle in Actions. 
 
-### Could Rendering
+### Remote Rendering
 
 I have a demo project about how to use mdanceio as a rendering service [here](https://github.com/ReaNAiveD/mdrs). 
 
 The service uses WebRTC to communicate with the browser. 
 
 You can follow its guidance to play with it. 
+
+### Cooperate with Arcore
+
+A demo project is provided about how to use mdanceio-ar in Android project. 
+
+[ReaNAiveD/MdanceIO-arcore-demo](https://github.com/ReaNAiveD/MdanceIO-arcore-demo)
+
+![ArcoreDemoGIF](./etc/Sucrose_on_arcore.gif)
 
 ## Target Platform Support
 
@@ -93,7 +103,7 @@ You can follow its guidance to play with it.
 | Linux | 🆗 |
 | MacOS | 🆗 |
 | Browser | ✅(WebGPU only) |
-| Android | 🛠️(ARcore) |
+| Android | 🆗 |
 | OpenXR | 🛠️ |
 
 > ✅ = First Class Support
@@ -119,6 +129,6 @@ You can follow its guidance to play with it.
 ## Future Plan
 
 - The core functionality has not yet completed. We will cover all MikuMikuDance features in the future. 
-- I'm interested in supporting `mdanceio` in an AR/VR environment. We will extract SDK for ARcore usage and provide a demo. 
+- I'm interested in supporting `mdanceio` in an AR/VR environment. We will extract SDK for AR usage and provide a demo. 
 - Provide an architecture that supports cloud rendering will. 
 - Provide support for MME or similar technologies. 
