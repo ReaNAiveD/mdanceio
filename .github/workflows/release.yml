@@ -51,10 +51,10 @@ jobs:
         key: wasm-pack-web-demo-b
 
     - name: Build Wasm Pack
-      run: wasm-pack build mdanceio --out-dir ../target/pkg
+      run: wasm-pack build mdanceio --out-dir ../target/pkg && python3 scripts/update_tsd.py
 
     - name: Build Wasm Pack with WebGL support
-      run: wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl
+      run: wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl && python3 scripts/update_tsd.py
 
     - name: Use Node.js 16.x
       uses: actions/setup-node@v3
@@ -126,10 +126,10 @@ jobs:
         key: publish-npm-b
 
     - name: Build Wasm Pack
-      run: wasm-pack build mdanceio --out-dir ../target/pkg
+      run: wasm-pack build mdanceio --out-dir ../target/pkg && python3 scripts/update_tsd.py
 
     - name: Build Wasm Pack with WebGL support
-      run: wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl
+      run: wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl && python3 scripts/update_tsd.py
 
     - name: Use Node.js 16.x
       uses: actions/setup-node@v3
