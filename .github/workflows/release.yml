@@ -160,6 +160,11 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v3
+      
+    - name: Cache Rust
+      uses: Swatinem/rust-cache@v1
+      with:
+        key: wasm-pack-web-demo-b
     
     - name: Update build target
       run: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
