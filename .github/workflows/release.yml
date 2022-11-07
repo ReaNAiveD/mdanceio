@@ -22,6 +22,9 @@ jobs:
   check-release:
     runs-on: ubuntu-latest
     steps:
+    - name: Checkout
+      uses: actions/checkout@v3
+
     - name: Run the python script
       run: python3 scripts/check_release_version.py
 
