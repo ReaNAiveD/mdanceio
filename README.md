@@ -2,6 +2,7 @@
 
 [![Build Status](https://github.com/ReaNAiveD/mdanceio/workflows/CI/badge.svg)](https://github.com/ReaNAiveD/mdanceio/actions)
 [![NPM](https://img.shields.io/npm/v/mdanceio.svg)](https://www.npmjs.com/package/mdanceio)
+[![NPM](https://img.shields.io/npm/v/@webgl-supports/mdanceio)](https://www.npmjs.com/package/@webgl-supports/mdanceio)
 [![Crate](https://img.shields.io/crates/v/mdanceio.svg)](https://crates.io/crates/mdanceio)
 [![Maven](https://img.shields.io/maven-central/v/cn.svecri/mdanceio-ar)](https://repo1.maven.org/maven2/cn/svecri/mdanceio-ar/)
 
@@ -51,7 +52,11 @@ You can also fetch the executable in Actions.
 
 ### WebGPU Demo
 
-You can visit the demo [here](https://reanaived.github.io/mdanceio)(requires Chrome Canary with `#enable-unsafe-webgpu` enabled). 
+You can visit the [demo here](https://reanaived.github.io/mdanceio?webgpu=true)(requires Chrome Canary with `#enable-unsafe-webgpu` enabled). 
+
+### WebGL Demo
+
+You can visit the [demo using WebGL](https://reanaived.github.io/mdanceio). 
 
 #### Prerequisite
 
@@ -102,7 +107,8 @@ A demo project is provided about how to use mdanceio-ar in Android project.
 | Windows | ✅ |
 | Linux | 🆗 |
 | MacOS | 🆗 |
-| Browser | ✅(WebGPU only) |
+| Browser(WebGPU) | ✅ |
+| Browser(WebGL) | 🆗 |
 | Android | 🆗 |
 | OpenXR | 🛠️ |
 
