@@ -1,6 +1,6 @@
 [package]
 name = "mdanceio"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["NAiveD <nice-die@live.com>"]
 edition = "2021"
 description = "MDanceIO is a MMD(MikuMikuDance) compatible implementation targeting at browser through wasm. "
@@ -40,7 +40,7 @@ features = ["png", "jpeg", "tga", "bmp"]
 
 [dependencies.nanoem]
 path = "../nanoem"
-version = "0.1.1"
+version = "0.1.2"
 
 [dev-dependencies]
 tokio = { version = "1.21.2", features = ["full"] }
