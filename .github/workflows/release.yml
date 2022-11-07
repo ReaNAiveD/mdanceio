@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Run the python script
-      run: python3 ./scripts/check_release_version.py
+      run: python3 scripts/check_release_version.py
 
   # Single deploy job since we're just deploying
   deploy-web-demo:
