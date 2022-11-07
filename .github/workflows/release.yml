@@ -147,7 +147,7 @@ jobs:
 
     - name: Publish mdanceio with WebGL supports
       working-directory: ./target/pkg-webgl
-      run: npm publish
+      run: npm publish --access public
       env:
         NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
