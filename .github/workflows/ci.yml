@@ -29,10 +29,10 @@ jobs:
         key: wasm-pack-b
 
     - name: Build
-      run: wasm-pack build mdanceio --out-dir ../target/pkg
+      run: wasm-pack build mdanceio --out-dir ../target/pkg && python3 scripts/update_tsd.py
 
     - name: Build with WebGL support
-      run: wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl
+      run: wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl && python3 scripts/update_tsd.py
     
     - uses: actions/upload-artifact@v3
       with:
@@ -67,12 +67,6 @@ jobs:
             target: x86_64-apple-darwin
             bin-name: winit_app
             artifact-name: winit_app_macos_x86_64
-          # MacOS arm64
-          - name: MacOS aarch64
-            os: macos-latest
-            target: aarch64-app-darwin
-            bin-name: winit_app
-            artifact-name: winit_app_macos_arm64
     
     name: Build Winit Demo ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -112,10 +106,10 @@ jobs:
         key: wasm-pack-web-demo-b
 
     - name: Build Wasm Pack
-      run: wasm-pack build mdanceio --out-dir ../target/pkg
+      run: wasm-pack build mdanceio --out-dir ../target/pkg && python3 scripts/update_tsd.py
 
     - name: Build Wasm Pack with WebGL support
-      run: wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl
+      run: wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl && python3 scripts/update_tsd.py
 
     - name: Use Node.js 16.x
       uses: actions/setup-node@v3

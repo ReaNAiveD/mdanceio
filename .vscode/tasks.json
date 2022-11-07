@@ -37,7 +37,7 @@
         {
             "label": "wasm: pack",
             "type": "shell",
-            "command": "wasm-pack build mdanceio --out-dir ../target/pkg",
+            "command": "wasm-pack build mdanceio --out-dir ../target/pkg && python3 scripts/update_tsd.py",
             "problemMatcher": [
                 "$rustc"
             ],
@@ -50,7 +50,7 @@
         {
             "label": "wasm: pack-webgl",
             "type": "shell",
-            "command": "wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl",
+            "command": "wasm-pack build mdanceio --out-dir ../target/pkg-webgl --scope webgl-supports -- --features webgl && python3 scripts/update_tsd.py",
             "problemMatcher": [
                 "$rustc"
             ],
