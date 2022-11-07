@@ -1,6 +1,6 @@
 [package]
 name = "nanoem"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["NAiveD <nice-die@live.com>"]
 edition = "2021"
 description = "MMD Model file and Motion file Parser. "
