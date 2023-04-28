@@ -139,7 +139,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
         dimension: wgpu::TextureDimension::D2,
         format: injector.pixel_format,
         usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[injector.pixel_format],
+        view_formats: &[],
     };
     let texture = device.create_texture(&texture_desc);
     let texture_view = texture.create_view(&Default::default());

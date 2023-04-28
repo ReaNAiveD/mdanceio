@@ -185,7 +185,7 @@ impl Pass {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth16Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[wgpu::TextureFormat::Depth16Unorm],
+            view_formats: &[],
         });
         let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let common_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1372,7 +1372,7 @@ impl Project {
                     dimension: wgpu::TextureDimension::D2,
                     format: wgpu::TextureFormat::Rgba8UnormSrgb,
                     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+                    view_formats: &[],
                 })
             });
         // TODO: may have different size when different image with same name
@@ -1447,7 +1447,7 @@ impl Project {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
+            view_formats: &[],
         });
         queue.write_texture(
             wgpu::ImageCopyTexture {

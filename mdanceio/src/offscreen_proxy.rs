@@ -54,7 +54,7 @@ impl OffscreenProxy {
             dimension: wgpu::TextureDimension::D2,
             format: texture_format,
             usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[texture_format]
+            view_formats: &[]
         };
         let texture = device.create_texture(&texture_desc);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
