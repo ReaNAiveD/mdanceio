@@ -185,6 +185,7 @@ impl Pass {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth16Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[wgpu::TextureFormat::Depth16Unorm],
         });
         let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let common_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1371,6 +1372,7 @@ impl Project {
                     dimension: wgpu::TextureDimension::D2,
                     format: wgpu::TextureFormat::Rgba8UnormSrgb,
                     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
                 })
             });
         // TODO: may have different size when different image with same name
@@ -1384,8 +1386,8 @@ impl Project {
             data,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: std::num::NonZeroU32::new(4 * dimensions.0),
-                rows_per_image: std::num::NonZeroU32::new(dimensions.1),
+                bytes_per_row: Some(4 * dimensions.0),
+                rows_per_image: Some(dimensions.1),
             },
             wgpu::Extent3d {
                 width: dimensions.0,
@@ -1445,6 +1447,7 @@ impl Project {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
         queue.write_texture(
             wgpu::ImageCopyTexture {
@@ -1456,8 +1459,8 @@ impl Project {
             &data,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: std::num::NonZeroU32::new(4),
-                rows_per_image: std::num::NonZeroU32::new(1),
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
             },
             texture_size,
         );

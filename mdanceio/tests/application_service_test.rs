@@ -105,7 +105,10 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
         pixel_format: wgpu::TextureFormat::Rgba8UnormSrgb,
         viewport_size: [1920, 1080],
     };
-    let instance = wgpu::Instance::new(wgpu::Backends::all());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::all(),
+        ..Default::default()
+    });
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::default(),
@@ -136,6 +139,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
         dimension: wgpu::TextureDimension::D2,
         format: injector.pixel_format,
         usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[injector.pixel_format],
     };
     let texture = device.create_texture(&texture_desc);
     let texture_view = texture.create_view(&Default::default());
@@ -211,10 +215,7 @@ async fn render_frame_0() -> Result<(), Box<dyn std::error::Error + 'static>> {
             buffer: &output_buffer,
             layout: wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(
-                    std::num::NonZeroU32::new(buffer_dimensions.padded_bytes_per_row as u32)
-                        .unwrap(),
-                ),
+                bytes_per_row: Some(buffer_dimensions.padded_bytes_per_row as u32),
                 rows_per_image: None,
             },
         },

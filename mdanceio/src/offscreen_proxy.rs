@@ -19,7 +19,10 @@ impl OffscreenProxy {
     pub async fn init(width: u32, height: u32) -> Self {
         let texture_format = wgpu::TextureFormat::Bgra8UnormSrgb;
 
-        let instance = wgpu::Instance::new(wgpu::Backends::PRIMARY);
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
+        });
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -51,6 +54,7 @@ impl OffscreenProxy {
             dimension: wgpu::TextureDimension::D2,
             format: texture_format,
             usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[texture_format]
         };
         let texture = device.create_texture(&texture_desc);
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -122,13 +126,8 @@ impl OffscreenProxy {
                 buffer: &self.target_buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(
-                        std::num::NonZeroU32::new(
-                            self.buffer_dimensions.padded_bytes_per_row as u32,
-                        )
-                        .unwrap(),
-                    ),
-                    rows_per_image: std::num::NonZeroU32::new(self.buffer_dimensions.height),
+                    bytes_per_row: Some(self.buffer_dimensions.padded_bytes_per_row),
+                    rows_per_image: Some(self.buffer_dimensions.height),
                 },
             },
             wgpu::Extent3d {

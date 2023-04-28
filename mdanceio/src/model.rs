@@ -4005,7 +4005,7 @@ impl RigidBody {
         {
             if !physics_rigid_body.is_kinematic() {
                 physics_rigid_body
-                    .set_body_type(rapier3d::dynamics::RigidBodyType::KinematicVelocityBased);
+                    .set_body_type(rapier3d::dynamics::RigidBodyType::KinematicVelocityBased, true);
             }
         }
     }
@@ -4016,7 +4016,7 @@ impl RigidBody {
             .get_mut(self.physics_rigid_body)
         {
             if physics_rigid_body.is_kinematic() {
-                physics_rigid_body.set_body_type(rapier3d::dynamics::RigidBodyType::Dynamic);
+                physics_rigid_body.set_body_type(rapier3d::dynamics::RigidBodyType::Dynamic, true);
             }
         }
     }
