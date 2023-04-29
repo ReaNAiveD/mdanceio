@@ -3,10 +3,11 @@ resolver = "2"
 members = [
     "mdanceio",
     "nanoem",
+    "uniffi-bindgen",
 ]
 exclude = [
     "mdance-demo",
 ]
-default-members = ["mdanceio", "nanoem"]
+default-members = ["mdanceio", "nanoem", "uniffi-bindgen"]
 
 [patch.crates-io]
