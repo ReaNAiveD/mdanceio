@@ -46,9 +46,7 @@ jobs:
       run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       
     - name: Cache Rust
-      uses: Swatinem/rust-cache@v1
-      with:
-        key: wasm-pack-web-demo-b
+      uses: Swatinem/rust-cache@v2
 
     - name: Build Wasm Pack
       run: wasm-pack build mdanceio-wasm --out-dir ../target/pkg && python3 scripts/update_wasm_pkg.py target/pkg
@@ -94,9 +92,7 @@ jobs:
       uses: actions/checkout@v3
       
     - name: Cache Rust
-      uses: Swatinem/rust-cache@v1
-      with:
-        key: publish-crates-b
+      uses: Swatinem/rust-cache@v2
 
     - name: Publish nanoem package
       run: cargo publish --token ${{ secrets.CARGO_TOKEN }} -p nanoem
@@ -121,9 +117,7 @@ jobs:
       run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
       
     - name: Cache Rust
-      uses: Swatinem/rust-cache@v1
-      with:
-        key: publish-npm-b
+      uses: Swatinem/rust-cache@v2
 
     - name: Build Wasm Pack
       run: wasm-pack build mdanceio-wasm --out-dir ../target/pkg && python3 scripts/update_wasm_pkg.py target/pkg
@@ -162,9 +156,7 @@ jobs:
       uses: actions/checkout@v3
       
     - name: Cache Rust
-      uses: Swatinem/rust-cache@v1
-      with:
-        key: wasm-pack-web-demo-b
+      uses: Swatinem/rust-cache@v2
     
     - name: Update build target
       run: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
@@ -185,7 +177,9 @@ jobs:
       run: echo "y" | sudo /usr/local/lib/android/sdk/tools/bin/sdkmanager --install "ndk;25.1.8937393"
   
     - name: Publish to MavenCentral
-      run: ./gradlew :mdanceio-ar:publishAarPublicationToSonatypeRepository --max-workers 1 closeAndReleaseSonatypeStagingRepository
+      uses: gradle/gradle-build-action@v2
+      with:
+        arguments: :mdanceio-ar:publishAarPublicationToSonatypeRepository --max-workers 1 closeAndReleaseSonatypeStagingRepository
       env:
         OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
         OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
