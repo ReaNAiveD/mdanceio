@@ -172,9 +172,9 @@ jobs:
         server-id: github
         settings-path: ${{ github.workspace }}
 
-    - uses: nttld/setup-ndk@v1
-      with:
-        ndk-version: r25b
+    - name: Install NDK
+      if: steps.ndk-cache.outputs.cache-hit != 'true'
+      run: echo "y" | sudo /usr/local/lib/android/sdk/tools/bin/sdkmanager --install "ndk;25.1.8937393"
   
     - name: Publish to MavenCentral
       uses: gradle/gradle-build-action@v2
@@ -187,4 +187,3 @@ jobs:
         SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
         SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
         SONATYPE_STAGING_PROFILE_ID: ${{ secrets.SONATYPE_STAGING_PROFILE_ID }}
-        ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
