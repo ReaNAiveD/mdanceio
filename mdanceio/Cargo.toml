@@ -44,9 +44,7 @@ tokio = { version = "1.21.2", features = ["full"] }
 winit = "0.28.3"
 clap = "4.0.10"
 png = "0.17.6"
-# env_logger = "0.9.0"
 log4rs = "1.1.1"
-chrono = "0.4.22"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.84"
@@ -55,7 +53,3 @@ web-sys = { version = "0.3.61", features = ["HtmlCanvasElement"] }
 js-sys = { version = "0.3.61" }
 console_error_panic_hook = "0.1.7"
 console_log = { version = "1.0.0", features = ["color"] }
-
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
-# We need the Location feature in the framework examples
-web-sys = { version = "0.3.61", features = ["Location"] }
