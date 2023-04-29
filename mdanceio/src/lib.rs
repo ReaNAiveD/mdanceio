@@ -29,5 +29,3 @@ mod technique;
 mod time_line_segment;
 mod translator;
 mod utils;
-#[cfg(target_arch = "wasm32")]
-pub mod wasm_proxy;
