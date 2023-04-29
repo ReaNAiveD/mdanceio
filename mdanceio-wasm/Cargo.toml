@@ -1,0 +1,27 @@
+[package]
+name = "mdanceio-wasm"
+version = "0.1.2"
+authors = ["NAiveD <nice-die@live.com>"]
+edition = "2021"
+repository = "https://github.com/ReaNAiveD/mdanceio"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+webgl = ["mdanceio/webgl", "wgpu/webgl"]
+
+[dependencies]
+wgpu = { version = "0.16.0", features = ["trace"] }
+log = "0.4"
+wasm-bindgen = "0.2.84"
+wasm-bindgen-futures = "0.4.34"
+web-sys = { version = "0.3.61", features = ["HtmlCanvasElement"] }
+js-sys = { version = "0.3.61" }
+console_error_panic_hook = "0.1.7"
+console_log = { version = "1.0.0", features = ["color"] }
+
+[dependencies.mdanceio]
+path = "../mdanceio"
+features = ["wasm-bindgen"]

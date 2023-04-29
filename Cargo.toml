@@ -4,10 +4,11 @@ members = [
     "mdanceio",
     "nanoem",
     "mdanceio-android",
+    "mdanceio-wasm",
 ]
 exclude = [
     "mdance-demo",
 ]
-default-members = ["mdanceio", "nanoem", "mdanceio-android"]
+default-members = ["mdanceio", "nanoem", "mdanceio-android", "mdanceio-wasm"]
 
 [patch.crates-io]

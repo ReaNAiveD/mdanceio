@@ -1419,11 +1419,8 @@ dependencies = [
  "bytemuck",
  "cgmath",
  "clap 4.2.5",
- "console_error_panic_hook",
- "console_log",
  "image",
  "instant",
- "js-sys",
  "log",
  "log4rs",
  "nalgebra",
@@ -1431,9 +1428,6 @@ dependencies = [
  "png",
  "rapier3d",
  "tokio",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
  "wgpu",
  "winit",
 ]
@@ -1455,6 +1449,21 @@ dependencies = [
  "wgpu",
  "wgpu-hal",
  "wgpu-types",
+]
+
+[[package]]
+name = "mdanceio-wasm"
+version = "0.1.2"
+dependencies = [
+ "console_error_panic_hook",
+ "console_log",
+ "js-sys",
+ "log",
+ "mdanceio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "wgpu",
 ]
 
 [[package]]

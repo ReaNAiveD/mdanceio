@@ -3,8 +3,8 @@ use console_log;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures;
 
-use crate::base_application_service::BaseApplicationService;
-use crate::injector::Injector;
+use mdanceio::base_application_service::BaseApplicationService;
+use mdanceio::injector::Injector;
 
 pub struct CanvasSize<T> {
     pub width: T,
