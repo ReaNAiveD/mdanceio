@@ -7,9 +7,6 @@ description = "MDanceIO is a MMD(MikuMikuDance) compatible implementation target
 repository = "https://github.com/ReaNAiveD/mdanceio"
 license = "MIT"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [[test]]
 name = "mdanceio-tests"
 path = "tests/root.rs"
