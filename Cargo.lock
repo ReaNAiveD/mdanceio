@@ -1418,7 +1418,6 @@ version = "0.1.2"
 dependencies = [
  "bytemuck",
  "cgmath",
- "chrono",
  "clap 4.2.5",
  "console_error_panic_hook",
  "console_log",
