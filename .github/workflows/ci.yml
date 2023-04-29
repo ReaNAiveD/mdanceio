@@ -164,4 +164,4 @@ jobs:
       uses: actions/upload-artifact@v3
       with:
         name: build-aar
-        path: mdanceio/android/build/outputs/aar
+        path: mdanceio-android/android/build/outputs/aar
