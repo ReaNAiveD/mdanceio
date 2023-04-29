@@ -152,9 +152,9 @@ jobs:
         settings-path: ${{ github.workspace }}
 
     - name: Build with Gradle
-      uses: gradle/gradle-build-action@v2.3.3
+      uses: gradle/gradle-build-action@v2
       with:
-        arguments: :mdanceio-ar:build
+        arguments: :mdanceio-ar:build --stacktrace
     
     - name: Upload build aar
       uses: actions/upload-artifact@v3
