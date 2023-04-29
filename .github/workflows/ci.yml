@@ -151,10 +151,6 @@ jobs:
         server-id: github
         settings-path: ${{ github.workspace }}
 
-    - name: Install NDK
-      if: steps.ndk-cache.outputs.cache-hit != 'true'
-      run: echo "y" | sudo /usr/local/lib/android/sdk/tools/bin/sdkmanager --install "ndk;25.1.8937393"
-
     - name: Build with Gradle
       uses: gradle/gradle-build-action@v2.3.3
       with:

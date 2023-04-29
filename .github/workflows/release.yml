@@ -171,10 +171,6 @@ jobs:
         distribution: 'temurin'
         server-id: github
         settings-path: ${{ github.workspace }}
-
-    - name: Install NDK
-      if: steps.ndk-cache.outputs.cache-hit != 'true'
-      run: echo "y" | sudo /usr/local/lib/android/sdk/tools/bin/sdkmanager --install "ndk;25.1.8937393"
   
     - name: Publish to MavenCentral
       run: ./gradlew :mdanceio-ar:publishAarPublicationToSonatypeRepository --max-workers 1 closeAndReleaseSonatypeStagingRepository
