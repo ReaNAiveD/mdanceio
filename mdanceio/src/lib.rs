@@ -1,6 +1,3 @@
-#![allow(unknown_lints)]
-
-pub mod android_proxy;
 mod audio_player;
 pub mod base_application_service;
 mod bezier_curve;
@@ -10,7 +7,7 @@ mod clear_pass;
 mod deformer;
 mod drawable;
 mod effect;
-mod error;
+pub mod error;
 mod event_publisher;
 mod forward;
 mod grid;
@@ -34,9 +31,3 @@ mod translator;
 mod utils;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_proxy;
-
-use android_proxy::AndroidProxy;
-use android_proxy::MdanceioAndroidError;
-
-// #[cfg(target_os = "android")]
-uniffi_macros::include_scaffolding!("mdanceio");

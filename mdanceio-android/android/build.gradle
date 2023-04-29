@@ -64,7 +64,7 @@ android {
         def uniffiGeneratedPath = "generated/source/uniffi/${variant.name}/java"
         def t = tasks.register("generate${variant.name.capitalize()}UniFFIBindings", Exec) {
             workingDir project.rootDir
-            commandLine 'cargo', 'run', '-p', 'uniffi-bindgen', '--features=uniffi/cli', '--bin', 'uniffi-bindgen', 'generate', "${project.projectDir}/../src/mdanceio.udl", '--language', 'kotlin', '--out-dir', "${buildDir}/${uniffiGeneratedPath}"
+            commandLine 'cargo', 'run', '-p', 'mdanceio-android', '--features=uniffi/cli', '--bin', 'uniffi-bindgen', 'generate', "${project.projectDir}/../src/mdanceio.udl", '--language', 'kotlin', '--out-dir', "${buildDir}/${uniffiGeneratedPath}"
             outputs.dir "${buildDir}/${uniffiGeneratedPath}"
             // Re-generate if the interface definition changes.
             inputs.file "${project.projectDir}/../src/mdanceio.udl"
@@ -83,7 +83,7 @@ android {
 
 cargo {
     module  = ".."       // Or whatever directory contains your Cargo.toml
-    libname = "mdanceio"          // Or whatever matches Cargo.toml's [package] name.
+    libname = "mdanceio-android"          // Or whatever matches Cargo.toml's [package] name.
     targets = ["x86","arm"]  // See bellow for a longer list of options
 }
 

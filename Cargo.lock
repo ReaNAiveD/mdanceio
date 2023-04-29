@@ -1416,37 +1416,46 @@ dependencies = [
 name = "mdanceio"
 version = "0.1.2"
 dependencies = [
- "android_logger",
  "bytemuck",
  "cgmath",
  "chrono",
  "clap 4.2.5",
  "console_error_panic_hook",
  "console_log",
- "futures",
- "glow",
  "image",
  "instant",
  "js-sys",
- "khronos-egl",
- "libloading 0.8.0",
  "log",
  "log4rs",
  "nalgebra",
  "nanoem",
  "png",
  "rapier3d",
- "thiserror",
  "tokio",
- "uniffi",
- "uniffi_macros",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "wgpu",
+ "winit",
+]
+
+[[package]]
+name = "mdanceio-android"
+version = "0.1.2"
+dependencies = [
+ "android_logger",
+ "futures",
+ "glow",
+ "khronos-egl",
+ "libloading 0.8.0",
+ "log",
+ "mdanceio",
+ "thiserror",
+ "uniffi",
+ "uniffi_macros",
+ "wgpu",
  "wgpu-hal",
  "wgpu-types",
- "winit",
 ]
 
 [[package]]
@@ -2602,13 +2611,6 @@ dependencies = [
  "uniffi_build",
  "uniffi_core",
  "uniffi_macros",
-]
-
-[[package]]
-name = "uniffi-bindgen"
-version = "0.1.0"
-dependencies = [
- "uniffi",
 ]
 
 [[package]]

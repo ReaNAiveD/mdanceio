@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use crate::{
+use mdanceio::{
     base_application_service::BaseApplicationService, error::MdanceioError, injector::Injector,
 };
 

@@ -1,0 +1,38 @@
+[package]
+name = "mdanceio-android"
+version = "0.1.2"
+authors = ["NAiveD <nice-die@live.com>"]
+edition = "2021"
+repository = "https://github.com/ReaNAiveD/mdanceio"
+license = "MIT"
+exclude = ["/android"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[[bin]]
+# This can be whatever name makes sense for your project, but the rest of this tutorial assumes uniffi-bindgen.
+name = "uniffi-bindgen"
+path = "uniffi_bindgen.rs"
+
+[dependencies]
+uniffi = { version = "0.23.0", features = ["cli"] }
+uniffi_macros = "0.23.0"
+thiserror = "1.0"
+log = "0.4"
+wgpu = { version = "0.16.0", features = ["trace"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+glow = "0.12.1"
+wgpu-hal = "0.16.0"
+wgt = { package = "wgpu-types", version="0.16.0"}
+android_logger = "0.13"
+futures = "0.3"
+egl = { package = "khronos-egl", version = "4.1", features = ["dynamic"] }
+libloading = { version = "0.8" }
+
+[dependencies.mdanceio]
+path = "../mdanceio"
+
+[build-dependencies]
+uniffi = { version="0.23.0", features = [ "build" ] }
