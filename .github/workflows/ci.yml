@@ -150,17 +150,14 @@ jobs:
         distribution: 'temurin'
         server-id: github
         settings-path: ${{ github.workspace }}
-
-    - uses: nttld/setup-ndk@v1
-      with:
-        ndk-version: r25b
+        
+    - name: Debug print ANDROID_NDK_HOME
+      run: echo $ANDROID_NDK_HOME
 
     - name: Build with Gradle
       uses: gradle/gradle-build-action@v2
       with:
-        arguments: :mdanceio-ar:build
-      env:
-        ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        arguments: :mdanceio-ar:build --stacktrace
     
     - name: Upload build aar
       uses: actions/upload-artifact@v3
