@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 include 'mdanceio-ar'
-project(':mdanceio-ar').projectDir = file('mdanceio/android')
+project(':mdanceio-ar').projectDir = file('mdanceio-android/android')

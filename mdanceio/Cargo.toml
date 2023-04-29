@@ -29,9 +29,6 @@ cgmath = "0.18.0"
 rapier3d = { version = "0.17.2", features = ["simd-stable"] }
 nalgebra = { version = "0.32.2" }
 instant = { version = "0.1.12", features = ["wasm-bindgen"] }
-uniffi = "0.23.0"
-uniffi_macros = "0.23.0"
-thiserror = "1.0"
 
 [dependencies.image]
 version = "0.24"
@@ -50,15 +47,6 @@ png = "0.17.6"
 # env_logger = "0.9.0"
 log4rs = "1.1.1"
 chrono = "0.4.22"
-
-[target.'cfg(target_os = "android")'.dependencies]
-glow = "0.12.1"
-wgpu-hal = "0.16.0"
-wgt = { package = "wgpu-types", version="0.16.0"}
-android_logger = "0.13"
-futures = "0.3"
-egl = { package = "khronos-egl", version = "4.1", features = ["dynamic"] }
-libloading = { version = "0.8" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.84"
@@ -194,7 +182,3 @@ console_log = { version = "1.0.0", features = ["color"] }
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 # We need the Location feature in the framework examples
 web-sys = { version = "0.3.61", features = ["Location"] }
-
-# [target.'cfg(target_os = "android")'.build-dependencies]
-[build-dependencies]
-uniffi = { version="0.23.0", features = [ "build" ] }
