@@ -7,6 +7,7 @@ plugins {
 }
 
 android {
+    ndkVersion rootProject.ext.build.ndkVersion
     compileSdkVersion rootProject.ext.build.compileSdkVersion
 
     defaultConfig {
