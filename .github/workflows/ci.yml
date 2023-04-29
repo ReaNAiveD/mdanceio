@@ -151,10 +151,14 @@ jobs:
         server-id: github
         settings-path: ${{ github.workspace }}
 
+    - uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r25b
+
     - name: Build with Gradle
       uses: gradle/gradle-build-action@v2
       with:
-        arguments: :mdanceio-ar:build --stacktrace
+        arguments: :mdanceio-ar:build
     
     - name: Upload build aar
       uses: actions/upload-artifact@v3

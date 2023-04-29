@@ -171,9 +171,15 @@ jobs:
         distribution: 'temurin'
         server-id: github
         settings-path: ${{ github.workspace }}
+
+    - uses: nttld/setup-ndk@v1
+      with:
+        ndk-version: r25b
   
     - name: Publish to MavenCentral
-      run: ./gradlew :mdanceio-ar:publishAarPublicationToSonatypeRepository --max-workers 1 closeAndReleaseSonatypeStagingRepository
+      uses: gradle/gradle-build-action@v2
+      with:
+        arguments: :mdanceio-ar:publishAarPublicationToSonatypeRepository --max-workers 1 closeAndReleaseSonatypeStagingRepository
       env:
         OSSRH_USERNAME: ${{ secrets.OSSRH_USERNAME }}
         OSSRH_PASSWORD: ${{ secrets.OSSRH_PASSWORD }}
