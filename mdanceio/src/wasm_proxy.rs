@@ -33,7 +33,7 @@ pub struct WasmClient {
 /// 我希望通过WasmClient为JS层调用提供接口。JS层应自行处理渲染请求频率，通知视口resize，点击，拖动等事件，并处理好可能有的回调。
 #[wasm_bindgen]
 impl WasmClient {
-    pub fn new(canvas: &web_sys::HtmlCanvasElement) -> js_sys::Promise {
+    pub fn new(canvas: web_sys::HtmlCanvasElement) -> js_sys::Promise {
         let level: log::Level = log::Level::Trace;
         console_log::init_with_level(level).expect("could not initialize logger");
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
@@ -42,9 +42,14 @@ impl WasmClient {
 
         let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
 
-        let instance = wgpu::Instance::new(backends);
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..Default::default()
+        });
         let size = CanvasSize::new(canvas.width(), canvas.height());
-        let surface = instance.create_surface_from_canvas(&canvas);
+        let surface = instance
+            .create_surface_from_canvas(canvas)
+            .expect("Failed when creating surface!");
         wasm_bindgen_futures::future_to_promise(async move {
             let adapter = wgpu::util::initialize_adapter_from_env_or_default(
                 &instance,
@@ -74,7 +79,13 @@ impl WasmClient {
                 .expect("Unable to find a suitable GPU adapter!");
 
             log::info!("Configuring Surface...");
-            let surface_format = surface.get_supported_formats(&adapter)[0];
+            let surface_caps = surface.get_capabilities(&adapter);
+            let surface_format = surface_caps
+                .formats
+                .iter()
+                .copied()
+                .find(|f| f.is_srgb())
+                .unwrap_or(surface_caps.formats[0]);
             let config = wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 format: surface_format,
@@ -82,6 +93,7 @@ impl WasmClient {
                 height: size.height,
                 present_mode: wgpu::PresentMode::Fifo,
                 alpha_mode: wgpu::CompositeAlphaMode::Auto,
+                view_formats: vec![],
             };
             surface.configure(&device, &config);
 

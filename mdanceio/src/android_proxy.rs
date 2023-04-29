@@ -18,6 +18,7 @@ fn create_main_views(
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::R8Uint, // dummy
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
     };
     let color_view = {
         let color_hal_texture =
@@ -105,7 +106,7 @@ impl AndroidProxy {
     pub fn new(width: u32, height: u32) -> Self {
         android_logger::init_once(
             android_logger::Config::default()
-                .with_min_level(log::Level::Debug) // limit log level
+                .with_max_level(log::LevelFilter::Debug) // limit log level
                 .with_tag("MDanceIO"),
         );
 
@@ -125,7 +126,10 @@ impl AndroidProxy {
             })
         }
         .expect("GL adapter can't be initialized");
-        let instance = wgpu::Instance::new(wgpu::Backends::empty());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::empty(),
+            ..Default::default()
+        });
         let adapter = unsafe { instance.create_adapter_from_hal(exposed) };
         let color_format = wgpu::TextureFormat::Rgba8UnormSrgb;
 

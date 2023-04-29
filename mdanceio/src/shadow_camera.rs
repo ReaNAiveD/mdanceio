@@ -73,6 +73,7 @@ impl ShadowCamera {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R32Float,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
         });
         let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -87,6 +88,7 @@ impl ShadowCamera {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth16Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
         });
         // let fallback_color_texture = device.create_texture(&wgpu::TextureDescriptor {
         //     label: Some("ShadowCamera/FallbackColor"),
