@@ -25,8 +25,6 @@ jobs:
       
     - name: caching
       uses: Swatinem/rust-cache@v2
-      with:
-        key: wasm-pack-b
 
     - name: Build
       run: wasm-pack build mdanceio-wasm --out-dir ../target/pkg && python3 scripts/update_wasm_pkg.py target/pkg
@@ -102,8 +100,6 @@ jobs:
       
     - name: caching
       uses: Swatinem/rust-cache@v2
-      with:
-        key: wasm-pack-web-demo-b
 
     - name: Build Wasm Pack
       run: wasm-pack build mdanceio-wasm --out-dir ../target/pkg && python3 scripts/update_wasm_pkg.py target/pkg
@@ -140,8 +136,6 @@ jobs:
       
     - name: caching
       uses: Swatinem/rust-cache@v2
-      with:
-        key: build-aar-b
     
     - name: Update build target
       run: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
