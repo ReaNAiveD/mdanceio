@@ -1,5 +1,4 @@
 use cgmath::{Vector2, Vector3};
-use wgpu::util::DeviceExt;
 
 use crate::{forward::LineVertexUnit, line_drawer::LineDrawer, project::Project};
 

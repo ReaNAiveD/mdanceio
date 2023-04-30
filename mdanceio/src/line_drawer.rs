@@ -1,9 +1,9 @@
-use std::{cell::RefCell, collections::HashMap, iter, mem};
+use std::{iter, mem};
 
 use cgmath::{Matrix4, Vector4};
 use wgpu::util::DeviceExt;
 
-use crate::{camera::Camera, forward::LineVertexUnit};
+use crate::forward::LineVertexUnit;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default, bytemuck::Zeroable, bytemuck::Pod)]
