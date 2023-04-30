@@ -6,7 +6,6 @@ use crate::{forward::LineVertexUnit, line_drawer::LineDrawer, project::Project};
 pub struct Grid {
     // TODO
     line_drawer: LineDrawer,
-    vertex_buffer: wgpu::Buffer,
     line_color: Vector3<f32>,
     cell: Vector2<f32>,
     size: Vector2<f32>,
@@ -21,14 +20,8 @@ impl Grid {
         let size = Vector2::new(10f32, 10f32);
         let opacity = 1.0f32;
         let vertices = Self::build_vertices(line_color, cell, size, opacity);
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("GridPass/Vertices"),
-            contents: bytemuck::cast_slice(&vertices[..]),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
         Self {
             line_drawer: LineDrawer::new(&vertices, texture_format, device),
-            vertex_buffer,
             line_color,
             cell,
             size,
@@ -46,10 +39,6 @@ impl Grid {
             self.visible = value;
             // TODO: publish event
         }
-    }
-
-    pub fn num_vertices(&self) -> u16 {
-        (self.size.x + self.size.y + 1.0) as u16 * 4u16 + 6u16
     }
 
     pub fn draw(
@@ -128,7 +117,7 @@ impl Grid {
             });
             vertices.push(LineVertexUnit {
                 position: c
-                    .map(|v| (v as f32) * width * (if c.z > 0f32 { -1f32 } else { 1f32 }))
+                    .map(|v| v * width * (if c.z > 0f32 { -1f32 } else { 1f32 }))
                     .into(),
                 color,
             });
