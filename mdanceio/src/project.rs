@@ -548,7 +548,7 @@ impl Project {
             time_step_factor: 1f32,
             viewport_size: (viewport_size, viewport_size),
             active_model_pair: (None, None),
-            grid: Box::new(Grid::new(device)),
+            grid: Box::new(Grid::new(injector.texture_format(), device)),
             camera_motion,
             light_motion,
             self_shadow_motion,

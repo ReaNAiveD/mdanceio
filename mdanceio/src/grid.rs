@@ -15,7 +15,7 @@ pub struct Grid {
 }
 
 impl Grid {
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new(texture_format: wgpu::TextureFormat, device: &wgpu::Device) -> Self {
         let line_color = Vector3::new(0.5f32, 0.5f32, 0.5f32);
         let cell = Vector2::new(5f32, 5f32);
         let size = Vector2::new(10f32, 10f32);
@@ -27,7 +27,7 @@ impl Grid {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
         Self {
-            line_drawer: LineDrawer::new(device),
+            line_drawer: LineDrawer::new(&vertices, texture_format, device),
             vertex_buffer,
             line_color,
             cell,
@@ -61,14 +61,15 @@ impl Grid {
         queue: &wgpu::Queue,
     ) {
         if self.visible {
-            let vertices = self.build_grid_vertices();
-            // TODO: unknown offset
-            queue.write_buffer(
-                &self.vertex_buffer,
-                0,
-                bytemuck::cast_slice(&vertices[..]),
+            let (view, projection) = project.active_camera().get_view_transform();
+            self.line_drawer.update_uniform(
+                projection * view,
+                self.line_color.extend(1.0f32),
+                queue,
             );
-            self.line_drawer.draw(color_view, project.viewport_texture_format(), &self.vertex_buffer, self.num_vertices() as u32, project.active_camera(), device, queue);
+            let vertices = self.build_grid_vertices();
+            self.line_drawer.update_vertex_buffer(&vertices, queue);
+            self.line_drawer.draw(color_view, device, queue);
         }
     }
 
