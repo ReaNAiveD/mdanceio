@@ -1547,7 +1547,7 @@ impl Project {
             let (light_view, light_projection) = self
                 .shadow_camera
                 .get_view_projection(&self.camera, &self.light);
-            self.shadow_camera.clear(&self.clear_pass, device, queue);
+            self.shadow_camera.clear(device, queue);
             // if self.editing_mode != EditingMode::Select {
             // scope(m_currentOffscreenRenderPass, pass), scope2(m_originOffscreenRenderPass, pass)
             for (handle, drawable) in &self.model_handle_map {
@@ -1590,7 +1590,7 @@ impl Project {
         queue: &wgpu::Queue,
     ) {
         if self.shadow_camera.is_enabled() {
-            self.shadow_camera.clear(&self.clear_pass, device, queue);
+            self.shadow_camera.clear(device, queue);
             let mut new_camera = self.camera.clone();
             new_camera.update_view_projection(
                 f32_array_to_mat4_col_major_order(camera_view),

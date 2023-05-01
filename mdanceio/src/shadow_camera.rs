@@ -153,7 +153,7 @@ impl ShadowCamera {
         }
     }
 
-    pub fn clear(&mut self, clear_pass: &ClearPass, device: &wgpu::Device, queue: &wgpu::Queue) {
+    pub fn clear(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         self.clear_pass.draw(
             &[Some(&self.shadow_color_texture)],
             Some(&self.shadow_depth_texture),
