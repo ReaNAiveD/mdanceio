@@ -101,7 +101,7 @@ impl Pass {
         device: &wgpu::Device,
     ) -> Self {
         let depth_texture_format = wgpu::TextureFormat::Depth16Unorm;
-        let (/*color_texture, color_view, */depth_texture, depth_view, sampler) = Self::_update(
+        let (/*color_texture, color_view, */ depth_texture, depth_view, sampler) = Self::_update(
             name,
             size,
             color_texture_format,
@@ -128,7 +128,7 @@ impl Pass {
         sample_count: u32,
         device: &wgpu::Device,
     ) {
-        let (/*color_texture, color_view, */depth_texture, depth_view, sampler) = Self::_update(
+        let (/*color_texture, color_view, */ depth_texture, depth_view, sampler) = Self::_update(
             self.name.as_str(),
             size,
             color_texture_format,
@@ -556,7 +556,11 @@ impl Project {
             model_program_bundle: Box::new(ModelProgramBundle::new(device)),
             draw_type: DrawType::Color,
             depends_on_script_external: vec![],
-            clear_pass: Box::new(ClearPass::new(device)),
+            clear_pass: Box::new(ClearPass::new(
+                &[Some(injector.texture_format())],
+                Some(wgpu::TextureFormat::Depth16Unorm),
+                device,
+            )),
             viewport_texture_format: (injector.texture_format(), injector.texture_format()),
             viewport_background_color: Vector4::new(0f32, 0f32, 0f32, 1f32),
             local_frame_index: (0, 0),
@@ -1524,48 +1528,8 @@ impl Project {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let depth_stencil_attachment_view = &self.viewport_primary_pass.depth_view;
-        {
-            let pipeline = self.clear_pass.get_pipeline(
-                &[self.viewport_primary_pass.color_texture_format],
-                self.viewport_primary_pass.depth_texture_format,
-                device,
-            );
-            let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ClearRenderPass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: self.viewport_background_color[0] as f64,
-                            g: self.viewport_background_color[1] as f64,
-                            b: self.viewport_background_color[2] as f64,
-                            a: self.viewport_background_color[3] as f64,
-                        }),
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: depth_stencil_attachment_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
-                    }),
-                    // stencil_ops: Some(wgpu::Operations {
-                    //     load: wgpu::LoadOp::Clear(1),
-                    //     store: false,
-                    // }),
-                    stencil_ops: None,
-                }),
-            });
-            _render_pass.set_vertex_buffer(0, self.clear_pass.vertex_buffer.slice(..));
-            _render_pass.set_pipeline(&pipeline);
-            _render_pass.draw(0..4, 0..1)
-        }
-        queue.submit(Some(encoder.finish()));
+        self.clear_pass.draw(&[Some(view)], Some(depth_stencil_attachment_view), device, queue);
     }
 
     pub fn draw_grid(&self, view: &wgpu::TextureView, device: &wgpu::Device, queue: &wgpu::Queue) {
