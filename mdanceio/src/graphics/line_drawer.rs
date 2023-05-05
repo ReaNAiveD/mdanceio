@@ -34,7 +34,9 @@ impl LineDrawer {
         let primitive_type = wgpu::PrimitiveTopology::LineList;
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("LineDrawer/Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("resources/shaders/grid.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../../resources/shaders/grid.wgsl").into(),
+            ),
         });
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

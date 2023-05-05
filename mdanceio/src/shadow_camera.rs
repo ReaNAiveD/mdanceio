@@ -2,9 +2,8 @@ use cgmath::{InnerSpace, Matrix, Matrix3, Matrix4, Vector2, Vector3};
 
 use crate::{
     camera::{Camera, PerspectiveCamera},
-    clear_pass::ClearPass,
     light::{DirectionalLight, Light},
-    utils::lerp_f32,
+    utils::lerp_f32, graphics::ClearPass,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

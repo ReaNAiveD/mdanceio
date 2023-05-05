@@ -1,6 +1,6 @@
 use cgmath::{Vector2, Vector3};
 
-use crate::{forward::LineVertexUnit, line_drawer::LineDrawer, project::Project};
+use crate::{forward::LineVertexUnit, project::Project, graphics::LineDrawer};
 
 pub struct Grid {
     // TODO

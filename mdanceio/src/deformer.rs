@@ -52,7 +52,7 @@ impl WgpuDeformer {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Shader/Deformer"),
             source: wgpu::ShaderSource::Wgsl(
-                include_str!("resources/shaders/model_skinning.wgsl").into(),
+                include_str!("../resources/shaders/model_skinning.wgsl").into(),
             ),
         });
         let input_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

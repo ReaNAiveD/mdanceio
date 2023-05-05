@@ -1,8 +1,4 @@
-use std::{
-    cell::{Ref, RefCell},
-    collections::HashMap,
-    iter,
-};
+use std::iter;
 
 use crate::forward::QuadVertexUnit;
 
@@ -101,7 +97,9 @@ impl ClearPass {
     ) -> wgpu::RenderPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("ClearPass/Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("resources/shaders/clear.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(
+                include_str!("../../resources/shaders/clear.wgsl").into(),
+            ),
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("ClearPass/PipelineLayout"),
