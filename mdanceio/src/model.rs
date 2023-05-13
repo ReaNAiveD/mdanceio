@@ -568,7 +568,7 @@ impl Model {
                 }
                 stage_vertex_buffer_index = 1 - stage_vertex_buffer_index;
 
-                let uniform_bind = UniformBind::new(opaque.materials.len(), device);
+                let uniform_bind = effect.get_uniform_bind(opaque.materials.len(), device);
 
                 let mut materials = vec![];
                 let mut index_offset = 0usize;

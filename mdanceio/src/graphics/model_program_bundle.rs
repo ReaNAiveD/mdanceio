@@ -3,8 +3,8 @@ use std::num::NonZeroU64;
 use super::{
     common_pass::{CPassBindGroup, CPassLayout, CPassVertexBuffer},
     technique::{
-        EdgeTechnique, GroundShadowTechnique, ObjectPassKey, ObjectTechnique, TechniqueType,
-        ZplotTechnique, EdgePassKey, ZplotPassKey, ShadowPassKey,
+        EdgePassKey, EdgeTechnique, GroundShadowTechnique, ObjectPassKey, ObjectTechnique,
+        ShadowPassKey, TechniqueType, ZplotPassKey, ZplotTechnique,
     },
 };
 use crate::{
@@ -16,31 +16,36 @@ use bytemuck::Zeroable;
 use cgmath::{Matrix4, Vector4};
 use wgpu::util::DeviceExt;
 
-use crate::{
-    camera::Camera, light::Light, model::Model, shadow_camera::ShadowCamera,
-};
+use crate::{camera::Camera, light::Light, model::Model, shadow_camera::ShadowCamera};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct ModelParametersUniform {
+pub struct ModelUniform {
     model_matrix: [[f32; 4]; 4],                 // camera, shadow
     model_view_matrix: [[f32; 4]; 4],            // camera, shadow
     model_view_projection_matrix: [[f32; 4]; 4], // camera, shadow, zplot
     light_view_projection_matrix: [[f32; 4]; 4], // zplot
-    light_color: [f32; 4],                       // light, edge, shadow
-    light_direction: [f32; 4],                   //light, edge
+    light_color: [f32; 4],                       // light, shadow
+    light_direction: [f32; 4],                   // light
     camera_position: [f32; 4],                   // camera
-    material_ambient: [f32; 4],                  // material
-    material_diffuse: [f32; 4],                  // material
-    material_specular: [f32; 4],                 // material
-    enable_vertex_color: [f32; 4],               // material
-    diffuse_texture_blend_factor: [f32; 4],      // material
-    sphere_texture_blend_factor: [f32; 4],       // material
-    toon_texture_blend_factor: [f32; 4],         // material
-    use_texture_sampler: [f32; 4],               // material(0-2), zplot(3)
-    sphere_texture_type: [f32; 4],               // material
     shadow_map_size: [f32; 4],                   // zplot
-    padding: [f32; 12],
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct MaterialUniform {
+    ambient: [f32; 4],              // material
+    diffuse: [f32; 4],              // material
+    specular: [f32; 4],             // material
+    edge_color: [f32; 4],           // edge
+    enable_vertex_color: [f32; 4],  // material
+    diffuse_blend_factor: [f32; 4], // material
+    sphere_blend_factor: [f32; 4],  // material
+    toon_blend_factor: [f32; 4],    // material
+    use_texture_sampler: [f32; 4],  // material(0-2), zplot(3)
+    sphere_texture_type: [f32; 4],  // material
+    edge_size: f32,                 // edge
+    padding: [f32; 23], // DynamicOffset must be aligned to `min_uniform_buffer_offset_alignment`, which is 256 by default
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -63,14 +68,16 @@ pub struct PassExecuteConfiguration<'a> {
 }
 
 pub struct UniformBindData {
-    data: Vec<ModelParametersUniform>,
+    model: ModelUniform,
+    material: Vec<MaterialUniform>,
     opacity: f32,
 }
 
 impl UniformBindData {
     pub fn new(material_size: usize) -> Self {
         Self {
-            data: vec![ModelParametersUniform::zeroed(); material_size],
+            model: ModelUniform::zeroed(),
+            material: vec![MaterialUniform::zeroed(); material_size],
             opacity: 1f32,
         }
     }
@@ -83,19 +90,15 @@ impl UniformBindData {
     ) {
         let (v, p) = camera.get_view_transform();
         let w = model.world_transform(world);
-        for uniform in &mut self.data {
-            uniform.model_matrix = w.into();
-            uniform.model_view_matrix = (v * w).into();
-            uniform.model_view_projection_matrix = (p * v * w).into();
-            uniform.camera_position = camera.position().extend(0f32).into();
-        }
+        self.model.model_matrix = w.into();
+        self.model.model_view_matrix = (v * w).into();
+        self.model.model_view_projection_matrix = (p * v * w).into();
+        self.model.camera_position = camera.position().extend(0f32).into();
     }
 
     pub fn set_light_parameters(&mut self, light: &dyn Light) {
-        for uniform in &mut self.data {
-            uniform.light_color = light.color().extend(1f32).into();
-            uniform.light_direction = light.direction().extend(0f32).into();
-        }
+        self.model.light_color = light.color().extend(1f32).into();
+        self.model.light_direction = light.direction().extend(0f32).into();
     }
 
     pub fn set_all_model_parameters(
@@ -107,17 +110,17 @@ impl UniformBindData {
     }
 
     pub fn set_material_parameters(&mut self, material_idx: usize, material: &Material) {
-        let uniform = &mut self.data[material_idx];
+        let uniform = &mut self.material[material_idx];
         let color = material.color();
-        uniform.material_ambient = color.ambient.extend(1.0f32).into();
-        uniform.material_diffuse = color
+        uniform.ambient = color.ambient.extend(1.0f32).into();
+        uniform.diffuse = color
             .diffuse
             .extend(color.diffuse_opacity * self.opacity)
             .into();
-        uniform.material_specular = color.specular.extend(color.specular_power).into();
-        uniform.diffuse_texture_blend_factor = color.diffuse_texture_blend_factor.into();
-        uniform.sphere_texture_blend_factor = color.sphere_texture_blend_factor.into();
-        uniform.toon_texture_blend_factor = color.toon_texture_blend_factor.into();
+        uniform.specular = color.specular.extend(color.specular_power).into();
+        uniform.diffuse_blend_factor = color.diffuse_texture_blend_factor.into();
+        uniform.sphere_blend_factor = color.sphere_texture_blend_factor.into();
+        uniform.toon_blend_factor = color.toon_texture_blend_factor.into();
         let texture_type = if material.sphere_map_view().is_some() {
             material.sphere_map_texture_type()
         } else {
@@ -164,10 +167,9 @@ impl UniformBindData {
     ) {
         let edge = material.edge();
         let edge_color = edge.color.extend(edge.opacity);
-        let uniform = &mut self.data[material_idx];
-        uniform.light_color = edge_color.into();
-        uniform.light_direction =
-            (Vector4::new(1f32, 1f32, 1f32, 1f32) * edge.size * edge_size).into();
+        let uniform = &mut self.material[material_idx];
+        uniform.edge_color = edge_color.into();
+        uniform.edge_size = edge_size * edge.size;
     }
 
     pub fn set_ground_shadow_parameters(
@@ -181,22 +183,17 @@ impl UniformBindData {
         let shadow_matrix = origin_shadow_matrix * world;
         let shadow_view_matrix = view_matrix * shadow_matrix;
         let shadow_view_projection_matrix = projection_matrix * shadow_view_matrix;
-        for uniform in &mut self.data {
-            uniform.model_matrix = shadow_matrix.into();
-            uniform.model_view_matrix = shadow_view_matrix.into();
-            uniform.model_view_projection_matrix = shadow_view_projection_matrix.into();
-            uniform.light_color = light
-                .ground_shadow_color()
-                .extend(
-                    1.0f32
-                        + if light.is_translucent_ground_shadow_enabled() {
-                            -0.5f32
-                        } else {
-                            0f32
-                        },
-                )
-                .into();
-        }
+        self.model.model_matrix = shadow_matrix.into();
+        self.model.model_view_matrix = shadow_view_matrix.into();
+        self.model.model_view_projection_matrix = shadow_view_projection_matrix.into();
+        self.model.light_color = light
+            .ground_shadow_color()
+            .extend(if light.is_translucent_ground_shadow_enabled() {
+                0.5f32
+            } else {
+                1.0f32
+            })
+            .into();
     }
 
     pub fn set_shadow_map_parameters(
@@ -210,22 +207,19 @@ impl UniformBindData {
         let (view, projection) = shadow_camera.get_view_projection(camera, light);
         let crop = shadow_camera.get_crop_matrix();
         let shadow_map_matrix = projection * view * world;
-        for uniform in &mut self.data {
-            uniform.light_view_projection_matrix = (crop * shadow_map_matrix).into();
-            uniform.shadow_map_size = shadow_camera
-                .image_size()
-                .map(|x| x as f32)
-                .extend(0.005f32)
-                .extend(u32::from(shadow_camera.coverage_mode()) as f32)
-                .into();
+        self.model.light_view_projection_matrix = (crop * shadow_map_matrix).into();
+        self.model.shadow_map_size = shadow_camera
+            .image_size()
+            .map(|x| x as f32)
+            .extend(0.005f32)
+            .extend(u32::from(shadow_camera.coverage_mode()) as f32)
+            .into();
+        for uniform in &mut self.material {
             uniform.use_texture_sampler[3] = if shadow_camera.is_enabled() {
                 1f32
             } else {
                 0f32
             };
-            if let TechniqueType::Zplot = technique_type {
-                uniform.model_view_projection_matrix = shadow_map_matrix.into();
-            }
         }
     }
 }
@@ -233,56 +227,58 @@ impl UniformBindData {
 #[derive(Debug)]
 pub struct UniformBind {
     material_size: usize,
-    buffer: wgpu::Buffer,
+    model_buffer: wgpu::Buffer,
+    material_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
-    bind_layout: wgpu::BindGroupLayout,
 }
 
 impl UniformBind {
-    pub fn new(material_size: usize, device: &wgpu::Device) -> Self {
-        let uniform_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("ModelProgramBundle/BindGroupLayout/Uniform"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(
-                            NonZeroU64::new(std::mem::size_of::<ModelParametersUniform>() as u64)
-                                .unwrap(),
-                        ),
-                    },
-                    count: None,
-                }],
-            });
-        let uniform_buffer_data = vec![ModelParametersUniform::zeroed(); material_size];
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("ModelProgramBundle/BindGroupBuffer/Uniform"),
-            contents: bytemuck::cast_slice(&uniform_buffer_data[..]),
+    pub fn new(
+        bind_layout: &wgpu::BindGroupLayout,
+        material_size: usize,
+        device: &wgpu::Device,
+    ) -> Self {
+        let model_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("ModelProgramBundle/BindGroupBuffer/ModelUniform"),
+            contents: bytemuck::cast_slice(&[ModelUniform::zeroed()]),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
+        });
+        let material_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("ModelProgramBundle/BindGroupBuffer/MaterialUniform"),
+            contents: bytemuck::cast_slice(&vec![MaterialUniform::zeroed(); material_size]),
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::UNIFORM,
         });
         let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ModelProgramBundle/BindGroup/Uniform"),
-            layout: &uniform_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &uniform_buffer,
-                    offset: 0,
-                    size: Some(
-                        NonZeroU64::new(std::mem::size_of::<ModelParametersUniform>() as u64)
-                            .unwrap(),
-                    ),
-                }),
-            }],
+            layout: &bind_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &model_buffer,
+                        offset: 0,
+                        size: Some(
+                            NonZeroU64::new(std::mem::size_of::<ModelUniform>() as u64).unwrap(),
+                        ),
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &material_buffer,
+                        offset: 0,
+                        size: Some(
+                            NonZeroU64::new(std::mem::size_of::<MaterialUniform>() as u64).unwrap(),
+                        ),
+                    }),
+                },
+            ],
         });
         Self {
             material_size,
-            buffer: uniform_buffer,
+            model_buffer,
+            material_buffer,
             bind_group: uniform_bind_group,
-            bind_layout: uniform_bind_group_layout,
         }
     }
 
@@ -292,18 +288,19 @@ impl UniformBind {
 
     pub fn update(&self, uniform_data: &UniformBindData, queue: &wgpu::Queue) {
         queue.write_buffer(
-            &self.buffer,
+            &self.model_buffer,
             0,
-            bytemuck::cast_slice(&uniform_data.data[..]),
+            bytemuck::cast_slice(&[uniform_data.model]),
+        );
+        queue.write_buffer(
+            &self.material_buffer,
+            0,
+            bytemuck::cast_slice(&uniform_data.material),
         );
     }
 
     pub fn bind_group(&self) -> &wgpu::BindGroup {
         &self.bind_group
-    }
-
-    pub fn bind_layout(&self) -> &wgpu::BindGroupLayout {
-        &self.bind_layout
     }
 }
 
@@ -432,19 +429,34 @@ impl ModelRenderLayout {
     fn build_uniform_bind_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("ModelProgramBundle/BindGroupLayout/Uniform"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: Some(
-                        NonZeroU64::new(std::mem::size_of::<ModelParametersUniform>() as u64)
-                            .unwrap(),
-                    ),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    // ModelUniform
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: Some(
+                            NonZeroU64::new(std::mem::size_of::<ModelUniform>() as u64).unwrap(),
+                        ),
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    // MaterialUniform
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: Some(
+                            NonZeroU64::new(std::mem::size_of::<MaterialUniform>() as u64).unwrap(),
+                        ),
+                    },
+                    count: None,
+                },
+            ],
         })
     }
 
@@ -521,6 +533,10 @@ impl ModelProgramBundle {
             ground_shadow_technique: GroundShadowTechnique::new(device),
             zplot_technique: ZplotTechnique::new(device),
         }
+    }
+
+    pub fn get_uniform_bind(&self, material_size: usize, device: &wgpu::Device) -> UniformBind {
+        UniformBind::new(&self.layout.uniform_bind_layout, material_size, device)
     }
 
     pub fn ensure_get_object_render_bundle(

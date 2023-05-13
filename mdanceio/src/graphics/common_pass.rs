@@ -1,34 +1,4 @@
-use crate::graphics::model_program_bundle::ModelParametersUniform;
-
-// pub struct Buffer<'a> {
-//     pub num_indices: usize,
-//     pub num_offset: usize,
-//     pub vertex_buffer: &'a wgpu::Buffer,
-//     pub index_buffer: &'a wgpu::Buffer,
-//     pub depth_enabled: bool,
-// }
-
-// impl<'a> Buffer<'a> {
-//     pub fn new(
-//         num_indices: usize,
-//         num_offset: usize,
-//         vertex_buffer: &'a wgpu::Buffer,
-//         index_buffer: &'a wgpu::Buffer,
-//         depth_enabled: bool,
-//     ) -> Self {
-//         Self {
-//             num_indices: usize::min(num_indices, 0x7fffffffusize),
-//             num_offset: usize::min(num_offset, 0x7fffffffusize),
-//             vertex_buffer,
-//             index_buffer,
-//             depth_enabled,
-//         }
-//     }
-
-//     pub fn is_depth_enabled(&self) -> bool {
-//         self.depth_enabled
-//     }
-// }
+use super::model_program_bundle::MaterialUniform;
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
 pub struct CPassDescription {
@@ -114,7 +84,7 @@ impl CPass {
         encoder.set_bind_group(
             1,
             bind.uniform_bind,
-            &[(material_idx * std::mem::size_of::<ModelParametersUniform>()) as u32],
+            &[(material_idx * std::mem::size_of::<MaterialUniform>()) as u32],
         );
         encoder.set_bind_group(2, bind.shadow_bind, &[]);
         encoder.set_vertex_buffer(0, vertex.vertex_buffer.slice(..));
@@ -163,7 +133,7 @@ impl CPass {
         };
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("ModelProgramBundle/Pipelines"),
-            layout: Some(&layout.pipeline_layout),
+            layout: Some(layout.pipeline_layout),
             vertex: wgpu::VertexState {
                 module: shader,
                 entry_point: "vs_main",
