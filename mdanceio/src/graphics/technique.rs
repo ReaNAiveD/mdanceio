@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, rc::Rc, sync::Arc};
 
 use super::common_pass::{CPass, CPassDescription, CPassLayout};
 
@@ -80,7 +80,7 @@ impl From<ObjectPassKey> for CPassDescription {
 pub struct ObjectTechnique {
     technique_type: TechniqueType,
     shader: wgpu::ShaderModule,
-    pipeline_bundle: HashMap<CPassDescription, Rc<CPass>>,
+    pipeline_bundle: HashMap<CPassDescription, Arc<CPass>>,
 }
 
 impl ObjectTechnique {
@@ -103,11 +103,11 @@ impl ObjectTechnique {
         layout: &CPassLayout,
         key: ObjectPassKey,
         device: &wgpu::Device,
-    ) -> &Rc<CPass> {
+    ) -> &Arc<CPass> {
         let desc = key.into();
         self.pipeline_bundle
             .entry(desc)
-            .or_insert_with(|| Rc::new(CPass::new(&self.shader, &desc, layout, device)))
+            .or_insert_with(|| Arc::new(CPass::new(&self.shader, &desc, layout, device)))
     }
 }
 
@@ -153,7 +153,7 @@ impl From<EdgePassKey> for CPassDescription {
 pub struct EdgeTechnique {
     technique_type: TechniqueType,
     shader: wgpu::ShaderModule,
-    pipeline_bundle: HashMap<CPassDescription, Rc<CPass>>,
+    pipeline_bundle: HashMap<CPassDescription, Arc<CPass>>,
 }
 
 impl EdgeTechnique {
@@ -176,11 +176,11 @@ impl EdgeTechnique {
         layout: &CPassLayout,
         key: EdgePassKey,
         device: &wgpu::Device,
-    ) -> &Rc<CPass> {
+    ) -> &Arc<CPass> {
         let desc = key.into();
         self.pipeline_bundle
             .entry(desc)
-            .or_insert_with(|| Rc::new(CPass::new(&self.shader, &desc, layout, device)))
+            .or_insert_with(|| Arc::new(CPass::new(&self.shader, &desc, layout, device)))
     }
 }
 
@@ -226,7 +226,7 @@ impl From<ShadowPassKey> for CPassDescription {
 pub struct GroundShadowTechnique {
     technique_type: TechniqueType,
     shader: wgpu::ShaderModule,
-    pipeline_bundle: HashMap<CPassDescription, Rc<CPass>>,
+    pipeline_bundle: HashMap<CPassDescription, Arc<CPass>>,
 }
 
 impl GroundShadowTechnique {
@@ -249,11 +249,11 @@ impl GroundShadowTechnique {
         layout: &CPassLayout,
         key: ShadowPassKey,
         device: &wgpu::Device,
-    ) -> &Rc<CPass> {
+    ) -> &Arc<CPass> {
         let desc = key.into();
         self.pipeline_bundle
             .entry(desc)
-            .or_insert_with(|| Rc::new(CPass::new(&self.shader, &desc, layout, device)))
+            .or_insert_with(|| Arc::new(CPass::new(&self.shader, &desc, layout, device)))
     }
 }
 
@@ -297,7 +297,7 @@ impl From<ZplotPassKey> for CPassDescription {
 pub struct ZplotTechnique {
     technique_type: TechniqueType,
     shader: wgpu::ShaderModule,
-    pipeline_bundle: HashMap<CPassDescription, Rc<CPass>>,
+    pipeline_bundle: HashMap<CPassDescription, Arc<CPass>>,
 }
 
 impl ZplotTechnique {
@@ -320,10 +320,10 @@ impl ZplotTechnique {
         layout: &CPassLayout,
         key: ZplotPassKey,
         device: &wgpu::Device,
-    ) -> &Rc<CPass> {
+    ) -> &Arc<CPass> {
         let desc = key.into();
         self.pipeline_bundle
             .entry(desc)
-            .or_insert_with(|| Rc::new(CPass::new(&self.shader, &desc, layout, device)))
+            .or_insert_with(|| Arc::new(CPass::new(&self.shader, &desc, layout, device)))
     }
 }
