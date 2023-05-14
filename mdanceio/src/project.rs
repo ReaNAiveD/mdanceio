@@ -5,15 +5,15 @@ use cgmath::{ElementWise, Matrix4, Vector2, Vector3, Vector4, VectorSpace};
 use crate::{
     audio_player::{AudioPlayer, ClockAudioPlayer},
     camera::{Camera, PerspectiveCamera},
-    clear_pass::ClearPass,
     drawable::{DrawContext, DrawType, Drawable},
     effect::ScriptOrder,
     error::MdanceioError,
+    graphics::ClearPass,
+    graphics::ModelProgramBundle,
     grid::Grid,
     injector::Injector,
     light::{DirectionalLight, Light},
     model::{Bone, Model},
-    model_program_bundle::ModelProgramBundle,
     motion::Motion,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
     shadow_camera::ShadowCamera,
@@ -101,7 +101,7 @@ impl Pass {
         device: &wgpu::Device,
     ) -> Self {
         let depth_texture_format = wgpu::TextureFormat::Depth16Unorm;
-        let (/*color_texture, color_view, */depth_texture, depth_view, sampler) = Self::_update(
+        let (/*color_texture, color_view, */ depth_texture, depth_view, sampler) = Self::_update(
             name,
             size,
             color_texture_format,
@@ -128,7 +128,7 @@ impl Pass {
         sample_count: u32,
         device: &wgpu::Device,
     ) {
-        let (/*color_texture, color_view, */depth_texture, depth_view, sampler) = Self::_update(
+        let (/*color_texture, color_view, */ depth_texture, depth_view, sampler) = Self::_update(
             self.name.as_str(),
             size,
             color_texture_format,
@@ -313,8 +313,8 @@ pub struct Project {
     shadow_sampler: wgpu::Sampler,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     shadow_bind_group_layout: wgpu::BindGroupLayout,
-    texture_fallback_bind: wgpu::BindGroup,
-    shadow_fallback_bind: wgpu::BindGroup,
+    fallback_texture_bind: wgpu::BindGroup,
+    fallback_shadow_bind: wgpu::BindGroup,
     object_handler_allocator: HandleAllocator,
     model_handle_map: HashMap<ModelHandle, Model>,
     viewport_primary_pass: Pass,
@@ -548,15 +548,23 @@ impl Project {
             time_step_factor: 1f32,
             viewport_size: (viewport_size, viewport_size),
             active_model_pair: (None, None),
-            grid: Box::new(Grid::new(device)),
+            grid: Box::new(Grid::new(injector.texture_format(), device)),
             camera_motion,
             light_motion,
             self_shadow_motion,
             model_to_motion: HashMap::new(),
-            model_program_bundle: Box::new(ModelProgramBundle::new(device)),
+            model_program_bundle: Box::new(ModelProgramBundle::new(
+                injector.texture_format(),
+                wgpu::TextureFormat::Depth16Unorm,
+                device,
+            )),
             draw_type: DrawType::Color,
             depends_on_script_external: vec![],
-            clear_pass: Box::new(ClearPass::new(device)),
+            clear_pass: Box::new(ClearPass::new(
+                &[Some(injector.texture_format())],
+                Some(wgpu::TextureFormat::Depth16Unorm),
+                device,
+            )),
             viewport_texture_format: (injector.texture_format(), injector.texture_format()),
             viewport_background_color: Vector4::new(0f32, 0f32, 0f32, 1f32),
             local_frame_index: (0, 0),
@@ -570,8 +578,8 @@ impl Project {
             shadow_sampler,
             texture_bind_group_layout,
             shadow_bind_group_layout,
-            texture_fallback_bind,
-            shadow_fallback_bind,
+            fallback_texture_bind: texture_fallback_bind,
+            fallback_shadow_bind: shadow_fallback_bind,
             object_handler_allocator,
             model_handle_map: HashMap::new(),
             transform_model_order_list: vec![],
@@ -1195,14 +1203,20 @@ impl Project {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<ModelHandle, MdanceioError> {
+        let color_format = self.viewport_texture_format();
         Model::new_from_bytes(
             model_data,
             self.parse_language(),
             &mut self.physics_engine,
             &self.camera,
+            &mut self.model_program_bundle,
             &self.fallback_texture,
             &self.shared_sampler,
             &self.texture_bind_group_layout,
+            color_format,
+            self.shadow_camera.bind_group(),
+            &self.fallback_texture_bind,
+            &self.fallback_shadow_bind,
             device,
             queue,
         )
@@ -1360,6 +1374,7 @@ impl Project {
             height: dimensions.1,
             depth_or_array_layers: 1,
         };
+        let color_format = self.viewport_texture_format();
         let texture = self
             .loaded_texture_map
             .entry(key.to_owned())
@@ -1400,9 +1415,14 @@ impl Project {
                 model.update_image(
                     key,
                     texture,
+                    &mut self.model_program_bundle,
+                    &self.fallback_texture,
                     &self.shared_sampler,
                     &self.texture_bind_group_layout,
-                    &self.fallback_texture,
+                    color_format,
+                    &self.shadow_camera.bind_group(),
+                    &self.fallback_texture_bind,
+                    &self.fallback_shadow_bind,
                     device,
                 )
             }
@@ -1410,12 +1430,18 @@ impl Project {
     }
 
     pub fn update_bind_texture(&mut self, device: &wgpu::Device) {
+        let color_format = self.viewport_texture_format();
         for (handle, model) in &mut self.model_handle_map {
             model.create_all_images(
                 &self.loaded_texture_map,
+                &mut self.model_program_bundle,
+                &self.fallback_texture,
                 &self.shared_sampler,
                 &self.texture_bind_group_layout,
-                &self.fallback_texture,
+                color_format,
+                &self.shadow_camera.bind_group(),
+                &self.fallback_texture_bind,
+                &self.fallback_shadow_bind,
                 device,
             );
         }
@@ -1507,8 +1533,8 @@ impl Project {
                         effect: &mut self.model_program_bundle,
                         texture_bind_layout: &self.texture_bind_group_layout,
                         shadow_bind_layout: &self.shadow_bind_group_layout,
-                        texture_fallback_bind: &self.texture_fallback_bind,
-                        shadow_fallback_bind: &self.shadow_fallback_bind,
+                        texture_fallback_bind: &self.fallback_texture_bind,
+                        shadow_fallback_bind: &self.fallback_shadow_bind,
                     },
                     device,
                     queue,
@@ -1524,48 +1550,13 @@ impl Project {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         let depth_stencil_attachment_view = &self.viewport_primary_pass.depth_view;
-        {
-            let pipeline = self.clear_pass.get_pipeline(
-                &[self.viewport_primary_pass.color_texture_format],
-                self.viewport_primary_pass.depth_texture_format,
-                device,
-            );
-            let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ClearRenderPass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: self.viewport_background_color[0] as f64,
-                            g: self.viewport_background_color[1] as f64,
-                            b: self.viewport_background_color[2] as f64,
-                            a: self.viewport_background_color[3] as f64,
-                        }),
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: depth_stencil_attachment_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
-                    }),
-                    // stencil_ops: Some(wgpu::Operations {
-                    //     load: wgpu::LoadOp::Clear(1),
-                    //     store: false,
-                    // }),
-                    stencil_ops: None,
-                }),
-            });
-            _render_pass.set_vertex_buffer(0, self.clear_pass.vertex_buffer.slice(..));
-            _render_pass.set_pipeline(&pipeline);
-            _render_pass.draw(0..4, 0..1)
-        }
-        queue.submit(Some(encoder.finish()));
+        self.clear_pass.draw(
+            &[Some(view)],
+            Some(depth_stencil_attachment_view),
+            device,
+            queue,
+        );
     }
 
     pub fn draw_grid(&self, view: &wgpu::TextureView, device: &wgpu::Device, queue: &wgpu::Queue) {
@@ -1583,7 +1574,7 @@ impl Project {
             let (light_view, light_projection) = self
                 .shadow_camera
                 .get_view_projection(&self.camera, &self.light);
-            self.shadow_camera.clear(&self.clear_pass, device, queue);
+            self.shadow_camera.clear(device, queue);
             // if self.editing_mode != EditingMode::Select {
             // scope(m_currentOffscreenRenderPass, pass), scope2(m_originOffscreenRenderPass, pass)
             for (handle, drawable) in &self.model_handle_map {
@@ -1606,8 +1597,8 @@ impl Project {
                         effect: &mut self.model_program_bundle,
                         texture_bind_layout: &self.texture_bind_group_layout,
                         shadow_bind_layout: &self.shadow_bind_group_layout,
-                        texture_fallback_bind: &self.texture_fallback_bind,
-                        shadow_fallback_bind: &self.shadow_fallback_bind,
+                        texture_fallback_bind: &self.fallback_texture_bind,
+                        shadow_fallback_bind: &self.fallback_shadow_bind,
                     },
                     device,
                     queue,
@@ -1626,7 +1617,7 @@ impl Project {
         queue: &wgpu::Queue,
     ) {
         if self.shadow_camera.is_enabled() {
-            self.shadow_camera.clear(&self.clear_pass, device, queue);
+            self.shadow_camera.clear(device, queue);
             let mut new_camera = self.camera.clone();
             new_camera.update_view_projection(
                 f32_array_to_mat4_col_major_order(camera_view),
@@ -1651,8 +1642,8 @@ impl Project {
                         effect: &mut self.model_program_bundle,
                         texture_bind_layout: &self.texture_bind_group_layout,
                         shadow_bind_layout: &self.shadow_bind_group_layout,
-                        texture_fallback_bind: &self.texture_fallback_bind,
-                        shadow_fallback_bind: &self.shadow_fallback_bind,
+                        texture_fallback_bind: &self.fallback_texture_bind,
+                        shadow_fallback_bind: &self.fallback_shadow_bind,
                     },
                     device,
                     queue,
@@ -1776,8 +1767,8 @@ impl Project {
                     effect: &mut self.model_program_bundle,
                     texture_bind_layout: &self.texture_bind_group_layout,
                     shadow_bind_layout: &self.shadow_bind_group_layout,
-                    texture_fallback_bind: &self.texture_fallback_bind,
-                    shadow_fallback_bind: &self.shadow_fallback_bind,
+                    texture_fallback_bind: &self.fallback_texture_bind,
+                    shadow_fallback_bind: &self.fallback_shadow_bind,
                 },
                 device,
                 queue,
@@ -1818,8 +1809,8 @@ impl Project {
                     effect: &mut self.model_program_bundle,
                     texture_bind_layout: &self.texture_bind_group_layout,
                     shadow_bind_layout: &self.shadow_bind_group_layout,
-                    texture_fallback_bind: &self.texture_fallback_bind,
-                    shadow_fallback_bind: &self.shadow_fallback_bind,
+                    texture_fallback_bind: &self.fallback_texture_bind,
+                    shadow_fallback_bind: &self.fallback_shadow_bind,
                 },
                 device,
                 queue,
@@ -1854,8 +1845,8 @@ impl Project {
                     effect: &mut self.model_program_bundle,
                     texture_bind_layout: &self.texture_bind_group_layout,
                     shadow_bind_layout: &self.shadow_bind_group_layout,
-                    texture_fallback_bind: &self.texture_fallback_bind,
-                    shadow_fallback_bind: &self.shadow_fallback_bind,
+                    texture_fallback_bind: &self.fallback_texture_bind,
+                    shadow_fallback_bind: &self.fallback_shadow_bind,
                 },
                 device,
                 queue,

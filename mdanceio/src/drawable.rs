@@ -2,7 +2,7 @@ use cgmath::Matrix4;
 
 use crate::{
     camera::PerspectiveCamera, light::DirectionalLight, model::Model,
-    model_program_bundle::ModelProgramBundle, shadow_camera::ShadowCamera,
+    graphics::ModelProgramBundle, shadow_camera::ShadowCamera,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

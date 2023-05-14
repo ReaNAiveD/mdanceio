@@ -2,9 +2,8 @@ use cgmath::{InnerSpace, Matrix, Matrix3, Matrix4, Vector2, Vector3};
 
 use crate::{
     camera::{Camera, PerspectiveCamera},
-    clear_pass::ClearPass,
     light::{DirectionalLight, Light},
-    utils::lerp_f32,
+    utils::lerp_f32, graphics::ClearPass,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +39,7 @@ pub struct ShadowCamera {
     // fallback_color_texture: wgpu::Texture,
     shadow_depth_texture: wgpu::TextureView,
     // fallback_depth_texture: wgpu::Texture,
+    clear_pass: ClearPass,
     texture_size: Vector2<u32>,
     coverage_mode: CoverageMode,
     distance: f32,
@@ -130,6 +130,11 @@ impl ShadowCamera {
                 },
             ],
         });
+        let clear_pass = ClearPass::new(
+            &[Some(wgpu::TextureFormat::R32Float)],
+            Some(wgpu::TextureFormat::Depth16Unorm),
+            device,
+        );
         Self {
             shadow_color_texture: color_texture
                 .create_view(&wgpu::TextureViewDescriptor::default()),
@@ -138,6 +143,7 @@ impl ShadowCamera {
             shadow_depth_texture: depth_texture
                 .create_view(&wgpu::TextureViewDescriptor::default()),
             // fallback_depth_texture,
+            clear_pass,
             texture_size: Vector2::new(Self::INITIAL_TEXTURE_SIZE, Self::INITIAL_TEXTURE_SIZE),
             coverage_mode: CoverageMode::Type1,
             distance: Self::INITIAL_DISTANCE,
@@ -146,47 +152,13 @@ impl ShadowCamera {
         }
     }
 
-    pub fn clear(&mut self, clear_pass: &ClearPass, device: &wgpu::Device, queue: &wgpu::Queue) {
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        let pipeline = clear_pass.get_pipeline(
-            &[wgpu::TextureFormat::R32Float],
-            wgpu::TextureFormat::Depth16Unorm,
+    pub fn clear(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
+        self.clear_pass.draw(
+            &[Some(&self.shadow_color_texture)],
+            Some(&self.shadow_depth_texture),
             device,
+            queue,
         );
-        {
-            let mut _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ShadowCamera/Clear/Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.shadow_color_texture,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 1.0,
-                            g: 1.0,
-                            b: 1.0,
-                            a: 1.0,
-                        }),
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_depth_texture,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1f32),
-                        store: true,
-                    }),
-                    stencil_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0),
-                        store: true,
-                    }),
-                }),
-            });
-            _render_pass.set_vertex_buffer(0, clear_pass.vertex_buffer.slice(..));
-            _render_pass.set_pipeline(&pipeline);
-            _render_pass.draw(0..4, 0..1);
-        }
-        queue.submit(Some(encoder.finish()));
     }
 
     fn get_view_matrix(
