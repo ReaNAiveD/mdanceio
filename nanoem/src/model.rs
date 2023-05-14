@@ -1,6 +1,6 @@
 use crate::{
     common::{Buffer, LanguageType, MutableBuffer, NanoemError},
-    utils::fourcc,
+    utils::{fourcc, u8_slice_get_string},
 };
 
 pub static NANOEM_MODEL_OBJECT_NOT_FOUND: i32 = -1;
@@ -54,16 +54,15 @@ impl CodecType {
         }
     }
 
-    fn get_string(&self, buffer: &mut Buffer) -> Result<String, NanoemError> {
+    fn get_string(
+        &self,
+        buffer: &mut Buffer,
+        errors: &mut Vec<NanoemError>,
+    ) -> Result<String, NanoemError> {
         let length = buffer.read_len()?;
         let src = buffer.read_buffer(length)?;
         let codec = self.get_encoding();
-        // TODO: need bom removal or not?
-        let (cow, _, had_errors) = codec.decode(src);
-        if had_errors {
-            return Err(NanoemError::DecodeUnicodeStringFailed);
-        }
-        Ok(cow.into())
+        Ok(u8_slice_get_string(src, codec, errors))
     }
 }
 
@@ -161,6 +160,7 @@ pub struct Model {
     pub rigid_bodies: Vec<ModelRigidBody>,
     pub joints: Vec<ModelJoint>,
     pub soft_bodies: Vec<ModelSoftBody>,
+    pub errors: Vec<NanoemError>,
 }
 
 impl Model {
@@ -184,10 +184,11 @@ impl Model {
                     morph_index_size: buffer.read_byte()?,
                     rigid_body_index_size: buffer.read_byte()?,
                 };
-                let name_ja = info.codec_type.get_string(buffer)?;
-                let name_en = info.codec_type.get_string(buffer)?;
-                let comment_ja = info.codec_type.get_string(buffer)?;
-                let comment_en = info.codec_type.get_string(buffer)?;
+                let mut errors = vec![];
+                let name_ja = info.codec_type.get_string(buffer, &mut errors)?;
+                let name_en = info.codec_type.get_string(buffer, &mut errors)?;
+                let comment_ja = info.codec_type.get_string(buffer, &mut errors)?;
+                let comment_en = info.codec_type.get_string(buffer, &mut errors)?;
                 let mut model = Self {
                     version,
                     codec_type: info.codec_type,
@@ -207,6 +208,7 @@ impl Model {
                     rigid_bodies: vec![],
                     joints: vec![],
                     soft_bodies: vec![],
+                    errors,
                 };
                 model.parse_pmx(buffer, &info)?;
                 Ok(model)
@@ -268,7 +270,7 @@ impl Model {
         if num_textures > 0 {
             self.textures.clear();
             for i in 0..num_textures {
-                let texture = ModelTexture::parse_pmx(buffer, info, i)?;
+                let texture = ModelTexture::parse_pmx(buffer, info, i, &mut self.errors)?;
                 self.textures.push(texture);
             }
         }
@@ -284,7 +286,7 @@ impl Model {
         if num_materials > 0 {
             self.materials.clear();
             for i in 0..num_materials {
-                let material = ModelMaterial::parse_pmx(buffer, info, i)?;
+                let material = ModelMaterial::parse_pmx(buffer, info, i, &mut self.errors)?;
                 self.materials.push(material);
             }
         }
@@ -300,7 +302,7 @@ impl Model {
         if num_bones > 0 {
             self.bones.clear();
             for i in 0..num_bones {
-                let bone = ModelBone::parse_pmx(buffer, info, i)?;
+                let bone = ModelBone::parse_pmx(buffer, info, i, &mut self.errors)?;
                 self.bones.push(bone);
                 // self.ordered_bones.push(self.bones[i].clone());
             }
@@ -317,7 +319,7 @@ impl Model {
         if num_morphs > 0 {
             self.morphs.clear();
             for i in 0..num_morphs {
-                let morph = ModelMorph::parse_pmx(buffer, info, i)?;
+                let morph = ModelMorph::parse_pmx(buffer, info, i, &mut self.errors)?;
                 self.morphs.push(morph);
             }
         }
@@ -333,7 +335,7 @@ impl Model {
         if num_labels > 0 {
             self.labels.clear();
             for i in 0..num_labels {
-                let label = ModelLabel::parse_pmx(buffer, info, i)?;
+                let label = ModelLabel::parse_pmx(buffer, info, i, &mut self.errors)?;
                 self.labels.push(label);
             }
         }
@@ -349,7 +351,7 @@ impl Model {
         if num_rigid_bodies > 0 {
             self.rigid_bodies.clear();
             for i in 0..num_rigid_bodies {
-                let rigid_body = ModelRigidBody::parse_pmx(buffer, info, i)?;
+                let rigid_body = ModelRigidBody::parse_pmx(buffer, info, i, &mut self.errors)?;
                 self.rigid_bodies.push(rigid_body);
             }
         }
@@ -365,7 +367,7 @@ impl Model {
         if num_joints > 0 {
             self.joints.clear();
             for i in 0..num_joints {
-                let joint = ModelJoint::parse_pmx(buffer, info, i)?;
+                let joint = ModelJoint::parse_pmx(buffer, info, i, &mut self.errors)?;
                 self.joints.push(joint);
             }
         }
@@ -381,7 +383,7 @@ impl Model {
         if num_soft_bodies > 0 {
             self.soft_bodies.clear();
             for i in 0..num_soft_bodies {
-                let soft_body = ModelSoftBody::parse_pmx(buffer, info, i)?;
+                let soft_body = ModelSoftBody::parse_pmx(buffer, info, i, &mut self.errors)?;
                 self.soft_bodies.push(soft_body);
             }
         }
@@ -1339,13 +1341,14 @@ impl ModelMaterial {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
+        errors: &mut Vec<NanoemError>,
     ) -> Result<ModelMaterial, NanoemError> {
         let mut error: Option<NanoemError> = None;
         let texture_index_size = info.texture_index_size;
         let mut material = ModelMaterial {
             base: ModelObject { index },
-            name_ja: info.codec_type.get_string(buffer)?,
-            name_en: info.codec_type.get_string(buffer)?,
+            name_ja: info.codec_type.get_string(buffer, errors)?,
+            name_en: info.codec_type.get_string(buffer, errors)?,
             diffuse_color: buffer.read_f32_3_little_endian()?,
             diffuse_opacity: buffer.read_f32_little_endian()?,
             specular_color: buffer.read_f32_3_little_endian()?,
@@ -1395,9 +1398,9 @@ impl ModelMaterial {
             material.toon_texture_index = buffer.read_byte()? as i32;
         } else {
             material.toon_texture_index =
-                buffer.read_integer_nullable(texture_index_size as usize)? as i32;
+                buffer.read_integer_nullable(texture_index_size as usize)?;
         }
-        material.clob = info.codec_type.get_string(buffer)?;
+        material.clob = info.codec_type.get_string(buffer, errors)?;
         material.num_vertex_indices = buffer.read_i32_little_endian()? as usize;
         if let Some(err) = error {
             Err(err)
@@ -1443,7 +1446,7 @@ impl ModelMaterial {
             buffer.write_byte(self.flags.is_edge_enabled as u8)?;
             buffer.write_i32_little_endian(self.num_vertex_indices as i32)?;
             let s = self.diffuse_texture.as_ref().map(|t| t.path.clone());
-            buffer.write_string(&s.unwrap_or_else(|| "".to_string()), encoding_rs::SHIFT_JIS)?;
+            buffer.write_string(&s.unwrap_or_default(), encoding_rs::SHIFT_JIS)?;
         }
         Ok(())
     }
@@ -1720,12 +1723,13 @@ impl ModelBone {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
+        errors: &mut Vec<NanoemError>,
     ) -> Result<ModelBone, NanoemError> {
         let bone_index_size = info.bone_index_size;
         let mut bone = ModelBone {
             base: ModelObject { index },
-            name_ja: info.codec_type.get_string(buffer)?,
-            name_en: info.codec_type.get_string(buffer)?,
+            name_ja: info.codec_type.get_string(buffer, errors)?,
+            name_en: info.codec_type.get_string(buffer, errors)?,
             origin: buffer.read_f32_3_little_endian()?,
             destination_origin: <[f32; 4]>::default(),
             fixed_axis: <[f32; 4]>::default(),
@@ -2576,12 +2580,13 @@ impl ModelMorph {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
+        errors: &mut Vec<NanoemError>,
     ) -> Result<ModelMorph, NanoemError> {
         let codec_type = info.codec_type;
         let morph = ModelMorph {
             base: ModelObject { index },
-            name_ja: codec_type.get_string(buffer)?,
-            name_en: codec_type.get_string(buffer)?,
+            name_ja: codec_type.get_string(buffer, errors)?,
+            name_en: codec_type.get_string(buffer, errors)?,
             category: ModelMorphCategory::from(buffer.read_byte()?),
             typ: ModelMorphType::from_buffer(buffer.read_byte()?, buffer, info)?,
         };
@@ -2753,14 +2758,15 @@ impl ModelLabel {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
+        errors: &mut Vec<NanoemError>,
     ) -> Result<ModelLabel, NanoemError> {
         let codec_type = info.codec_type;
         let bone_index_size = info.bone_index_size as usize;
         let morph_index_size = info.morph_index_size as usize;
         let mut label = ModelLabel {
             base: ModelObject { index },
-            name_ja: codec_type.get_string(buffer)?,
-            name_en: codec_type.get_string(buffer)?,
+            name_ja: codec_type.get_string(buffer, errors)?,
+            name_en: codec_type.get_string(buffer, errors)?,
             is_special: buffer.read_byte()? != 0,
             items: vec![],
         };
@@ -2952,12 +2958,13 @@ impl ModelRigidBody {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
+        errors: &mut Vec<NanoemError>,
     ) -> Result<ModelRigidBody, NanoemError> {
         // TODO: not process Unknown for shpe_type and transform_type
         let rigid_body = ModelRigidBody {
             base: ModelObject { index },
-            name_ja: info.codec_type.get_string(buffer)?,
-            name_en: info.codec_type.get_string(buffer)?,
+            name_ja: info.codec_type.get_string(buffer, errors)?,
+            name_en: info.codec_type.get_string(buffer, errors)?,
             bone_index: buffer.read_integer_nullable(info.bone_index_size as usize)?,
             collision_group_id: buffer.read_byte()? as i32,
             collision_mask: buffer.read_i16_little_endian()? as i32,
@@ -3089,12 +3096,13 @@ impl ModelJoint {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
+        errors: &mut Vec<NanoemError>,
     ) -> Result<ModelJoint, NanoemError> {
         let rigid_body_index_size = info.rigid_body_index_size as usize;
         let joint = ModelJoint {
             base: ModelObject { index },
-            name_ja: info.codec_type.get_string(buffer)?,
-            name_en: info.codec_type.get_string(buffer)?,
+            name_ja: info.codec_type.get_string(buffer, errors)?,
+            name_en: info.codec_type.get_string(buffer, errors)?,
             typ: buffer.read_byte()?.into(),
             rigid_body_a_index: buffer.read_integer_nullable(rigid_body_index_size)?,
             rigid_body_b_index: buffer.read_integer_nullable(rigid_body_index_size)?,
@@ -3273,14 +3281,15 @@ impl ModelSoftBody {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
+        errors: &mut Vec<NanoemError>,
     ) -> Result<ModelSoftBody, NanoemError> {
         let material_index_size = info.material_index_size as usize;
         let rigid_body_index_size = info.rigid_body_index_size as usize;
         let vertex_index_size = info.vertex_index_size as usize;
         let mut soft_body = ModelSoftBody {
             base: ModelObject { index },
-            name_ja: info.codec_type.get_string(buffer)?,
-            name_en: info.codec_type.get_string(buffer)?,
+            name_ja: info.codec_type.get_string(buffer, errors)?,
+            name_en: info.codec_type.get_string(buffer, errors)?,
             shape_type: buffer.read_byte()?.into(),
             material_index: buffer.read_integer_nullable(material_index_size)?,
             collision_group_id: buffer.read_byte()?,
@@ -3350,8 +3359,8 @@ impl ModelSoftBody {
         buffer.write_string(&self.name_en, encoding)?;
         buffer.write_byte(self.shape_type.into())?;
         buffer.write_integer(self.material_index, material_index_size)?;
-        buffer.write_byte(self.collision_group_id as u8)?;
-        buffer.write_u16_little_endian(self.collision_mask as u16)?;
+        buffer.write_byte(self.collision_group_id)?;
+        buffer.write_u16_little_endian(self.collision_mask)?;
         buffer.write_byte(self.flags)?;
         buffer.write_i32_little_endian(self.bending_constraints_distance)?;
         buffer.write_i32_little_endian(self.cluster_count)?;
@@ -3416,10 +3425,11 @@ impl ModelTexture {
         buffer: &mut Buffer,
         info: &ModelInfo,
         index: usize,
+        errors: &mut Vec<NanoemError>,
     ) -> Result<ModelTexture, NanoemError> {
         Ok(ModelTexture {
             base: ModelObject { index },
-            path: info.codec_type.get_string(buffer)?,
+            path: info.codec_type.get_string(buffer, errors)?,
         })
     }
 
@@ -3442,7 +3452,11 @@ fn test_read_pmx_resource() -> Result<(), Box<dyn std::error::Error + 'static>> 
     let model_data = std::fs::read("test/example/Alicia/MMD/Alicia_solid.pmx")?;
     let mut buffer = Buffer::create(&model_data);
     match Model::load_from_buffer(&mut buffer) {
-        Ok(_) => println!("Parse PMX Success"),
+        Ok(model) => {
+            for e in model.errors {
+                println!("{}", e);
+            }
+            println!("Parse PMX Success")},
         Err(e) => println!("Parse PMX with {:?}", &e),
     }
     Ok(())
@@ -3459,8 +3473,13 @@ fn test_save_pmx_resource() -> Result<(), Box<dyn std::error::Error + 'static>> 
                 Ok(()) => {
                     if let Ok(mut buffer) = mutable_buffer.create_buffer_object() {
                         match Model::load_from_buffer(&mut buffer) {
-                            Ok(_) => {
+                            Ok(nmodel) => {
+                                for e in nmodel.errors {
+                                    println!("{}", e);
+                                }
                                 println!("Parse Recomposed PMX successfully");
+                                assert_eq!(model.bones.len(), nmodel.bones.len());
+                                assert_eq!(model.morphs.len(), nmodel.morphs.len());
                             }
                             Err(e) => println!("Parse Recomposed PMX with {:?}", &e),
                         }

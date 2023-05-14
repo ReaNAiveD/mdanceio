@@ -1,159 +1,36 @@
 use std::mem::size_of;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+use crate::utils::u8_slice_get_string;
+
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum NanoemError {
-    MallocFailed,                                 //< Failed to allocate memory
-    ReallocFailed,                                //< Failed to allocate memory
-    NullObject,                                   //< Null object is referred
-    BufferEnd,                                    //< Buffer is end
-    DecodeUnicodeStringFailed,                    //< Failed to decode unicode string
-    EncodeUnicodeStringFailed,                    //< Failed to encode unicode string
-    DecodeJisStringFailed,                        //< Costum, Failed to decode jis string
-    BufferNotEnd,              //< Costum, Finish Loading but Buffer is not End
-    InvalidSignature = 100,    //< Invalid signature
-    ModelVertexCorrupted,      //< Vertex data is corrupted
-    ModelFaceCorrupted,        //< Face (Indices) data is corrupted
-    ModelMaterialCorrupted,    //< Material data is corrupted
-    ModelBoneCorrupted,        //< Bone data is corrupted
-    ModelConstraintCorrupted,  //< IK Constraint data is corrupted
-    ModelTextureCorrupted,     //< Texture reference data is corrupted
-    ModelMorphCorrupted,       //< Morph data is corrupted
-    ModelLabelCorrupted,       //< Label data is corrupted
-    ModelRigidBodyCorrupted,   //< Rigid body data is corrupted
-    ModelJointCorrupted,       //< Joint data is corrupted
-    PmdEnglishCorrupted,       //< PMD English data is corrupted
-    PmxInfoCorrupted,          //< PMX Metadata is corrupted
-    MotionTargetNameCorrupted, //< Vertex data is corrupted
-    MotionBoneKeyframeCorrupted, //< The bone keyframe is corrupted
-    MotionCameraKeyframeCorrupted, //< The camera keyframe data is corrupted
-    MotionLightKeyframeCorrupted, //< The light keyframe data is corrupted
-    MotionModelKeyframeCorrupted, //< The model keyframe data is corrupted
-    MotionMorphKeyframeCorrupted, //< The morph keyframe data is corrupted
-    MotionSelfShadowKeyframeCorrupted, //< Self Shadow keyframe data is corrupted
-    ModelSoftBodyCorrupted,    //< Vertex data is corrupted
-    MotionBoneKeyframeReference = 200, //< (unused)
-    MotionBoneKeyframeAlreadyExists, //< The bone keyframe already exists
-    MotionBoneKeyframeNotFound, //< The bone keyframe is not found
-    MotionCameraKeyframeReference, //< (unused)
-    MotionCameraKeyframeAlreadyExists, //< The camera keyframe already exists
-    MotionCameraKeyframeNotFound, //< The camera keyframe is not found
-    MotionLightKeyframeReference, //< (unused)
-    MotionLightKeyframeAlreadyExists, //< The light keyframe already exists
-    MotionLightKeyframeNotFound, //< The light keyframe is not found
-    MotionModelKeyframeReference, //< (unused)
-    MotionModelKeyframeAlreadyExists, //< The model keyframe already exists
-    MotionModelKeyframeNotFound, //< The model keyframe is not found
-    MotionMorphKeyframeReference, //< (unused)
-    MotionMorphKeyframeAlreadyExists, //< The morph keyframe already exists
-    MotionMorphKeyframeNotFound, //< The morph keyframe is not found
-    MotionSelfShadowKeyframeReference, //< (unused)
-    MotionSelfShadowKeyframeAlreadyExists, //< The self shadow keyframe already exists
-    MotionSelfShadowKeyframeNotFound, //< The self shadow keyframe is not found
-    MotionAccessoryKeyframeReference, //< (unused)
-    MotionAccessoryKeyframeAlreadyExists, //< The accessory keyframe already exists
-    MotionAccessoryKeyframeNotFound, //< The accessory keyframe is not found
-    EffectParameterReference,  //< (unused)
-    EffectParameterAlreadyExists, //< The effect parameter keyframe already exists
-    EffectParameterNotFound,   //< The effect parameter keyframe is not found
-    ModelConstraintStateReference, //< (unused)
-    ModelConstraintStateAlreadyExists, //< IK keyframe already exists
-    ModelConstraintStateNotFound, //< IK keyframe not found
-    ModelBindingReference,     //< (unused)
-    ModelBindingAlreadyExists, //< Outside parent model keyframe already exists
-    ModelBindingNotFound,      //< Outside parent model keyframe is not found
-    ModelVertexReference = 300, //< (unused)
-    ModelVertexAlreadyExists,  //< Vertex data already exists
-    ModelVertexNotFound,       //< Vertex data is not found
-    ModelMaterialReference,    //< (unused)
-    ModelMaterialAlreadyExists, //< Material data already exists
-    ModelMaterialNotFound,     //< Material data is not found
-    ModelBoneReference,        //< (unused)
-    ModelBoneAlreadyExists,    //< Bone data already exists
-    ModelBoneNotFound,         //< Bone data is not found
-    ModelConstraintReference,  //< (unused)
-    ModelConstraintAlreadyExists, //< IK constraint data already exists
-    ModelConstraintNotFound,   //< IK constraint data is not found
-    ModelConstraintJointNotFound, //< IK constraint joint bone data is not found
-    ModelTextureReference,     //< (unused)
-    ModelTextureAlreadyExists, //< Texture reference data already exists
-    ModelTextureNotFound,      //< Texture reference data is not found
-    ModelMorphReference,       //< (unused)
-    ModelMorphAlreadyExists,   //< Morph data already exists
-    ModelMorphNotFound,        //< Morph data is not found
-    ModelMorphTypeMismatch,    //< Morph type is not matched
-    ModelMorphBoneNotFound,    //< Morph bone data is not found
-    ModelMorphFlipNotFound,    //< Morph flip data is not found
-    ModelMorphGroupNotFound,   //< Morph group data is not found
-    ModelMorphImpulseNotFound, //< Morph impulse data is not found
-    ModelMorphMaterialNotFound, //< Morph material data is not found
-    ModelMorphUvNotFound,      //< Morph UV data is not found
-    ModelMorphVertexNotFound,  //< Morph vertex data is not found
-    ModelLabelReference,       //< (unused)
-    ModelLabelAlreadyExists,   //< Label data already exists
-    ModelLabelNotFound,        //< Label data is not found
-    ModelLabelItemNotFound,    //< Label item data is not found
-    ModelRigidBodyReference,   //< (unused)
-    ModelRigidBodyAlreadyExists, //< Rigid body data already exists
-    ModelRigidBodyNotFound,    //< Rigid body data is not found
-    ModelJointReference,       //< (unused)
-    ModelJointAlreadyExists,   //< Joint data already exists
-    ModelJointNotFound,        //< Joint data is not found
-    ModelSoftBodyReference,    //< (unused)
-    ModelSoftBodyAlreadyExists, //< Soft body data already exists
-    ModelSoftBodyNotFound,     //< Soft body data is not found
-    ModelSoftBodyAnchorAlreadyExists, //< Soft body anchor data already exists
-    ModelSoftBodyAnchorNotFound, //< Soft body anchor data is not found
-    ModelVersionIncompatible = 400, //< Moel version is incompatible
-    DocumentAccessoryAlreadyExists = 1000, //< Accessory data already exists
-    DocumentAccessoryNotFound, //< Accessory data is not foun
-    DocumentAccessoryKeyframeAlreadyExists, //< The accessory keyframe already exists
-    DocumentAccessoryKeyframeNotFound, //< The accessory keyframe is not found
-    DocumentCameraKeyframeAlreadyExists, //< The camera keyframe already exists
-    DocumentCameraKeyframeNotFound, //< The camera keyframe is not found
-    DocumentGravityKeyframeAlreadyExists, //< The physics simulation keyframe already exists
-    DocumentGravityKeyframeNotFound, //< The physics simulation keyframe is not found
-    DocumentLightKeyframeAlreadyExists, //< The light keyframe already exists
-    DocumentLightKeyframeNotFound, //< The light keyframe is not found
-    DocumentModelAlreadyExists, //< Model data already exists
-    DocumentModelNotFound,     //< Model data is not found
-    DocumentModelBoneKeyframeAlreadyExists, //< The bone keyframe already exists
-    DocumentModelBoneKeyframeNotFound, //< The bone keyframe is not found
-    DocumentModelBoneStateAlreadyExists, //< Bone state already exists
-    DocumentModelBoneStateNotFound, //< Bone state is not found
-    DocumentModelConstraintStateAlreadyExists, //< IK constraint state already exists
-    DocumentModelConstraintStateNotFound, //< IK constraint state is not found
-    DocumentModelModelKeyframeAlreadyExists, //< The model keyframe already exists
-    DocumentModelModelKeyframeNotFound, //< The model keyframe is not found
-    DocumentModelMorphKeyframeAlreadyExists, //< The morph keyframe already exists
-    DocumentModelMorphKeyframeNotFound, //< The morph keyframe is not found
-    DocumentModelMorphStateAlreadyExists, //< Morph state already exists
-    DocumentModelMorphStateNotFound, //< Morph state is not found
-    DocumentModelOutsideParentAlreadyExists, //< Model outside parent already exists
-    DocumentModelOutsideParentNotFound, //< Model outside parent is not found
-    DocumentModelOutsideParentStateAlreadyExists, //< Model outside parent state already exists
-    DocumentModelOutsideParentStateNotFound, //< Model outside parent state is not found
-    DocumentSelfShadowKeyframeAlreadyExists, //< The self shadow keyframe already exists
-    DocumentSelfShadowKeyframeNotFound, //< The self shadow keyframe is not found
-    DocumentAccessoryCorrupted, //< Accessory data is corrupted
-    DocumentAccessoryKeyframeCorrupted, //< The accessory keyframe is corrupted
-    DocumentAccessoryOutsideParentCorrupted, //< The accessory outside parent is corrupted
-    DocumentCameraCorrupted,   //< Camera data is corrupted
-    DocumentCameraKeyframeCorrupted, //< The camera keyframe is corrupted
-    DocumentGravityCorrupted,  //< Physics simulation data is corrupted
-    DocumentGravityKeyframeCorrupted, //< The physics simulation keyframe is corrupted
-    DocumentLightCorrupted,    //< Light data is corrupted
-    DocumentLightKeyframeCorrupted, //< The light keyframe is corrupted
-    DocumentModelCorrupted,    //< Model data is corrupted
-    DocumentModelKeyframeCorrupted, //< The model keyframe is corrupted
-    DocumentModelBoneKeyframeCorrupted, //< The bone keyframe is corrupted
-    DocumentModelBoneStateCorrupted, //< The bone state is corrupted
-    DocumentModelConstraintStateCorrupted, //< The IK constraint state is corrupted
-    DocumentModelMorphKeyframeCorrupted, //< The morph keyframe is corrupted
-    DocumentModelMorphStateCorrupted, //< The morph state is corrupted
-    DocumentModelOutsideParentCorrupted, //< The model outside parent is corrupted
-    DocumentSelfShadowCorrupted, //< Self shadow data is corrupted
-    DocumentSelfShadowKeyframeCorrupted, //< The self shadow keyframe is corrupted
-    NoSupportForPMD = 2000,    //< Not Supported PMD file
+    ReallocFailed,
+    BufferEnd,
+    BufferNotEnd,
+    DecodeStringFailed {
+        data: Vec<u8>,
+        parsed: String,
+        encoding: &'static str,
+    },
+    EncodeStringFailed(String),
+    InvalidSignature,
+    ModelVertexCorrupted,
+    ModelFaceCorrupted,
+    ModelMaterialCorrupted,
+    ModelBoneCorrupted,
+    ModelConstraintCorrupted,
+    ModelTextureCorrupted,
+    ModelMorphCorrupted,
+    ModelLabelCorrupted,
+    ModelRigidBodyCorrupted,
+    ModelJointCorrupted,
+    ModelSoftBodyCorrupted,
+    PmxInfoCorrupted,
+    KeyframeAlreadyExists {
+        track_name: String,
+        frame_index: u32,
+    },
+    NoSupportForPMD,
 }
 
 impl std::fmt::Display for NanoemError {
@@ -210,10 +87,7 @@ pub struct Buffer<'a> {
 
 impl<'a> Buffer<'a> {
     pub fn create(data: &[u8]) -> Buffer {
-        Buffer {
-            data,
-            offset: 0,
-        }
+        Buffer { data, offset: 0 }
     }
 
     pub fn len(&self) -> usize {
@@ -339,18 +213,17 @@ impl<'a> Buffer<'a> {
         &self.data[self.offset..self.offset + read_len]
     }
 
-    pub fn read_string_from_cp932(&mut self, max_capacity: usize) -> Result<String, NanoemError> {
+    pub fn read_string_from_cp932(
+        &mut self,
+        max_capacity: usize,
+        errors: &mut Vec<NanoemError>,
+    ) -> Result<String, NanoemError> {
         if self.can_read_len(max_capacity) {
             let mut src = self.read_buffer(max_capacity)?;
             if let Some(pos) = src.iter().position(|c| *c == 0u8) {
                 src = src.split_at(pos).0;
             }
-            let (cow, _, had_errors) = encoding_rs::SHIFT_JIS.decode(src);
-            if had_errors {
-                Err(NanoemError::DecodeJisStringFailed)
-            } else {
-                Ok(cow.into())
-            }
+            Ok(u8_slice_get_string(src, encoding_rs::SHIFT_JIS, errors))
         } else {
             Err(NanoemError::BufferEnd)
         }
@@ -424,10 +297,10 @@ impl MutableBuffer {
             }
             Ok(())
         } else {
-            let (bytes, _, success) = encoding.encode(value);
-            if !success {
+            let (bytes, _, has_errors) = encoding.encode(value);
+            if has_errors {
                 self.write_u32_little_endian(0u32)?;
-                Err(NanoemError::EncodeUnicodeStringFailed)
+                Err(NanoemError::EncodeStringFailed(value.to_owned()))
             } else {
                 self.write_u32_little_endian(bytes.len() as u32)?;
                 self.write_byte_array(&bytes)?;
@@ -515,20 +388,4 @@ fn test_buffer_read_primitive() {
     assert_eq!(Ok(1), buffer.read_byte());
     assert_eq!(Ok((3 << 8) | 2), buffer.read_u16_little_endian());
     println!("{}", buffer.read_i32_little_endian().expect("Expect Error"));
-}
-
-#[test]
-fn test_u8_to_string_too_short() {
-    let v = vec![b'a', 0u8, 0u8, b'b'];
-    let (cow, _, had_errors) = encoding_rs::UTF_8.decode(&v[0..4]);
-    assert!(!had_errors);
-    println!("{}", &cow);
-}
-
-#[test]
-fn test_u8_to_string_len0() {
-    let v = vec![];
-    let (cow, _, had_errors) = encoding_rs::UTF_8.decode(&v[0..0]);
-    assert!(!had_errors);
-    println!("{}", &cow);
 }
