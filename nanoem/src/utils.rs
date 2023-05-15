@@ -1,5 +1,7 @@
 use std::cmp;
 
+use crate::common::NanoemError;
+
 pub fn fourcc(a: u8, b: u8, c: u8, d: u8) -> u32 {
     u32::from_le_bytes([a, b, c, d])
 }
@@ -7,17 +9,18 @@ pub fn fourcc(a: u8, b: u8, c: u8, d: u8) -> u32 {
 pub fn u8_slice_get_string(
     slice: &[u8],
     encoding: &'static encoding_rs::Encoding,
-) -> Option<String> {
-    let mut src = slice;
-    if let Some(pos) = src.iter().position(|c| *c == 0u8) {
-        src = src.split_at(pos).0;
-    }
-    let (cow, _, had_errors) = encoding.decode(src);
+    errors: &mut Vec<NanoemError>,
+) -> String {
+    let (cow, _, had_errors) = encoding.decode(slice);
+    let result = cow.split('\0').next().unwrap_or("").to_owned();
     if had_errors {
-        None
-    } else {
-        Some(cow.into())
+        errors.push(NanoemError::DecodeStringFailed {
+            data: slice.into(),
+            parsed: result.clone(),
+            encoding: encoding.name(),
+        })
     }
+    result
 }
 
 pub fn compare(a: &[u8], b: &[u8]) -> cmp::Ordering {
