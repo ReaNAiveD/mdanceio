@@ -575,13 +575,13 @@ impl Motion {
     pub fn test_all_missing_model_objects(&self, model: &Model) -> (Vec<String>, Vec<String>) {
         let mut bones = vec![];
         let mut morphs = vec![];
-        for bone_name in self.opaque.local_bone_motion_track_bundle.tracks.keys() {
-            if !model.contains_bone(bone_name) {
+        for (bone_name, track) in &self.opaque.local_bone_motion_track_bundle.tracks {
+            if !model.contains_bone(bone_name) && track.len() > 1 {
                 bones.push(bone_name.clone());
             }
         }
-        for morph_name in self.opaque.local_morph_motion_track_bundle.tracks.keys() {
-            if !model.contains_morph(morph_name) {
+        for (morph_name, track) in &self.opaque.local_morph_motion_track_bundle.tracks {
+            if !model.contains_morph(morph_name) && track.len() > 1 {
                 morphs.push(morph_name.clone())
             }
         }

@@ -1435,7 +1435,7 @@ impl MotionModelKeyframe {
                 frame_index: buffer.read_u32_little_endian()? + offset,
                 annotations: HashMap::new(),
             },
-            visible: buffer.read_byte()? == 0,
+            visible: buffer.read_byte()? != 0,
             constraint_states: vec![],
             effect_parameters: vec![],
             outside_parents: vec![],

@@ -1,0 +1,90 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'mdanceio'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=mdanceio"
+                ],
+                "filter": {
+                    "name": "mdanceio",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug example 'winit_app'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--example=winit_app",
+                    "--package=mdanceio"
+                ],
+                "filter": {
+                    "name": "winit_app",
+                    "kind": "example"
+                }
+            },
+            "args": [
+                "--model",
+                "<Model Path>",
+                "--texture",
+                "<Texture Directory>",
+                "--motion",
+                "<Motion Path>"
+            ],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug integration test 'application_service_test'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--test=application_service_test",
+                    "--package=mdanceio"
+                ],
+                "filter": {
+                    "name": "application_service_test",
+                    "kind": "test"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug unit tests in library 'nanoem'",
+            "cargo": {
+                "args": [
+                    "test",
+                    "--no-run",
+                    "--lib",
+                    "--package=nanoem"
+                ],
+                "filter": {
+                    "name": "nanoem",
+                    "kind": "lib"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+    ]
+}

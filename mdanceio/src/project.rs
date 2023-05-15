@@ -1253,8 +1253,17 @@ impl Project {
                 // TODO: record history in motion redo
                 let (missing_bones, missing_morphs) =
                     motion.test_all_missing_model_objects(self.active_model().unwrap());
-                if !missing_bones.is_empty() && !missing_morphs.is_empty() {
-                    // TODO: Dialog hint motion missing
+                if !missing_bones.is_empty() {
+                    log::info!("Missing Bone:");
+                    for bone in &missing_bones {
+                        log::info!("\t{}", bone);
+                    }
+                }
+                if !missing_morphs.is_empty() {
+                    log::info!("Missing Morph:");
+                    for morph in &missing_morphs {
+                        log::info!("\t{}", morph);
+                    }
                 }
                 // TODO: add all to motion selection
                 let _ = self.add_model_motion(motion, self.active_model_pair.0.unwrap());
