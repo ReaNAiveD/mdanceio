@@ -21,5 +21,7 @@ pub type JointIndex = usize;
 pub type SoftBodyIndex = usize;
 
 pub mod model;
+pub mod bone;
 
-pub use model::{Bone, Material, Model, Morph, Vertex, VertexUnit};
+pub use model::{Material, Model, Morph, Vertex, VertexUnit};
+pub use bone::Bone;

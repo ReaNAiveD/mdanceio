@@ -699,12 +699,12 @@ impl Merger<'_, '_> {
         &mut self,
         origin: &MotionBoneKeyframe,
         frame_index: u32,
-        name: &String,
+        name: &str,
         reverse: bool,
         reversed_bone_name_set: &mut HashSet<String>,
     ) {
-        const LEFT: &'static str = "左";
-        const RIGHT: &'static str = "右";
+        const LEFT: &str = "左";
+        const RIGHT: &str = "右";
         let (new_name, new_frame) = if reverse && name.starts_with(LEFT) {
             let new_name = name.replacen(LEFT, RIGHT, 1);
             reversed_bone_name_set.insert(new_name.clone());
@@ -714,7 +714,7 @@ impl Merger<'_, '_> {
             reversed_bone_name_set.insert(new_name.clone());
             (new_name, Self::reverse_bone_keyframe(origin))
         } else {
-            (name.clone(), origin.clone())
+            (name.to_owned(), origin.clone())
         };
         if self.overrid
             || self
@@ -839,6 +839,22 @@ impl KeyframeInterpolationPoint {
                 bezier_control_point: Vector4::from(interpolation),
                 is_linear_interpolation: false,
             }
+        }
+    }
+
+    pub fn lerp(&self, other: Self, amount: f32) -> Self {
+        Self {
+            bezier_control_point: self
+                .bezier_control_point
+                .map(|v| v as f32)
+                .lerp(
+                    other
+                        .bezier_control_point
+                        .map(|v| v as f32),
+                    amount,
+                )
+                .map(|v| v.clamp(0f32, u8::MAX as f32) as u8),
+            is_linear_interpolation: self.is_linear_interpolation,
         }
     }
 }
