@@ -30,30 +30,10 @@ use crate::{
     utils::{
         f128_to_isometry, f128_to_quat, f128_to_vec3, f128_to_vec4, from_isometry, lerp_f32,
         mat4_truncate, to_isometry, to_na_vec3, Invert,
-    },
+    }, model::VertexIndex,
 };
 
-pub type NanoemModel = nanoem::model::Model;
-pub type NanoemVertex = nanoem::model::ModelVertex;
-pub type NanoemBone = nanoem::model::ModelBone;
-pub type NanoemMaterial = nanoem::model::ModelMaterial;
-pub type NanoemMorph = nanoem::model::ModelMorph;
-pub type NanoemConstraint = nanoem::model::ModelConstraint;
-pub type NanoemConstraintJoint = nanoem::model::ModelConstraintJoint;
-pub type NanoemLabel = nanoem::model::ModelLabel;
-pub type NanoemRigidBody = nanoem::model::ModelRigidBody;
-pub type NanoemJoint = nanoem::model::ModelJoint;
-pub type NanoemSoftBody = nanoem::model::ModelSoftBody;
-pub type NanoemTexture = nanoem::model::ModelTexture;
-pub type VertexIndex = usize;
-pub type BoneIndex = usize;
-pub type MaterialIndex = usize;
-pub type MorphIndex = usize;
-pub type ConstraintIndex = usize;
-pub type LabelIndex = usize;
-pub type RigidBodyIndex = usize;
-pub type JointIndex = usize;
-pub type SoftBodyIndex = usize;
+use super::{MorphIndex, NanoemModel, BoneIndex, MaterialIndex, ConstraintIndex, RigidBodyIndex, NanoemBone, NanoemTexture, NanoemConstraint, SoftBodyIndex, NanoemVertex, NanoemMaterial, NanoemMorph, NanoemSoftBody, NanoemLabel, NanoemRigidBody, NanoemJoint};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -89,7 +69,7 @@ impl From<VertexSimd> for VertexUnit {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct ModelMorphUsage {
+struct ModelMorphUsage {
     pub eyebrow: Option<MorphIndex>,
     pub eye: Option<MorphIndex>,
     pub lip: Option<MorphIndex>,
@@ -2100,7 +2080,7 @@ impl Model {
         uniform_data.set_light_parameters(context.light);
         uniform_data.set_all_model_parameters(self, context.all_models);
         for (idx, material) in self.materials.iter().enumerate() {
-            uniform_data.set_material_parameters(idx, material);
+            uniform_data.set_material_parameters(idx, &material);
         }
         uniform_data.set_ground_shadow_parameters(context.light, context.camera, &world);
         self.uniform_bind.update(&uniform_data, queue);
