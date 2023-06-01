@@ -1398,6 +1398,7 @@ impl Model {
                     == self
                         .constraint_joint_bones
                         .get(&bone.origin.base.index)
+                        .and_then(|idx| self.bone_to_constraints.get(idx))
                         .and_then(|idx| self.constraints.get(*idx))
                         .map(|constraint| constraint.states.enabled);
                 let parent_bone = usize::try_from(bone.origin.parent_bone_index)
