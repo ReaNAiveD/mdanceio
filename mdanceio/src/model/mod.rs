@@ -20,8 +20,9 @@ pub type RigidBodyIndex = usize;
 pub type JointIndex = usize;
 pub type SoftBodyIndex = usize;
 
-pub mod model;
 pub mod bone;
+pub mod constraint;
+pub mod model;
 
-pub use model::{Material, Model, Morph, Vertex, VertexUnit};
 pub use bone::Bone;
+pub use model::{Material, Model, Morph, Vertex, VertexUnit};

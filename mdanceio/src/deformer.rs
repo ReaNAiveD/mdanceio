@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 
 use crate::{
     camera::Camera,
-    model::{Bone, Model, Morph, Vertex, VertexUnit},
+    model::{Bone, Model, Morph, Vertex, VertexUnit, bone::BoneSet},
     utils::{f128_to_vec3, mat4_truncate},
 };
 
@@ -42,7 +42,7 @@ pub struct WgpuDeformer {
 impl WgpuDeformer {
     pub fn new(
         vertices: &[Vertex],
-        bones: &[Bone],
+        bones: &BoneSet,
         fallback_bone: &Bone,
         morphs: &[Morph],
         edge_size: f32,
@@ -252,12 +252,12 @@ impl WgpuDeformer {
         }
     }
 
-    fn build_matrix_buffer_data(bones: &[Bone], fallback_bone: &Bone) -> Vec<[[f32; 4]; 4]> {
+    fn build_matrix_buffer_data(bones: &BoneSet, fallback_bone: &Bone) -> Vec<[[f32; 4]; 4]> {
         let mut matrix_buffer_data = vec![[[0f32; 4]; 4]; bones.len().max(1)];
         for (idx, bone) in bones.iter().enumerate() {
             matrix_buffer_data[idx] = bone.matrices.skinning_transform.into();
         }
-        if bones.is_empty() {
+        if bones.len() == 0 {
             matrix_buffer_data[0] = fallback_bone.matrices.skinning_transform.into();
         }
         matrix_buffer_data
@@ -383,7 +383,7 @@ impl CommonDeformer {
     pub fn execute(
         &self,
         vertices: &[Vertex],
-        bones: &[Bone],
+        bones: &BoneSet,
         morphs: &[Morph],
         edge_size: f32,
         output_buffer: &wgpu::Buffer,
@@ -424,7 +424,7 @@ impl CommonDeformer {
                     output[idx].normal = vertex.origin.normal;
                 }
                 nanoem::model::ModelVertexType::BDEF1 => {
-                    let m = bones[vertex.origin.bone_indices[0] as usize]
+                    let m = bones.try_get(vertex.origin.bone_indices[0]).unwrap()
                         .matrices
                         .skinning_transform;
                     let pos = m
@@ -437,10 +437,10 @@ impl CommonDeformer {
                 }
                 nanoem::model::ModelVertexType::BDEF2 => {
                     let weight = vertex.origin.bone_weights[0];
-                    let m0 = bones[vertex.origin.bone_indices[0] as usize]
+                    let m0 = bones.try_get(vertex.origin.bone_indices[0]).unwrap()
                         .matrices
                         .skinning_transform;
-                    let m1 = bones[vertex.origin.bone_indices[1] as usize]
+                    let m1 = bones.try_get(vertex.origin.bone_indices[1]).unwrap()
                         .matrices
                         .skinning_transform;
                     let pos = (f128_to_vec3(vertex.origin.origin) + vertex_position_deltas[idx])
@@ -455,16 +455,16 @@ impl CommonDeformer {
                 }
                 nanoem::model::ModelVertexType::BDEF4 | nanoem::model::ModelVertexType::QDEF => {
                     let weights = vertex.origin.bone_weights;
-                    let m0 = bones[vertex.origin.bone_indices[0] as usize]
+                    let m0 = bones.try_get(vertex.origin.bone_indices[0]).unwrap()
                         .matrices
                         .skinning_transform;
-                    let m1 = bones[vertex.origin.bone_indices[1] as usize]
+                    let m1 = bones.try_get(vertex.origin.bone_indices[1]).unwrap()
                         .matrices
                         .skinning_transform;
-                    let m2 = bones[vertex.origin.bone_indices[2] as usize]
+                    let m2 = bones.try_get(vertex.origin.bone_indices[2]).unwrap()
                         .matrices
                         .skinning_transform;
-                    let m3 = bones[vertex.origin.bone_indices[3] as usize]
+                    let m3 = bones.try_get(vertex.origin.bone_indices[3]).unwrap()
                         .matrices
                         .skinning_transform;
                     let pos = (f128_to_vec3(vertex.origin.origin) + vertex_position_deltas[idx])
@@ -484,10 +484,10 @@ impl CommonDeformer {
                 }
                 nanoem::model::ModelVertexType::SDEF => {
                     let weights = vertex.origin.bone_weights;
-                    let m0 = bones[vertex.origin.bone_indices[0] as usize]
+                    let m0 = bones.try_get(vertex.origin.bone_indices[0]).unwrap()
                         .matrices
                         .skinning_transform;
-                    let m1 = bones[vertex.origin.bone_indices[1] as usize]
+                    let m1 = bones.try_get(vertex.origin.bone_indices[1]).unwrap()
                         .matrices
                         .skinning_transform;
                     let sdef_c = f128_to_vec3(vertex.origin.sdef_c);

@@ -61,9 +61,9 @@ impl BoneKeyframeState {
             orientation: bone.local_user_orientation,
             stage_index: 0,
             bezier_param: BoneKeyframeBezierControlPointParameter {
-                translation_x: bone.interpolation.translation_x.bezier_control_point,
-                translation_y: bone.interpolation.translation_y.bezier_control_point,
-                translation_z: bone.interpolation.translation_z.bezier_control_point,
+                translation_x: bone.interpolation.translation.x.bezier_control_point,
+                translation_y: bone.interpolation.translation.y.bezier_control_point,
+                translation_z: bone.interpolation.translation.z.bezier_control_point,
                 orientation: bone.interpolation.orientation.bezier_control_point,
             },
             enable_physics_simulation,
@@ -165,7 +165,7 @@ impl Motion {
     }
 
     pub fn initialize_model_frame_0(&mut self, model: &Model) {
-        for bone in model.bones() {
+        for bone in model.bones().iter() {
             if self.find_bone_keyframe(&bone.canonical_name, 0).is_none() {
                 let _ = self.opaque.local_bone_motion_track_bundle.insert_keyframe(
                     MotionBoneKeyframe {
@@ -822,6 +822,13 @@ impl Default for KeyframeInterpolationPoint {
 impl KeyframeInterpolationPoint {
     const DEFAULT_BEZIER_CONTROL_POINT: [u8; 4] = [20, 20, 107, 107];
 
+    pub fn zero() -> Self {
+        Self {
+            bezier_control_point: Bone::DEFAULT_BEZIER_CONTROL_POINT.into(),
+            is_linear_interpolation: true,
+        }
+    }
+
     pub fn is_linear_interpolation(interpolation: &[u8; 4]) -> bool {
         interpolation[0] == interpolation[1]
             && interpolation[2] == interpolation[3]
@@ -847,12 +854,7 @@ impl KeyframeInterpolationPoint {
             bezier_control_point: self
                 .bezier_control_point
                 .map(|v| v as f32)
-                .lerp(
-                    other
-                        .bezier_control_point
-                        .map(|v| v as f32),
-                    amount,
-                )
+                .lerp(other.bezier_control_point.map(|v| v as f32), amount)
                 .map(|v| v.clamp(0f32, u8::MAX as f32) as u8),
             is_linear_interpolation: self.is_linear_interpolation,
         }

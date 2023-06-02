@@ -467,7 +467,7 @@ impl PerspectiveCamera {
 
     pub fn bound_look_at(&self, project: &Project) -> Vector3<f32> {
         (match project.resolve_bone((&self.outside_parent.0, &self.outside_parent.1)) {
-            Some(bone) => bone.world_transform_origin(),
+            Some(bone) => bone.world_translation(),
             None => Vector3::zero(),
         }) + self.look_at(project.active_model())
     }
