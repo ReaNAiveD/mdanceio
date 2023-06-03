@@ -61,9 +61,9 @@ impl BoneKeyframeState {
             orientation: bone.local_user_orientation,
             stage_index: 0,
             bezier_param: BoneKeyframeBezierControlPointParameter {
-                translation_x: bone.interpolation.translation_x.bezier_control_point,
-                translation_y: bone.interpolation.translation_y.bezier_control_point,
-                translation_z: bone.interpolation.translation_z.bezier_control_point,
+                translation_x: bone.interpolation.translation.x.bezier_control_point,
+                translation_y: bone.interpolation.translation.y.bezier_control_point,
+                translation_z: bone.interpolation.translation.z.bezier_control_point,
                 orientation: bone.interpolation.orientation.bezier_control_point,
             },
             enable_physics_simulation,
@@ -165,7 +165,7 @@ impl Motion {
     }
 
     pub fn initialize_model_frame_0(&mut self, model: &Model) {
-        for bone in model.bones() {
+        for bone in model.bones().iter() {
             if self.find_bone_keyframe(&bone.canonical_name, 0).is_none() {
                 let _ = self.opaque.local_bone_motion_track_bundle.insert_keyframe(
                     MotionBoneKeyframe {
@@ -204,6 +204,7 @@ impl Motion {
         }
         if self.find_model_keyframe(0).is_none() {
             let constraint_states = model
+                .bones()
                 .constraints()
                 .iter()
                 .filter_map(|constraint| {
@@ -699,12 +700,12 @@ impl Merger<'_, '_> {
         &mut self,
         origin: &MotionBoneKeyframe,
         frame_index: u32,
-        name: &String,
+        name: &str,
         reverse: bool,
         reversed_bone_name_set: &mut HashSet<String>,
     ) {
-        const LEFT: &'static str = "左";
-        const RIGHT: &'static str = "右";
+        const LEFT: &str = "左";
+        const RIGHT: &str = "右";
         let (new_name, new_frame) = if reverse && name.starts_with(LEFT) {
             let new_name = name.replacen(LEFT, RIGHT, 1);
             reversed_bone_name_set.insert(new_name.clone());
@@ -714,7 +715,7 @@ impl Merger<'_, '_> {
             reversed_bone_name_set.insert(new_name.clone());
             (new_name, Self::reverse_bone_keyframe(origin))
         } else {
-            (name.clone(), origin.clone())
+            (name.to_owned(), origin.clone())
         };
         if self.overrid
             || self
@@ -822,6 +823,13 @@ impl Default for KeyframeInterpolationPoint {
 impl KeyframeInterpolationPoint {
     const DEFAULT_BEZIER_CONTROL_POINT: [u8; 4] = [20, 20, 107, 107];
 
+    pub fn zero() -> Self {
+        Self {
+            bezier_control_point: Bone::DEFAULT_BEZIER_CONTROL_POINT.into(),
+            is_linear_interpolation: true,
+        }
+    }
+
     pub fn is_linear_interpolation(interpolation: &[u8; 4]) -> bool {
         interpolation[0] == interpolation[1]
             && interpolation[2] == interpolation[3]
@@ -839,6 +847,17 @@ impl KeyframeInterpolationPoint {
                 bezier_control_point: Vector4::from(interpolation),
                 is_linear_interpolation: false,
             }
+        }
+    }
+
+    pub fn lerp(&self, other: Self, amount: f32) -> Self {
+        Self {
+            bezier_control_point: self
+                .bezier_control_point
+                .map(|v| v as f32)
+                .lerp(other.bezier_control_point.map(|v| v as f32), amount)
+                .map(|v| v.clamp(0f32, u8::MAX as f32) as u8),
+            is_linear_interpolation: self.is_linear_interpolation,
         }
     }
 }
