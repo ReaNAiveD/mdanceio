@@ -6,7 +6,7 @@ use cgmath::{
 };
 
 use crate::{
-    bezier_curve::BezierCurve,
+    bezier_curve::{BezierCurve, Curve},
     model::{Bone, Model},
     motion::{KeyframeInterpolationPoint, Motion},
     project::Project,
@@ -183,12 +183,12 @@ impl PerspectiveCamera {
             self.set_distance(keyframe.distance * DISTANCE_FACTOR);
             self.set_perspective(keyframe.is_perspective_view);
             self.interpolation = CameraKeyframeInterpolation {
-                lookat_x: KeyframeInterpolationPoint::build(keyframe.interpolation.lookat_x),
-                lookat_y: KeyframeInterpolationPoint::build(keyframe.interpolation.lookat_y),
-                lookat_z: KeyframeInterpolationPoint::build(keyframe.interpolation.lookat_z),
-                angle: KeyframeInterpolationPoint::build(keyframe.interpolation.angle),
-                fov: KeyframeInterpolationPoint::build(keyframe.interpolation.fov),
-                distance: KeyframeInterpolationPoint::build(keyframe.interpolation.distance),
+                lookat_x: KeyframeInterpolationPoint::new(&keyframe.interpolation.lookat_x),
+                lookat_y: KeyframeInterpolationPoint::new(&keyframe.interpolation.lookat_y),
+                lookat_z: KeyframeInterpolationPoint::new(&keyframe.interpolation.lookat_z),
+                angle: KeyframeInterpolationPoint::new(&keyframe.interpolation.angle),
+                fov: KeyframeInterpolationPoint::new(&keyframe.interpolation.fov),
+                distance: KeyframeInterpolationPoint::new(&keyframe.interpolation.distance),
             };
             self.synchronize_outside_parent(keyframe, project, global_track_bundle);
         } else {
@@ -254,19 +254,19 @@ impl PerspectiveCamera {
                     ));
                     self.set_perspective(prev_frame.is_perspective_view);
                     self.interpolation = CameraKeyframeInterpolation {
-                        lookat_x: KeyframeInterpolationPoint::build(
-                            next_frame.interpolation.lookat_x,
+                        lookat_x: KeyframeInterpolationPoint::new(
+                            &next_frame.interpolation.lookat_x,
                         ),
-                        lookat_y: KeyframeInterpolationPoint::build(
-                            next_frame.interpolation.lookat_y,
+                        lookat_y: KeyframeInterpolationPoint::new(
+                            &next_frame.interpolation.lookat_y,
                         ),
-                        lookat_z: KeyframeInterpolationPoint::build(
-                            next_frame.interpolation.lookat_z,
+                        lookat_z: KeyframeInterpolationPoint::new(
+                            &next_frame.interpolation.lookat_z,
                         ),
-                        angle: KeyframeInterpolationPoint::build(next_frame.interpolation.angle),
-                        fov: KeyframeInterpolationPoint::build(next_frame.interpolation.fov),
-                        distance: KeyframeInterpolationPoint::build(
-                            next_frame.interpolation.distance,
+                        angle: KeyframeInterpolationPoint::new(&next_frame.interpolation.angle),
+                        fov: KeyframeInterpolationPoint::new(&next_frame.interpolation.fov),
+                        distance: KeyframeInterpolationPoint::new(
+                            &next_frame.interpolation.distance,
                         ),
                     };
                     self.synchronize_outside_parent(&prev_frame, project, global_track_bundle);
@@ -340,9 +340,9 @@ impl PerspectiveCamera {
         if let Some(curve) = cache.get(&key) {
             curve.value(value)
         } else {
-            let curve = BezierCurve::create(
-                &Vector2::new(next[0], next[1]),
-                &Vector2::new(next[2], next[3]),
+            let curve = BezierCurve::new(
+                Vector2::new(next[0], next[1]),
+                Vector2::new(next[2], next[3]),
                 interval,
             );
             let r = curve.value(value);

@@ -15,5 +15,12 @@
     // "rust-analyzer.cargo.target": "x86_64-unknown-linux-gnu",
     "rust-analyzer.debug.engine": "vadimcn.vscode-lldb",
     "rust-analyzer.checkOnSave.command": "clippy",
-    "rust-analyzer.debug.openDebugPane": true
+    "rust-analyzer.debug.openDebugPane": true,
+    "VSCodeCounter.exclude": [
+        "**/.gitignore",
+        "**/.vscode/**",
+        "**/node_modules/**",
+        "**/*.lock",
+        "**/package-lock.json"
+    ]
 }

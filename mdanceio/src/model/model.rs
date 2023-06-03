@@ -25,7 +25,6 @@ use crate::{
         technique::{EdgePassKey, ObjectPassKey, ShadowPassKey, TechniqueType, ZplotPassKey},
     },
     light::Light,
-    model::bone::{BoneKeyframeInterpolation, BoneStates, Matrices},
     motion::Motion,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
     utils::{
@@ -35,11 +34,10 @@ use crate::{
 };
 
 use super::{
-    bone::BoneSet,
-    constraint::{Constraint, ConstraintSet},
-    Bone, BoneIndex, ConstraintIndex, MaterialIndex, MorphIndex, NanoemBone, NanoemConstraint,
-    NanoemJoint, NanoemLabel, NanoemMaterial, NanoemModel, NanoemMorph, NanoemRigidBody,
-    NanoemSoftBody, NanoemTexture, NanoemVertex, RigidBodyIndex, SoftBodyIndex, VertexIndex,
+    bone::BoneSet, Bone, BoneIndex, MaterialIndex, MorphIndex, NanoemBone,
+    NanoemConstraint, NanoemJoint, NanoemLabel, NanoemMaterial, NanoemModel, NanoemMorph,
+    NanoemRigidBody, NanoemSoftBody, NanoemTexture, NanoemVertex, RigidBodyIndex, SoftBodyIndex,
+    VertexIndex,
 };
 
 #[repr(C)]
