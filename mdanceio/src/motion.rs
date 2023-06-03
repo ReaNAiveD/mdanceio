@@ -204,6 +204,7 @@ impl Motion {
         }
         if self.find_model_keyframe(0).is_none() {
             let constraint_states = model
+                .bones()
                 .constraints()
                 .iter()
                 .filter_map(|constraint| {

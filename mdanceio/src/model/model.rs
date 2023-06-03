@@ -118,7 +118,6 @@ pub struct Model {
     vertex_indices: Vec<u32>,
     materials: Vec<Material>,
     bones: BoneSet,
-    constraints: ConstraintSet,
     morphs: Vec<Morph>,
     labels: Vec<Label>,
     rigid_bodies: Vec<RigidBody>,
@@ -210,9 +209,7 @@ impl Model {
                     .map(|vertex| Vertex::from_nanoem(vertex))
                     .collect::<Vec<_>>();
                 let indices = opaque.vertex_indices.clone();
-                let mut bones = BoneSet::new(&opaque.bones, language_type);
-                let constraints = ConstraintSet::new(&opaque.constraints, &bones, language_type);
-                bones.init_with_constraints(&constraints);
+                let mut bones = BoneSet::new(&opaque.bones, &opaque.constraints, language_type);
                 let mut bone_set: HashSet<BoneIndex> = HashSet::new();
                 let mut morphs_by_name = HashMap::new();
                 let morphs = opaque
@@ -484,7 +481,6 @@ impl Model {
                     bone_index_hash_map,
                     bones,
                     morphs,
-                    constraints,
                     vertices,
                     vertex_indices: indices,
                     materials,
@@ -769,12 +765,6 @@ impl Model {
                         physics_engine,
                         outside_parent_bone_map,
                     );
-                    self.solve_all_constraints();
-                    // TODO: Optimize bone transform apply path, such as building a graph
-                    self.apply_all_bones_transform(
-                        SimulationTiming::Before,
-                        outside_parent_bone_map,
-                    );
                     self.synchronize_all_rigid_body_kinematics(motion, frame_index, physics_engine);
                     self.synchronize_all_rigid_bodies_transform_feedback_to_simulation(
                         physics_engine,
@@ -802,9 +792,7 @@ impl Model {
         for state in &keyframe.constraint_states {
             if let Some(constraint) = local_bone_motion_track_bundle
                 .resolve_id(state.bone_id)
-                .and_then(|name| self.bones.find(name))
-                .and_then(|bone| self.constraints.find_by_target_bone(bone.handle))
-                .and_then(|constraint_idx| self.constraints.get_mut(constraint_idx))
+                .and_then(|name| self.bones.find_mut_constraint(name))
             {
                 constraint.states.enabled = state.enabled;
             }
@@ -951,12 +939,6 @@ impl Model {
                 morph.dirty = false;
             }
             self.states.dirty_morph = true;
-        }
-    }
-
-    fn solve_all_constraints(&mut self) {
-        for constraint in self.constraints.iter() {
-            self.bones.solve_constraint(constraint);
         }
     }
 
@@ -1345,9 +1327,6 @@ impl Model {
     ) {
         self.bounding_box.reset();
         self.apply_all_bones_transform(SimulationTiming::Before, outside_parent_bone_map);
-        self.solve_all_constraints();
-        // TODO: Optimize bone transform apply path, such as building a graph
-        self.apply_all_bones_transform(SimulationTiming::Before, outside_parent_bone_map);
         if physics_engine.simulation_mode == SimulationMode::EnableAnytime {
             self.synchronize_all_rigid_bodies_transform_feedback_to_simulation(physics_engine);
             physics_engine.step(physics_simulation_time_step);
@@ -1386,10 +1365,6 @@ impl Model {
 
     pub fn morphs(&self) -> &[Morph] {
         &self.morphs
-    }
-
-    pub fn constraints(&self) -> &ConstraintSet {
-        &self.constraints
     }
 
     pub fn textures(&self) -> &[NanoemTexture] {

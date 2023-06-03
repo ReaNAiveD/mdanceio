@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use cgmath::{AbsDiffEq, InnerSpace, Matrix3, Matrix4, One, Quaternion, Vector3, Vector4, Zero};
+use cgmath::{AbsDiffEq, InnerSpace, Matrix3, Matrix4, One, Quaternion, Vector3, Vector4, Zero, Rad};
 
 use crate::utils::Invert;
 
-use super::{bone::BoneSet, BoneIndex, ConstraintIndex, NanoemBone, NanoemConstraint};
+use super::{Bone, BoneIndex, ConstraintIndex, NanoemBone, NanoemConstraint};
 
 #[derive(Debug, Clone, Copy)]
 pub struct ConstraintJoint {
@@ -14,7 +14,7 @@ pub struct ConstraintJoint {
     pub effector_direction: Vector3<f32>,
     pub axis: Vector3<f32>,
     // 弧度
-    pub angle: f32,
+    pub angle: Rad<f32>,
 }
 
 impl Default for ConstraintJoint {
@@ -25,7 +25,7 @@ impl Default for ConstraintJoint {
             target_direction: Vector3::zero(),
             effector_direction: Vector3::zero(),
             axis: Vector3::zero(),
-            angle: 0f32,
+            angle: Rad(0f32),
         }
     }
 }
@@ -67,14 +67,14 @@ impl ConstraintJoint {
         if z.abs() <= f32::default_epsilon() {
             return None;
         }
-        let angle = z.acos();
-        return Some(Self {
+        let angle = Rad(z.acos());
+        Some(Self {
             target_direction,
             effector_direction,
             axis,
             angle,
             ..Default::default()
-        });
+        })
     }
 }
 
@@ -152,7 +152,7 @@ pub struct ConstraintSet {
 impl ConstraintSet {
     pub fn new(
         origin: &[NanoemConstraint],
-        bones: &BoneSet,
+        bones: &[Bone],
         language_type: nanoem::common::LanguageType,
     ) -> Self {
         let mut constraints = vec![];
@@ -160,7 +160,7 @@ impl ConstraintSet {
         let mut joint_to_constraint = HashMap::new();
         let mut constraint_effector_bones = HashSet::new();
         let mut all_origin = origin.to_vec();
-        for bone in bones.iter() {
+        for bone in bones {
             if let Some(mut constraint) = bone.origin.constraint.clone() {
                 constraint.target_bone_index = bone.origin.base.index as i32;
                 all_origin.push(constraint);
@@ -170,19 +170,20 @@ impl ConstraintSet {
         for (idx, constraint) in all_origin.iter_mut().enumerate() {
             constraint.base.index = idx;
         }
+        let get_bone = |idx: i32| usize::try_from(idx).ok().and_then(|idx| bones.get(idx));
         for constraint in &all_origin {
-            let target_bone = bones.try_get(constraint.target_bone_index);
+            let target_bone = get_bone(constraint.target_bone_index);
             constraints.push(Constraint::from_nanoem(
                 constraint,
                 target_bone.map(|bone| &bone.origin),
                 language_type,
             ));
             for joint in &constraint.joints {
-                if let Some(bone) = bones.try_get(joint.bone_index) {
+                if let Some(bone) = get_bone(joint.bone_index) {
                     joint_to_constraint.insert(bone.origin.base.index, constraint.base.index);
                 }
             }
-            if let Some(effector_bone) = bones.try_get(constraint.effector_bone_index) {
+            if let Some(effector_bone) = get_bone(constraint.effector_bone_index) {
                 constraint_effector_bones.insert(effector_bone.origin.base.index);
             }
             if let Some(target_bone) = target_bone {
@@ -217,12 +218,28 @@ impl ConstraintSet {
         self.constraints.iter_mut()
     }
 
-    pub fn find_by_joint_bone(&self, bone: BoneIndex) -> Option<ConstraintIndex> {
-        self.joint_to_constraint.get(&bone).cloned()
+    pub fn find_by_joint(&self, bone: BoneIndex) -> Option<&Constraint> {
+        self.joint_to_constraint
+            .get(&bone)
+            .and_then(|idx| self.constraints.get(*idx))
     }
 
-    pub fn find_by_target_bone(&self, bone: BoneIndex) -> Option<ConstraintIndex> {
-        self.target_to_constraint.get(&bone).cloned()
+    pub fn find_mut_by_joint(&mut self, bone: BoneIndex) -> Option<&mut Constraint> {
+        self.joint_to_constraint
+            .get(&bone)
+            .and_then(|idx| self.constraints.get_mut(*idx))
+    }
+
+    pub fn find_by_target(&self, bone: BoneIndex) -> Option<&Constraint> {
+        self.target_to_constraint
+            .get(&bone)
+            .and_then(|idx| self.constraints.get(*idx))
+    }
+
+    pub fn find_mut_by_target(&mut self, bone: BoneIndex) -> Option<&mut Constraint> {
+        self.target_to_constraint
+            .get(&bone)
+            .and_then(|idx| self.constraints.get_mut(*idx))
     }
 
     pub fn is_active(&self, constraint: ConstraintIndex) -> bool {

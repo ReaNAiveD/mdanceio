@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use cgmath::{
-    AbsDiffEq, ElementWise, Euler, InnerSpace, Matrix4, One, Quaternion, Rad, Rotation3,
+    AbsDiffEq, Deg, ElementWise, Euler, InnerSpace, Matrix4, One, Quaternion, Rad, Rotation3,
     SquareMatrix, Vector3, Vector4, VectorSpace, Zero,
 };
 
@@ -14,7 +14,7 @@ use crate::{
 use super::{
     constraint::{Constraint, ConstraintJoint, ConstraintSet},
     model::RigidBody,
-    BoneIndex, ConstraintIndex, NanoemBone, NanoemConstraintJoint,
+    BoneIndex, ConstraintIndex, NanoemBone, NanoemConstraint, NanoemConstraintJoint,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -548,20 +548,25 @@ pub struct BoneSet {
     bones_by_name: HashMap<String, BoneIndex>,
     inherent_bones: HashMap<BoneIndex, HashSet<BoneIndex>>,
     parent_bone_tree: HashMap<BoneIndex, Vec<BoneIndex>>,
+    constraints: ConstraintSet,
 }
 
 impl BoneSet {
-    pub fn new(origin: &[NanoemBone], language_type: nanoem::common::LanguageType) -> Self {
+    pub fn new(
+        origin_bones: &[NanoemBone],
+        origin_constraints: &[NanoemConstraint],
+        language_type: nanoem::common::LanguageType,
+    ) -> Self {
         let mut inherent_bones = HashMap::new();
         let mut bones_by_name = HashMap::new();
-        let bones = origin
+        let mut bones = origin_bones
             .iter()
             .map(|bone| Bone::from_nanoem(bone, language_type))
             .collect::<Vec<_>>();
         for bone in &bones {
             if bone.origin.has_inherent_orientation() || bone.origin.has_inherent_translation() {
                 let parent_index = bone.origin.parent_inherent_bone_index as usize;
-                if let Some(parent_bone) = origin.get(parent_index) {
+                if let Some(parent_bone) = origin_bones.get(parent_index) {
                     inherent_bones
                         .entry(parent_bone.base.index)
                         .or_insert(HashSet::new())
@@ -574,27 +579,30 @@ impl BoneSet {
         }
         let mut parent_bone_tree = HashMap::new();
         for bone in &bones {
-            if let Some(parent_bone) = origin.get(bone.origin.parent_bone_index as usize) {
+            if let Some(parent_bone) = origin_bones.get(bone.origin.parent_bone_index as usize) {
                 parent_bone_tree
                     .entry(parent_bone.base.index)
                     .or_insert(vec![])
                     .push(bone.handle);
             }
         }
+        let constraints = ConstraintSet::new(origin_constraints, &bones, language_type);
+        Self::init_with_constraints(&mut bones, &constraints);
         Self {
             bones,
             bones_by_name,
             inherent_bones,
             parent_bone_tree,
+            constraints,
         }
     }
 
-    pub fn init_with_constraints(&mut self, constraints: &ConstraintSet) {
-        for bone in &mut self.bones {
-            if let Some(constraint) = constraints.find_by_joint_bone(bone.handle) {
-                if constraints.is_active(constraint) {
+    fn init_with_constraints(bones: &mut [Bone], constraints: &ConstraintSet) {
+        for bone in bones {
+            if let Some(constraint) = constraints.find_by_joint(bone.handle) {
+                if constraint.enabled() {
                     bone.constraint_joint = Some(ConstraintJointBind {
-                        constraint,
+                        constraint: constraint.origin.base.index,
                         orientation: Quaternion::one(),
                     });
                 } else {
@@ -638,6 +646,22 @@ impl BoneSet {
         usize::try_from(idx)
             .ok()
             .and_then(|bone| self.get_mut(bone))
+    }
+
+    pub fn constraints(&self) -> &ConstraintSet {
+        &self.constraints
+    }
+
+    pub fn find_constraint(&self, bone_name: &str) -> Option<&Constraint> {
+        self.bones_by_name
+            .get(bone_name)
+            .and_then(|bone| self.constraints.find_by_target(*bone))
+    }
+
+    pub fn find_mut_constraint(&mut self, bone_name: &str) -> Option<&mut Constraint> {
+        self.bones_by_name
+            .get(bone_name)
+            .and_then(|bone| self.constraints.find_mut_by_target(*bone))
     }
 
     pub fn parent_of(&self, bone: BoneIndex) -> Option<&Bone> {
@@ -696,6 +720,9 @@ impl BoneSet {
                 effector_bone.as_ref(),
             );
         }
+        if let Some(constraint) = self.constraints.find_by_target(bone).cloned() {
+            self.solve_constraint(&constraint);
+        }
     }
 
     pub fn update_matrices(&mut self, bone: BoneIndex) {
@@ -729,11 +756,8 @@ impl BoneSet {
             }
         } else {
             for joint in &constraint.origin.joints {
-                if let Some(joint_bone) = usize::try_from(joint.bone_index)
-                    .ok()
-                    .and_then(|idx| self.bones.get_mut(idx))
-                {
-                    joint_bone.constraint_joint.unwrap().orientation = Quaternion::one();
+                if let Some(joint_bone) = self.try_get_mut(joint.bone_index) {
+                    joint_bone.constraint_joint = None;
                 }
             }
         }
@@ -768,7 +792,7 @@ impl BoneSet {
             .try_get(constraint.origin.effector_bone_index)
             .cloned()
             .unwrap();
-        let angle_limit = constraint.origin.angle_limit;
+        let angle_limit = Deg(constraint.origin.angle_limit);
         if let Some(mut joint_result) = ConstraintJoint::solve_axis_angle(
             joint_bone.matrices.world_transform,
             effector_bone.world_translation().extend(1f32),
@@ -779,30 +803,19 @@ impl BoneSet {
                 if axis.magnitude2().gt(&f32::EPSILON) {
                     joint_result.axis = axis;
                 }
-            } else if iter_idx == 0 && joint.has_angle_limit {
-                let has_upper_limit =
-                    f128_to_vec3(joint.upper_limit).map(|v| v.abs() < f32::EPSILON);
-                let has_lower_limit =
-                    f128_to_vec3(joint.lower_limit).map(|v| v.abs() < f32::EPSILON);
-                let axis_fixed = has_upper_limit.zip(has_lower_limit, |u, l| u && l);
-                if axis_fixed.y && axis_fixed.z {
-                    joint_result.axis = Vector3::unit_x();
-                } else if axis_fixed.x && axis_fixed.z {
-                    joint_result.axis = Vector3::unit_y();
-                } else if axis_fixed.x && axis_fixed.y {
-                    joint_result.axis = Vector3::unit_z();
-                }
             }
             let new_angle_limit = angle_limit * (joints.len() as f32);
-
-            let orientation = Quaternion::from_axis_angle(
-                joint_result.axis,
-                Rad(joint_result.angle.min(new_angle_limit)),
-            );
+            let new_angle_limit = new_angle_limit.into();
+            joint_result.angle = if new_angle_limit > joint_result.angle {
+                joint_result.angle
+            } else {
+                new_angle_limit
+            };
+            let orientation = Quaternion::from_axis_angle(joint_result.axis, joint_result.angle);
             let mut mixed_orientation = if iter_idx == 0 {
                 orientation * joint_bone.local_orientation
             } else {
-                joint_bone.constraint_joint.unwrap().orientation * orientation
+                joint_bone.constraint_joint_orientation() * orientation
             };
             if joint.has_angle_limit {
                 let upper_limit = f128_to_vec3(joint.upper_limit);
@@ -816,7 +829,7 @@ impl BoneSet {
             for upper_joint in joints.iter().rev() {
                 let upper_joint_bone = self.try_get(upper_joint.bone_index).unwrap();
                 let translation = upper_joint_bone.local_translation;
-                let orientation = upper_joint_bone.constraint_joint.unwrap().orientation;
+                let orientation = upper_joint_bone.constraint_joint_orientation();
                 self.update_matrices_to(upper_joint_bone.handle, &translation, &orientation);
             }
             let joint_bone = self.try_get(joint.bone_index).unwrap();
