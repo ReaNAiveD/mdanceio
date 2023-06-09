@@ -956,9 +956,8 @@ impl Motion {
                         } else if bound.next.is_some() && bound.next.unwrap() > prev_frame_index {
                             let next_frame_index = bound.next.unwrap();
                             let interval = next_frame_index - prev_frame_index;
-                            let c0 = [prev_interpolation_value[0], prev_interpolation_value[1]];
-                            let c1 = [prev_interpolation_value[2], prev_interpolation_value[3]];
-                            let bezier_curve = BezierCurve::new(c0.into(), c1.into(), interval);
+                            let bezier_curve =
+                                BezierCurve::from_parameters(prev_interpolation_value, interval);
                             let amount =
                                 (bound.current - prev_frame_index) as f32 / (interval as f32);
                             let pair = bezier_curve.split(amount);
@@ -1455,7 +1454,7 @@ impl KeyframeInterpolationPoint {
             amount
         } else {
             let curve =
-                bezier_factory.from_points(self.control_point1, self.control_point2, interval);
+                bezier_factory.get_or_new(self.control_point1, self.control_point2, interval);
             curve.value(amount)
         }
     }
