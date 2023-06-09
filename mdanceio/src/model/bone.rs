@@ -665,7 +665,7 @@ impl BoneSet {
             };
             let orientation = Quaternion::from_axis_angle(joint_result.axis, joint_result.angle);
             let mut mixed_orientation = if iter_idx == 0 {
-                orientation * joint_bone.local_orientation
+                orientation * joint_bone.local_user_orientation
             } else {
                 joint_bone.constraint_joint_orientation() * orientation
             };
