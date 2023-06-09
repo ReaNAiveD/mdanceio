@@ -20,12 +20,8 @@ pub struct DirectionalLight {
     dirty: bool,
 }
 
-impl DirectionalLight {
-    pub const INITIAL_COLOR: Vector3<f32> =
-        Vector3::new(154f32 / 255f32, 154f32 / 255f32, 154f32 / 255f32);
-    pub const INITIAL_DIRECTION: Vector3<f32> = Vector3::new(-0.5f32, -1.0f32, 0.5f32);
-
-    pub fn new() -> Self {
+impl Default for DirectionalLight {
+    fn default() -> Self {
         Self {
             color: Self::INITIAL_COLOR,
             direction: Self::INITIAL_DIRECTION,
@@ -33,33 +29,20 @@ impl DirectionalLight {
             dirty: false,
         }
     }
+}
+
+impl DirectionalLight {
+    pub const INITIAL_COLOR: Vector3<f32> =
+        Vector3::new(154f32 / 255f32, 154f32 / 255f32, 154f32 / 255f32);
+    pub const INITIAL_DIRECTION: Vector3<f32> = Vector3::new(-0.5f32, -1.0f32, 0.5f32);
+
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn reset(&mut self) {
         self.color = Self::INITIAL_COLOR;
         self.direction = Self::INITIAL_DIRECTION;
-    }
-
-    pub fn synchronize_parameters(&mut self, motion: &Motion, frame_index: u32) {
-        if let Some(keyframe) = motion.find_light_keyframe(frame_index) {
-            self.set_color(f128_to_vec3(keyframe.color));
-            self.set_direction(f128_to_vec3(keyframe.direction));
-        } else {
-            if let (Some(prev_frame), Some(next_frame)) =
-                motion.opaque.search_closest_light_keyframes(frame_index)
-            {
-                let coef = Motion::coefficient(
-                    prev_frame.base.frame_index,
-                    next_frame.base.frame_index,
-                    frame_index,
-                );
-                let color0 = f128_to_vec3(prev_frame.color);
-                let color1 = f128_to_vec3(next_frame.color);
-                self.set_color(color0.lerp(color1, coef));
-                let direction0 = f128_to_vec3(prev_frame.direction);
-                let direction1 = f128_to_vec3(next_frame.direction);
-                self.set_direction(direction0.lerp(direction1, coef));
-            }
-        }
     }
 
     pub fn set_color(&mut self, value: Vector3<f32>) {
@@ -68,12 +51,12 @@ impl DirectionalLight {
     }
 
     pub fn set_direction(&mut self, value: Vector3<f32>) {
-        self.direction = if !value.abs_diff_eq(&Vector3::<f32>::zero(), Vector3::<f32>::default_epsilon())
-        {
-            value
-        } else {
-            Self::INITIAL_DIRECTION
-        };
+        self.direction =
+            if !value.abs_diff_eq(&Vector3::<f32>::zero(), Vector3::<f32>::default_epsilon()) {
+                value
+            } else {
+                Self::INITIAL_DIRECTION
+            };
         self.dirty = true;
     }
 

@@ -1,28 +1,25 @@
-use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-};
+use std::collections::{HashMap, HashSet};
 
-use cgmath::{ElementWise, One, Quaternion, Vector1, Vector2, Vector3, Vector4, VectorSpace, Zero};
+use cgmath::{Deg, One, Quaternion, Rad, Vector1, Vector2, Vector3, Vector4, VectorSpace, Zero};
 use nanoem::{
     common::NanoemError,
     motion::{
         MotionAccessoryKeyframe, MotionBoneKeyframe, MotionBoneKeyframeInterpolation,
-        MotionCameraKeyframe, MotionKeyframeBase, MotionLightKeyframe, MotionModelKeyframe,
-        MotionModelKeyframeConstraintState, MotionMorphKeyframe, MotionSelfShadowKeyframe,
-        MotionTrack,
+        MotionCameraKeyframe, MotionCameraKeyframeInterpolation, MotionKeyframeBase,
+        MotionLightKeyframe, MotionModelKeyframe, MotionModelKeyframeConstraintState,
+        MotionMorphKeyframe, MotionSelfShadowKeyframe, MotionTrack,
     },
 };
 
 use crate::{
-    bezier_curve::{BezierCurve, BezierCurveFactory, Curve, BezierCurveCache},
+    bezier_curve::{BezierCurve, BezierCurveCache, BezierCurveFactory, Curve},
     camera::PerspectiveCamera,
     error::MdanceioError,
     light::{DirectionalLight, Light},
     model::{Bone, Model},
     project::Project,
-    shadow_camera::ShadowCamera,
-    utils::{f128_to_quat, f128_to_vec3, f128_to_vec4},
+    shadow_camera::{CoverageMode, ShadowCamera},
+    utils::{f128_to_quat, f128_to_vec3, f128_to_vec4, lerp_element_wise, lerp_f32, lerp_rad},
 };
 
 pub type NanoemMotion = nanoem::motion::Motion;
@@ -116,7 +113,7 @@ impl BoneFrameTransform {
 
     pub fn mixed_orientation(&self, local_user_orientation: Quaternion<f32>) -> Quaternion<f32> {
         if let Some(coef) = self.local_transform_mix {
-            local_user_orientation.lerp(self.orientation, coef)
+            local_user_orientation.slerp(self.orientation, coef)
         } else {
             self.orientation
         }
@@ -183,10 +180,7 @@ impl Seek for MotionTrack<MotionBoneKeyframe> {
                 .map(KeyframeInterpolationPoint::new);
                 let amounts = translation_interpolation
                     .map(|interpolation| interpolation.curve_value(interval, coef, bezier_factory));
-                let minus_amounts = amounts.map(|a| 1f32 - a);
-                let translation = prev_translation
-                    .mul_element_wise(minus_amounts)
-                    .add_element_wise(next_translation.mul_element_wise(amounts));
+                let translation = lerp_element_wise(prev_translation, next_translation, amounts);
                 let orientation_interpolation =
                     KeyframeInterpolationPoint::new(&next_frame.interpolation.orientation);
                 let amount = orientation_interpolation.curve_value(interval, coef, bezier_factory);
@@ -214,7 +208,7 @@ impl Seek for MotionTrack<MotionBoneKeyframe> {
         if amount > 0f32 {
             let f1 = Self::seek(self, frame_index + 1, curve_factory);
             let local_transform_mix = match (f0.local_transform_mix, f1.local_transform_mix) {
-                (Some(a0), Some(a1)) => Some((1f32 - amount) * a0 + amount * a1),
+                (Some(a0), Some(a1)) => Some(lerp_f32(a0, a1, amount)),
                 (None, Some(a1)) => Some(amount * a1),
                 (Some(a0), None) => Some((1f32 - amount) * a0),
                 _ => None,
@@ -228,6 +222,347 @@ impl Seek for MotionTrack<MotionBoneKeyframe> {
             }
         } else {
             f0
+        }
+    }
+}
+
+impl Seek for MotionTrack<MotionMorphKeyframe> {
+    type Frame = f32;
+
+    fn find(&self, frame_index: u32) -> Option<Self::Frame> {
+        self.keyframes
+            .get(&frame_index)
+            .map(|keyframe| keyframe.weight)
+    }
+
+    fn seek(&self, frame_index: u32, _curve_factory: &dyn BezierCurveFactory) -> Self::Frame {
+        if let Some(frame) = self.find(frame_index) {
+            frame
+        } else if let (Some(prev_frame), Some(next_frame)) = self.search_closest(frame_index) {
+            let coef = Motion::coefficient(
+                prev_frame.base.frame_index,
+                next_frame.base.frame_index,
+                frame_index,
+            );
+            lerp_f32(prev_frame.weight, next_frame.weight, coef)
+        } else {
+            0f32
+        }
+    }
+
+    fn seek_precisely(
+        &self,
+        frame_index: u32,
+        amount: f32,
+        curve_factory: &dyn BezierCurveFactory,
+    ) -> Self::Frame {
+        let w0 = self.seek(frame_index, curve_factory);
+        if amount > 0f32 {
+            let w1 = self.seek(frame_index, curve_factory);
+            lerp_f32(w0, w1, amount)
+        } else {
+            w0
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CameraKeyframeInterpolation {
+    pub lookat: Vector3<KeyframeInterpolationPoint>,
+    pub angle: KeyframeInterpolationPoint,
+    pub fov: KeyframeInterpolationPoint,
+    pub distance: KeyframeInterpolationPoint,
+}
+
+impl Default for CameraKeyframeInterpolation {
+    fn default() -> Self {
+        Self {
+            lookat: [KeyframeInterpolationPoint::default(); 3].into(),
+            angle: KeyframeInterpolationPoint::default(),
+            fov: KeyframeInterpolationPoint::default(),
+            distance: KeyframeInterpolationPoint::default(),
+        }
+    }
+}
+
+impl From<MotionCameraKeyframeInterpolation> for CameraKeyframeInterpolation {
+    fn from(v: MotionCameraKeyframeInterpolation) -> Self {
+        Self {
+            lookat: Vector3::new(v.lookat_x.into(), v.lookat_y.into(), v.lookat_z.into()),
+            angle: v.angle.into(),
+            fov: v.fov.into(),
+            distance: v.distance.into(),
+        }
+    }
+}
+
+impl CameraKeyframeInterpolation {
+    pub fn lerp(&self, other: Self, amount: f32) -> Self {
+        Self {
+            lookat: Vector3::new(
+                self.lookat.x.lerp(other.lookat.x, amount),
+                self.lookat.y.lerp(other.lookat.y, amount),
+                self.lookat.z.lerp(other.lookat.z, amount),
+            ),
+            angle: self.angle.lerp(other.angle, amount),
+            fov: self.fov.lerp(other.fov, amount),
+            distance: self.distance.lerp(other.distance, amount),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CameraTransform {
+    pub lookat: Vector3<f32>,
+    pub angle: Vector3<f32>,
+    pub fov: Rad<f32>,
+    pub distance: f32,
+    pub perspective: bool,
+    pub outside_parent: Option<(i32, i32)>,
+    pub interpolation: CameraKeyframeInterpolation,
+}
+
+impl From<&MotionCameraKeyframe> for CameraTransform {
+    fn from(v: &MotionCameraKeyframe) -> Self {
+        Self {
+            lookat: f128_to_vec3(v.look_at),
+            angle: f128_to_vec3(v.angle),
+            fov: Deg(v.fov as f32).into(),
+            distance: v.distance,
+            perspective: v.is_perspective_view,
+            outside_parent: v
+                .outside_parent
+                .map(|op| (op.global_model_track_index, op.global_bone_track_index)),
+            interpolation: v.interpolation.into(),
+        }
+    }
+}
+
+impl Seek for MotionTrack<MotionCameraKeyframe> {
+    type Frame = Option<CameraTransform>;
+
+    fn find(&self, frame_index: u32) -> Option<Self::Frame> {
+        self.keyframes
+            .get(&frame_index)
+            .map(|keyframe| Some(keyframe.into()))
+    }
+
+    fn seek(&self, frame_index: u32, bezier_factory: &dyn BezierCurveFactory) -> Self::Frame {
+        if let Some(frame) = self.find(frame_index) {
+            frame
+        } else if let (Some(prev_frame), Some(next_frame)) = self.search_closest(frame_index) {
+            let interval = next_frame.base.frame_index - prev_frame.base.frame_index;
+            let coef = Motion::coefficient(
+                prev_frame.base.frame_index,
+                next_frame.base.frame_index,
+                frame_index,
+            );
+            let prev_interpolation: CameraKeyframeInterpolation = prev_frame.interpolation.into();
+            let interpolation: CameraKeyframeInterpolation = next_frame.interpolation.into();
+            let lookat_amount = interpolation
+                .lookat
+                .map(|v| v.curve_value(interval, coef, bezier_factory));
+            let lookat = lerp_element_wise(
+                f128_to_vec3(prev_frame.look_at),
+                f128_to_vec3(next_frame.look_at),
+                lookat_amount,
+            );
+            let angle = f128_to_vec3(prev_frame.angle).lerp(
+                f128_to_vec3(next_frame.angle),
+                interpolation
+                    .angle
+                    .curve_value(interval, coef, bezier_factory),
+            );
+            let prev_fov: Rad<f32> = Deg(prev_frame.fov as f32).into();
+            let next_fov: Rad<f32> = Deg(prev_frame.fov as f32).into();
+            let fov = Rad(lerp_f32(prev_fov.0, next_fov.0, coef));
+            let distance = lerp_f32(
+                prev_frame.distance,
+                next_frame.distance,
+                interpolation
+                    .distance
+                    .curve_value(interval, coef, bezier_factory),
+            );
+            let perspective = prev_frame.is_perspective_view;
+            let outside_parent = prev_frame
+                .outside_parent
+                .map(|op| (op.global_model_track_index, op.global_bone_track_index));
+            Some(CameraTransform {
+                lookat,
+                angle,
+                fov,
+                distance,
+                perspective,
+                outside_parent,
+                interpolation: prev_interpolation.lerp(interpolation, coef),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn seek_precisely(
+        &self,
+        frame_index: u32,
+        amount: f32,
+        curve_factory: &dyn BezierCurveFactory,
+    ) -> Self::Frame {
+        if let Some(frame0) = self.seek(frame_index, curve_factory) {
+            if amount > 0f32 {
+                if let Some(frame1) = self.seek(frame_index, curve_factory) {
+                    Some(CameraTransform {
+                        lookat: frame0.lookat.lerp(frame1.lookat, amount),
+                        angle: frame0.angle.lerp(frame1.angle, amount),
+                        fov: lerp_rad(frame0.fov, frame1.fov, amount),
+                        distance: lerp_f32(frame0.distance, frame1.distance, amount),
+                        perspective: frame0.perspective,
+                        outside_parent: frame0.outside_parent,
+                        interpolation: frame0.interpolation,
+                    })
+                } else {
+                    Some(frame0)
+                }
+            } else {
+                Some(frame0)
+            }
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LightFrame {
+    pub color: Vector3<f32>,
+    pub direction: Vector3<f32>,
+}
+
+impl From<&MotionLightKeyframe> for LightFrame {
+    fn from(v: &MotionLightKeyframe) -> Self {
+        Self {
+            color: f128_to_vec3(v.color),
+            direction: f128_to_vec3(v.direction),
+        }
+    }
+}
+
+impl Seek for MotionTrack<MotionLightKeyframe> {
+    type Frame = Option<LightFrame>;
+
+    fn find(&self, frame_index: u32) -> Option<Self::Frame> {
+        self.keyframes
+            .get(&frame_index)
+            .map(|keyframe| Some(keyframe.into()))
+    }
+
+    fn seek(&self, frame_index: u32, _curve_factory: &dyn BezierCurveFactory) -> Self::Frame {
+        if let Some(frame) = self.find(frame_index) {
+            frame
+        } else if let (Some(prev_frame), Some(next_frame)) = self.search_closest(frame_index) {
+            let coef = Motion::coefficient(
+                prev_frame.base.frame_index,
+                next_frame.base.frame_index,
+                frame_index,
+            );
+            let prev: LightFrame = prev_frame.into();
+            let next: LightFrame = next_frame.into();
+            Some(LightFrame {
+                color: prev.color.lerp(next.color, coef),
+                direction: prev.direction.lerp(next.direction, coef),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn seek_precisely(
+        &self,
+        frame_index: u32,
+        amount: f32,
+        curve_factory: &dyn BezierCurveFactory,
+    ) -> Self::Frame {
+        if let Some(frame0) = self.seek(frame_index, curve_factory) {
+            if amount > 0f32 {
+                if let Some(frame1) = self.seek(frame_index, curve_factory) {
+                    Some(LightFrame {
+                        color: frame0.color.lerp(frame1.color, amount),
+                        direction: frame0.direction.lerp(frame1.direction, amount),
+                    })
+                } else {
+                    Some(frame0)
+                }
+            } else {
+                Some(frame0)
+            }
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SelfShadowParam {
+    pub distance: f32,
+    pub coverage: CoverageMode,
+}
+
+impl From<&MotionSelfShadowKeyframe> for SelfShadowParam {
+    fn from(v: &MotionSelfShadowKeyframe) -> Self {
+        Self {
+            distance: v.distance,
+            coverage: (v.mode as u32).into(),
+        }
+    }
+}
+
+impl Seek for MotionTrack<MotionSelfShadowKeyframe> {
+    type Frame = Option<SelfShadowParam>;
+
+    fn find(&self, frame_index: u32) -> Option<Self::Frame> {
+        self.keyframes
+            .get(&frame_index)
+            .map(|keyframe| Some(keyframe.into()))
+    }
+
+    fn seek(&self, frame_index: u32, curve_factory: &dyn BezierCurveFactory) -> Self::Frame {
+        if let Some(frame) = self.find(frame_index) {
+            frame
+        } else if let (Some(prev_frame), Some(next_frame)) = self.search_closest(frame_index) {
+            let coef = Motion::coefficient(
+                prev_frame.base.frame_index,
+                next_frame.base.frame_index,
+                frame_index,
+            );
+            Some(SelfShadowParam {
+                distance: lerp_f32(prev_frame.distance, next_frame.distance, coef),
+                coverage: (prev_frame.mode as u32).into(),
+            })
+        } else {
+            None
+        }
+    }
+
+    fn seek_precisely(
+        &self,
+        frame_index: u32,
+        amount: f32,
+        curve_factory: &dyn BezierCurveFactory,
+    ) -> Self::Frame {
+        if let Some(frame0) = self.seek(frame_index, curve_factory) {
+            if amount > 0f32 {
+                if let Some(frame1) = self.seek(frame_index, curve_factory) {
+                    Some(SelfShadowParam {
+                        distance: lerp_f32(frame0.distance, frame1.distance, amount),
+                        coverage: frame0.coverage,
+                    })
+                } else {
+                    Some(frame0)
+                }
+            } else {
+                Some(frame0)
+            }
+        } else {
+            None
         }
     }
 }
@@ -765,7 +1100,12 @@ impl Motion {
             .min(Project::MAXIMUM_BASE_DURATION)
     }
 
-    pub fn find_bone_transform(&self, name: &str, frame_index: u32, amount: f32) -> BoneFrameTransform {
+    pub fn find_bone_transform(
+        &self,
+        name: &str,
+        frame_index: u32,
+        amount: f32,
+    ) -> BoneFrameTransform {
         if let Some(track) = self.opaque.local_bone_motion_track_bundle.tracks.get(name) {
             track.seek_precisely(frame_index, amount, &self.bezier_cache)
         } else {
@@ -781,6 +1121,14 @@ impl Motion {
         self.opaque.find_model_keyframe_object(frame_index)
     }
 
+    pub fn find_morph_weight(&self, name: &str, frame_index: u32, amount: f32) -> f32 {
+        if let Some(track) = self.opaque.local_morph_motion_track_bundle.tracks.get(name) {
+            track.seek_precisely(frame_index, amount, &self.bezier_cache)
+        } else {
+            0f32
+        }
+    }
+
     pub fn find_morph_keyframe(
         &self,
         name: &str,
@@ -789,12 +1137,30 @@ impl Motion {
         self.opaque.find_morph_keyframe_object(name, frame_index)
     }
 
+    pub fn find_camera_transform(&self, frame_index: u32, amount: f32) -> Option<CameraTransform> {
+        self.opaque
+            .camera_keyframes
+            .seek_precisely(frame_index, amount, &self.bezier_cache)
+    }
+
     pub fn find_camera_keyframe(&self, frame_index: u32) -> Option<&MotionCameraKeyframe> {
         self.opaque.find_camera_keyframe_object(frame_index)
     }
 
+    pub fn find_light_transform(&self, frame_index: u32, amount: f32) -> Option<LightFrame> {
+        self.opaque
+            .light_keyframes
+            .seek_precisely(frame_index, amount, &self.bezier_cache)
+    }
+
     pub fn find_light_keyframe(&self, frame_index: u32) -> Option<&MotionLightKeyframe> {
         self.opaque.find_light_keyframe_object(frame_index)
+    }
+
+    pub fn find_self_shadow_frame(&self, frame_index: u32, amount: f32) -> Option<SelfShadowParam> {
+        self.opaque
+            .self_shadow_keyframes
+            .seek_precisely(frame_index, amount, &self.bezier_cache)
     }
 
     pub fn find_self_shadow_keyframe(&self, frame_index: u32) -> Option<&MotionSelfShadowKeyframe> {
@@ -1022,6 +1388,12 @@ impl Default for KeyframeInterpolationPoint {
             control_point2: Vector2::new(107, 107),
             is_linear: true,
         }
+    }
+}
+
+impl From<[u8; 4]> for KeyframeInterpolationPoint {
+    fn from(v: [u8; 4]) -> Self {
+        Self::new(&v)
     }
 }
 

@@ -1079,71 +1079,40 @@ impl Project {
 
     pub fn synchronize_camera(&mut self, frame_index: u32, amount: f32) {
         const CAMERA_DIRECTION: Vector3<f32> = Vector3::new(-1f32, 1f32, 1f32);
-        let mut camera0 = self.camera.clone();
-        camera0.synchronize_parameters(&self.camera_motion, frame_index, self);
-        let look_at0 = camera0.look_at(self.active_model());
-        if amount > 0f32
-            && self
-                .camera_motion
-                .find_camera_keyframe(frame_index + 1)
-                .is_none()
+        const DISTANCE_FACTOR: f32 = -1.0f32;
+        if let Some(frame) = self
+            .camera_motion
+            .find_camera_transform(frame_index, amount)
         {
-            let mut camera1 = self.camera.clone();
-            camera1.synchronize_parameters(&self.camera_motion, frame_index, self);
-            let look_at1 = camera1.look_at(self.active_model());
-            self.camera.set_angle(
-                camera0
-                    .angle()
-                    .lerp(camera1.angle(), amount)
-                    .mul_element_wise(CAMERA_DIRECTION),
-            );
+            self.camera.set_look_at(frame.lookat);
+            let look_at = self.camera.look_at(self.active_model());
+            self.camera.set_look_at(look_at);
             self.camera
-                .set_distance(lerp_f32(camera0.distance(), camera1.distance(), amount));
-            self.camera.set_fov_radians(lerp_f32(
-                camera0.fov_radians(),
-                camera1.fov_radians(),
-                amount,
-            ));
-            self.camera.set_look_at(look_at0.lerp(look_at1, amount));
-        } else {
-            self.camera
-                .set_angle(camera0.angle().mul_element_wise(CAMERA_DIRECTION));
-            self.camera.set_distance(camera0.distance());
-            self.camera.set_fov_radians(camera0.fov_radians());
-            self.camera.set_look_at(look_at0);
+                .set_angle(frame.angle.mul_element_wise(CAMERA_DIRECTION));
+            self.camera.set_distance(frame.distance * DISTANCE_FACTOR);
+            self.camera.set_fov_radians(frame.fov.0);
+            self.camera.set_perspective(frame.perspective);
         }
-        self.camera.set_perspective(camera0.is_perspective());
-        self.camera.interpolation = camera0.interpolation;
         let bound_look_at = self.camera.bound_look_at(self);
         self.camera.update(self.viewport_size.0, bound_look_at);
         self.camera.set_dirty(false);
     }
 
     pub fn synchronize_light(&mut self, frame_index: u32, amount: f32) {
-        let mut light0 = self.light.clone();
-        light0.synchronize_parameters(&self.light_motion, frame_index);
-        if amount > 0f32 {
-            let mut light1 = self.light.clone();
-            light1.synchronize_parameters(&self.light_motion, frame_index + 1);
-            self.light
-                .set_color(light0.color().lerp(light1.color(), amount));
-            self.light
-                .set_direction(light0.direction().lerp(light1.direction(), amount));
-        } else {
-            self.light.set_color(light0.color());
-            self.light.set_direction(light0.direction());
+        if let Some(frame) = self.light_motion.find_light_transform(frame_index, amount) {
+            self.light.set_color(frame.color);
+            self.light.set_direction(frame.direction);
         }
         self.light.set_dirty(false);
     }
 
     pub fn synchronize_self_shadow(&mut self, frame_index: u32, amount: f32) {
-        if let Some(keyframe) = self
+        if let Some(frame) = self
             .self_shadow_motion
-            .find_self_shadow_keyframe(frame_index)
+            .find_self_shadow_frame(frame_index, amount)
         {
-            self.shadow_camera.set_distance(keyframe.distance);
-            self.shadow_camera
-                .set_coverage_mode((keyframe.mode as u32).into());
+            self.shadow_camera.set_distance(frame.distance);
+            self.shadow_camera.set_coverage_mode(frame.coverage);
             self.shadow_camera.set_dirty(false);
         }
     }
