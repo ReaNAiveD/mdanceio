@@ -959,7 +959,8 @@ impl Project {
             let fps_rate = fps / base;
             let seconds = (frame_index as f64) / (base as f64);
             let delta = if frame_index > seek_from {
-                ((frame_index - seek_from) * fps_rate) as f32 * self.physics_simulation_time_step()
+                // ((frame_index - seek_from) * fps_rate) as f32 * self.physics_simulation_time_step()
+                ((frame_index - seek_from) as f32) / (base as f32)
             } else {
                 0f32
             };

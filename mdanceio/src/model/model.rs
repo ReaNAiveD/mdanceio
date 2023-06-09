@@ -127,7 +127,7 @@ pub struct Model {
     pub shared_fallback_bone: Bone,
     bounding_box: BoundingBox,
     uniform_bind: UniformBind,
-    vertex_buffers: [wgpu::Buffer; 2],
+    vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     edge_color: Vector4<f32>,
     name: String,
@@ -379,23 +379,14 @@ impl Model {
                 let unpadded_size = vertices.len() * bytes_per_vertex;
                 let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
                 let padding = (align - unpadded_size % align) % align;
-                let vertex_buffer_even = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some(format!("Model/{}/VertexBuffer/Even", canonical_name).as_str()),
+                let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(format!("Model/{}/VertexBuffer", canonical_name).as_str()),
                     size: (unpadded_size + padding) as u64,
                     usage: wgpu::BufferUsages::VERTEX
                         | wgpu::BufferUsages::STORAGE
                         | wgpu::BufferUsages::COPY_DST,
                     mapped_at_creation: false,
                 });
-                let vertex_buffer_odd = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some(format!("Model/{}/VertexBuffer/Odd", canonical_name).as_str()),
-                    size: (unpadded_size + padding) as u64,
-                    usage: wgpu::BufferUsages::VERTEX
-                        | wgpu::BufferUsages::STORAGE
-                        | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                let vertex_buffers = [vertex_buffer_even, vertex_buffer_odd];
                 log::trace!("Len(index_buffer): {}", &opaque.vertex_indices.len());
                 let index_buffer = wgpu::util::DeviceExt::create_buffer_init(
                     device,
@@ -408,14 +399,14 @@ impl Model {
                 let mut stage_vertex_buffer_index = 0;
                 match &skin_deformer {
                     Deformer::Wgpu(deformer) => {
-                        deformer.execute(&vertex_buffers[stage_vertex_buffer_index], device, queue);
+                        deformer.execute(&vertex_buffer, device, queue);
                     }
                     Deformer::Software(deformer) => deformer.execute(
                         &vertices,
                         &bones,
                         &morphs,
                         edge_size,
-                        &vertex_buffers[stage_vertex_buffer_index],
+                        &vertex_buffer,
                         device,
                         queue,
                     ),
@@ -442,7 +433,7 @@ impl Model {
                             shadow_bind,
                             fallback_texture_bind,
                             fallback_shadow_bind,
-                            vertex_buffers: &vertex_buffers,
+                            vertex_buffer: &vertex_buffer,
                             index_buffer: &index_buffer,
                         },
                         index_offset as u32,
@@ -489,7 +480,7 @@ impl Model {
                     outside_parents: HashMap::new(),
                     bone_bound_rigid_bodies: HashMap::new(),
                     // shared_fallback_bone,
-                    vertex_buffers,
+                    vertex_buffer,
                     index_buffer,
                     uniform_bind,
                     shared_fallback_bone,
@@ -567,7 +558,7 @@ impl Model {
                     shadow_bind,
                     fallback_texture_bind,
                     fallback_shadow_bind,
-                    vertex_buffers: &self.vertex_buffers,
+                    vertex_buffer: &self.vertex_buffer,
                     index_buffer: &self.index_buffer,
                 },
                 index_offset,
@@ -655,7 +646,7 @@ impl Model {
                         shadow_bind,
                         fallback_texture_bind,
                         fallback_shadow_bind,
-                        vertex_buffers: &self.vertex_buffers,
+                        vertex_buffer: &self.vertex_buffer,
                         index_buffer: &self.index_buffer,
                     },
                     index_offset,
@@ -1543,7 +1534,7 @@ impl Model {
                 Deformer::Wgpu(deformer) => {
                     deformer.update_buffer(self, camera, queue);
                     deformer.execute(
-                        &self.vertex_buffers[self.stage_vertex_buffer_index],
+                        &self.vertex_buffer,
                         device,
                         queue,
                     );
@@ -1551,7 +1542,7 @@ impl Model {
                 Deformer::Software(deformer) => deformer.execute_model(
                     self,
                     camera,
-                    &self.vertex_buffers[self.stage_vertex_buffer_index],
+                    &self.vertex_buffer,
                     device,
                     queue,
                 ),
@@ -1959,7 +1950,7 @@ pub struct MaterialDrawContext<'a> {
     pub shadow_bind: &'a wgpu::BindGroup,
     pub fallback_texture_bind: &'a wgpu::BindGroup,
     pub fallback_shadow_bind: &'a wgpu::BindGroup,
-    pub vertex_buffers: &'a [wgpu::Buffer; 2],
+    pub vertex_buffer: &'a wgpu::Buffer,
     pub index_buffer: &'a wgpu::Buffer,
 }
 
@@ -2114,7 +2105,7 @@ impl Material {
             ctx.shadow_bind,
             ctx.fallback_texture_bind,
             ctx.fallback_shadow_bind,
-            &ctx.vertex_buffers[0],
+            &ctx.vertex_buffer,
             ctx.index_buffer,
             num_offset,
             num_indices,
@@ -2434,7 +2425,7 @@ impl Material {
             ctx.shadow_bind,
             ctx.fallback_texture_bind,
             ctx.fallback_shadow_bind,
-            &ctx.vertex_buffers[0],
+            &ctx.vertex_buffer,
             ctx.index_buffer,
             num_offset,
             num_indices,
