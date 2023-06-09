@@ -3091,7 +3091,7 @@ impl Joint {
                 if max - min < max_limit && max - min > 0f32 {
                     joint.set_limits(axis, [min, max]);
                     if stiffness > 0f32 {
-                        joint.set_motor(axis, 0f32, 0f32, stiffness, 1f32);
+                        joint.set_motor(axis, 0f32, 0f32, stiffness, 100f32);
                     }
                 } else if min == max {
                     joint.lock_axes(axis.into());
