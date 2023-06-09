@@ -1,6 +1,6 @@
 use cgmath::{
-    perspective, BaseFloat, BaseNum, InnerSpace, Matrix3, Matrix4, Quaternion, Rad, SquareMatrix,
-    Vector3, Vector4,
+    perspective, BaseFloat, BaseNum, ElementWise, InnerSpace, Matrix3, Matrix4, Quaternion,
+    Rad, SquareMatrix, Vector3, Vector4,
 };
 
 pub fn f128_to_vec3(v: [f32; 4]) -> Vector3<f32> {
@@ -59,6 +59,10 @@ pub fn infinite_perspective<S: BaseFloat, A: Into<Rad<S>>>(
 
 pub fn lerp_f32(a: f32, b: f32, amount: f32) -> f32 {
     a + (b - a) * amount
+}
+
+pub fn lerp_rad(a: Rad<f32>, b: Rad<f32>, amount: f32) -> Rad<f32> {
+    Rad(a.0 + (b.0 - a.0) * amount)
 }
 
 pub fn to_na_vec3(v: Vector3<f32>) -> nalgebra::Vector3<f32> {
@@ -144,6 +148,20 @@ impl<S: BaseFloat> CompareElementWise for Vector3<S> {
             self.z.min(max.z).max(min.z),
         )
     }
+}
+
+pub fn lerp_element_wise<T: ElementWise + Copy>(a: T, b: T, amount: T) -> T {
+    a.add_element_wise(b.sub_element_wise(a).mul_element_wise(amount))
+}
+
+#[test]
+fn test_lerp_element_wise() {
+    let result = lerp_element_wise(
+        Vector3::new(0f32, 1f32, 0.8f32),
+        Vector3::new(1f32, 0.5f32, 0.2f32),
+        Vector3::new(0.75f32, 0.6f32, 0.5f32),
+    );
+    assert_eq!(result, Vector3::new(0.75f32, 0.7f32, 0.5f32));
 }
 
 pub trait Invert {

@@ -25,7 +25,6 @@ use crate::{
         technique::{EdgePassKey, ObjectPassKey, ShadowPassKey, TechniqueType, ZplotPassKey},
     },
     light::Light,
-    model::bone::{BoneKeyframeInterpolation, BoneStates, Matrices},
     motion::Motion,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
     utils::{
@@ -35,11 +34,9 @@ use crate::{
 };
 
 use super::{
-    bone::BoneSet,
-    constraint::{Constraint, ConstraintSet},
-    Bone, BoneIndex, ConstraintIndex, MaterialIndex, MorphIndex, NanoemBone, NanoemConstraint,
-    NanoemJoint, NanoemLabel, NanoemMaterial, NanoemModel, NanoemMorph, NanoemRigidBody,
-    NanoemSoftBody, NanoemTexture, NanoemVertex, RigidBodyIndex, SoftBodyIndex, VertexIndex,
+    bone::BoneSet, Bone, BoneIndex, MaterialIndex, MorphIndex, NanoemJoint, NanoemLabel,
+    NanoemMaterial, NanoemModel, NanoemMorph, NanoemRigidBody, NanoemSoftBody, NanoemTexture,
+    NanoemVertex, RigidBodyIndex, SoftBodyIndex, VertexIndex,
 };
 
 #[repr(C)]
@@ -2660,31 +2657,8 @@ impl Morph {
         frame_index: u32,
         amount: f32,
     ) {
-        let w0 = self.synchronize_weight(motion, name, frame_index);
-        if amount > 0f32 {
-            let w1 = self.synchronize_weight(motion, name, frame_index + 1);
-            self.set_weight(lerp_f32(w0, w1, amount));
-        } else {
-            self.set_weight(w0);
-        }
-    }
-
-    fn synchronize_weight(&mut self, motion: &Motion, name: &str, frame_index: u32) -> f32 {
-        if let Some(keyframe) = motion.find_morph_keyframe(name, frame_index) {
-            keyframe.weight
-        } else if let (Some(prev_frame), Some(next_frame)) = motion
-            .opaque
-            .search_closest_morph_keyframes(name, frame_index)
-        {
-            let coef = Motion::coefficient(
-                prev_frame.base.frame_index,
-                next_frame.base.frame_index,
-                frame_index,
-            );
-            lerp_f32(prev_frame.weight, next_frame.weight, coef)
-        } else {
-            0f32
-        }
+        let weight = motion.find_morph_weight(name, frame_index, amount);
+        self.set_weight(weight);
     }
 }
 

@@ -6,7 +6,7 @@ use cgmath::{
 };
 
 use crate::{
-    bezier_curve::BezierCurve,
+    bezier_curve::{BezierCurve, Curve},
     model::{Bone, Model},
     motion::{KeyframeInterpolationPoint, Motion},
     project::Project,
@@ -172,109 +172,6 @@ impl PerspectiveCamera {
         }
     }
 
-    pub fn synchronize_parameters(&mut self, motion: &Motion, frame_index: u32, project: &Project) {
-        const DISTANCE_FACTOR: f32 = -1.0f32;
-        let outside_parent = ("".to_owned(), "".to_owned());
-        let global_track_bundle = &motion.opaque.global_motion_track_bundle;
-        if let Some(keyframe) = motion.find_camera_keyframe(frame_index) {
-            self.set_look_at(f128_to_vec3(keyframe.look_at));
-            self.set_angle(f128_to_vec3(keyframe.angle));
-            self.set_fov(keyframe.fov);
-            self.set_distance(keyframe.distance * DISTANCE_FACTOR);
-            self.set_perspective(keyframe.is_perspective_view);
-            self.interpolation = CameraKeyframeInterpolation {
-                lookat_x: KeyframeInterpolationPoint::build(keyframe.interpolation.lookat_x),
-                lookat_y: KeyframeInterpolationPoint::build(keyframe.interpolation.lookat_y),
-                lookat_z: KeyframeInterpolationPoint::build(keyframe.interpolation.lookat_z),
-                angle: KeyframeInterpolationPoint::build(keyframe.interpolation.angle),
-                fov: KeyframeInterpolationPoint::build(keyframe.interpolation.fov),
-                distance: KeyframeInterpolationPoint::build(keyframe.interpolation.distance),
-            };
-            self.synchronize_outside_parent(keyframe, project, global_track_bundle);
-        } else {
-            let (prev_frame, next_frame) =
-                motion.opaque.search_closest_camera_keyframes(frame_index);
-            if let Some(prev_frame) = prev_frame {
-                if let Some(next_frame) = next_frame {
-                    let coef = Motion::coefficient(
-                        prev_frame.base.frame_index,
-                        next_frame.base.frame_index,
-                        frame_index,
-                    );
-                    let prev_look_at = f128_to_vec3(prev_frame.look_at);
-                    let next_look_at = f128_to_vec3(next_frame.look_at);
-                    let interval = next_frame.base.frame_index - prev_frame.base.frame_index;
-                    let look_at = Vector3 {
-                        x: self.lerp_value_interpolation(
-                            &next_frame.interpolation.lookat_x,
-                            prev_look_at[0],
-                            next_look_at[0],
-                            interval,
-                            coef,
-                        ),
-                        y: self.lerp_value_interpolation(
-                            &next_frame.interpolation.lookat_y,
-                            prev_look_at[1],
-                            next_look_at[1],
-                            interval,
-                            coef,
-                        ),
-                        z: self.lerp_value_interpolation(
-                            &next_frame.interpolation.lookat_z,
-                            prev_look_at[2],
-                            next_look_at[2],
-                            interval,
-                            coef,
-                        ),
-                    };
-                    self.set_look_at(look_at);
-                    self.set_angle(self.lerp_interpolation(
-                        &next_frame.interpolation.angle,
-                        &f128_to_vec3(prev_frame.angle),
-                        &f128_to_vec3(next_frame.angle),
-                        interval,
-                        coef,
-                    ));
-                    self.set_fov_radians(
-                        self.lerp_value_interpolation(
-                            &next_frame.interpolation.fov,
-                            prev_frame.fov as f32,
-                            next_frame.fov as f32,
-                            interval,
-                            coef,
-                        )
-                        .to_radians(),
-                    );
-                    self.set_distance(self.lerp_value_interpolation(
-                        &next_frame.interpolation.distance,
-                        prev_frame.distance * DISTANCE_FACTOR,
-                        next_frame.distance * DISTANCE_FACTOR,
-                        interval,
-                        coef,
-                    ));
-                    self.set_perspective(prev_frame.is_perspective_view);
-                    self.interpolation = CameraKeyframeInterpolation {
-                        lookat_x: KeyframeInterpolationPoint::build(
-                            next_frame.interpolation.lookat_x,
-                        ),
-                        lookat_y: KeyframeInterpolationPoint::build(
-                            next_frame.interpolation.lookat_y,
-                        ),
-                        lookat_z: KeyframeInterpolationPoint::build(
-                            next_frame.interpolation.lookat_z,
-                        ),
-                        angle: KeyframeInterpolationPoint::build(next_frame.interpolation.angle),
-                        fov: KeyframeInterpolationPoint::build(next_frame.interpolation.fov),
-                        distance: KeyframeInterpolationPoint::build(
-                            next_frame.interpolation.distance,
-                        ),
-                    };
-                    self.synchronize_outside_parent(&prev_frame, project, global_track_bundle);
-                }
-            }
-        }
-    }
-
     fn lerp_interpolation<T>(
         &self,
         next_interpolation: &[u8; 4],
@@ -340,9 +237,9 @@ impl PerspectiveCamera {
         if let Some(curve) = cache.get(&key) {
             curve.value(value)
         } else {
-            let curve = BezierCurve::create(
-                &Vector2::new(next[0], next[1]),
-                &Vector2::new(next[2], next[3]),
+            let curve = BezierCurve::new(
+                Vector2::new(next[0], next[1]),
+                Vector2::new(next[2], next[3]),
                 interval,
             );
             let r = curve.value(value);

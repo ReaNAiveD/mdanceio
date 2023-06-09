@@ -6,7 +6,7 @@ use cgmath::{
 };
 
 use crate::{
-    motion::{KeyframeInterpolationPoint, Motion},
+    motion::{BoneFrameTransform, BoneKeyframeInterpolation, KeyframeInterpolationPoint, Motion},
     physics_engine::PhysicsEngine,
     utils::{f128_to_quat, f128_to_vec3, mat4_truncate},
 };
@@ -32,77 +32,6 @@ impl Default for Matrices {
             local_transform: Matrix4::identity(),
             normal_transform: Matrix4::identity(),
             skinning_transform: Matrix4::identity(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct BoneKeyframeInterpolation {
-    pub translation: Vector3<KeyframeInterpolationPoint>,
-    pub orientation: KeyframeInterpolationPoint,
-}
-
-impl Default for BoneKeyframeInterpolation {
-    fn default() -> Self {
-        Self {
-            translation: Vector3 {
-                x: KeyframeInterpolationPoint::default(),
-                y: KeyframeInterpolationPoint::default(),
-                z: KeyframeInterpolationPoint::default(),
-            },
-            orientation: KeyframeInterpolationPoint::default(),
-        }
-    }
-}
-
-impl BoneKeyframeInterpolation {
-    pub fn zero() -> Self {
-        Self {
-            translation: Vector3 {
-                x: KeyframeInterpolationPoint::zero(),
-                y: KeyframeInterpolationPoint::zero(),
-                z: KeyframeInterpolationPoint::zero(),
-            },
-            orientation: KeyframeInterpolationPoint::zero(),
-        }
-    }
-
-    pub fn build(interpolation: nanoem::motion::MotionBoneKeyframeInterpolation) -> Self {
-        Self {
-            translation: Vector3 {
-                x: KeyframeInterpolationPoint::build(interpolation.translation_x),
-                y: KeyframeInterpolationPoint::build(interpolation.translation_y),
-                z: KeyframeInterpolationPoint::build(interpolation.translation_z),
-            },
-            orientation: KeyframeInterpolationPoint::build(interpolation.orientation),
-        }
-    }
-
-    pub fn lerp(&self, other: Self, amount: f32) -> Self {
-        BoneKeyframeInterpolation {
-            translation: Vector3 {
-                x: self.translation.x.lerp(other.translation.x, amount),
-                y: self.translation.y.lerp(other.translation.y, amount),
-                z: self.translation.z.lerp(other.translation.z, amount),
-            },
-            orientation: self.orientation.lerp(other.orientation, amount),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct BoneFrameTransform {
-    pub translation: Vector3<f32>,
-    pub orientation: Quaternion<f32>,
-    pub interpolation: BoneKeyframeInterpolation,
-}
-
-impl Default for BoneFrameTransform {
-    fn default() -> Self {
-        Self {
-            translation: Vector3::zero(),
-            orientation: Quaternion::one(),
-            interpolation: BoneKeyframeInterpolation::default(),
         }
     }
 }
@@ -262,91 +191,14 @@ impl Bone {
         amount: f32,
         physics_engine: &mut PhysicsEngine,
     ) {
-        let t0 = self.synchronize_transform(motion, rigid_body, frame_index, physics_engine);
-        if amount > 0f32 {
-            let t1 = self.synchronize_transform(motion, None, frame_index + 1, physics_engine);
-            self.local_user_translation = t0.translation.lerp(t1.translation, amount);
-            self.local_user_orientation = t0.orientation.slerp(t1.orientation, amount);
-            self.interpolation = t0.interpolation.lerp(t1.interpolation, amount);
-        } else {
-            self.local_user_translation = t0.translation;
-            self.local_user_orientation = t0.orientation;
-            self.interpolation = t0.interpolation;
-        }
-    }
-
-    fn synchronize_transform(
-        &self,
-        motion: &Motion,
-        rigid_body: Option<&mut RigidBody>,
-        frame_index: u32,
-        physics_engine: &mut PhysicsEngine,
-    ) -> BoneFrameTransform {
-        if let Some(keyframe) = motion.find_bone_keyframe(&self.canonical_name, frame_index) {
-            BoneFrameTransform {
-                translation: f128_to_vec3(keyframe.translation),
-                orientation: f128_to_quat(keyframe.orientation),
-                interpolation: BoneKeyframeInterpolation::build(keyframe.interpolation),
+        let transform = motion.find_bone_transform(&self.canonical_name, frame_index, amount);
+        self.local_user_translation = transform.mixed_translation(self.local_user_translation);
+        self.local_user_orientation = transform.mixed_orientation(self.local_user_orientation);
+        self.interpolation = transform.interpolation;
+        if transform.enable_physics {
+            if let Some(rigid_body) = rigid_body {
+                rigid_body.disable_kinematic(physics_engine);
             }
-        } else if let (Some(prev_frame), Some(next_frame)) = motion
-            .opaque
-            .search_closest_bone_keyframes(&self.canonical_name, frame_index)
-        {
-            let interval = next_frame.base.frame_index - prev_frame.base.frame_index;
-            let coef = Motion::coefficient(
-                prev_frame.base.frame_index,
-                next_frame.base.frame_index,
-                frame_index,
-            );
-            let next_translation = f128_to_vec3(next_frame.translation);
-            let next_orientation = f128_to_quat(next_frame.orientation);
-            let prev_enabled = prev_frame.is_physics_simulation_enabled;
-            let next_enabled = next_frame.is_physics_simulation_enabled;
-            let frame_transform = if prev_enabled && !next_enabled && rigid_body.is_some() {
-                BoneFrameTransform {
-                    translation: self.local_user_translation.lerp(next_translation, coef),
-                    orientation: self.local_user_orientation.slerp(next_orientation, coef),
-                    interpolation: BoneKeyframeInterpolation::build(next_frame.interpolation),
-                }
-            } else {
-                let prev_translation = f128_to_vec3(prev_frame.translation);
-                let prev_orientation = f128_to_quat(prev_frame.orientation);
-                let next_interpolation = Vector3::new(
-                    next_frame.interpolation.translation_x,
-                    next_frame.interpolation.translation_y,
-                    next_frame.interpolation.translation_z,
-                );
-                BoneFrameTransform {
-                    translation: prev_translation.zip(next_translation, |p, n| (p, n)).zip(
-                        next_interpolation,
-                        |trans, interpolation| {
-                            motion.lerp_value_interpolation(
-                                &interpolation,
-                                trans.0,
-                                trans.1,
-                                interval,
-                                coef,
-                            )
-                        },
-                    ),
-                    orientation: motion.slerp_interpolation(
-                        &next_frame.interpolation.orientation,
-                        &prev_orientation,
-                        &next_orientation,
-                        interval,
-                        coef,
-                    ),
-                    interpolation: BoneKeyframeInterpolation::build(next_frame.interpolation),
-                }
-            };
-            if prev_enabled && next_enabled {
-                if let Some(rigid_body) = rigid_body {
-                    rigid_body.disable_kinematic(physics_engine);
-                }
-            }
-            frame_transform
-        } else {
-            BoneFrameTransform::default()
         }
     }
 
