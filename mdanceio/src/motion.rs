@@ -685,7 +685,7 @@ pub struct Motion {
 impl Motion {
     pub const NMD_FORMAT_EXTENSION: &'static str = "nmd";
     pub const VMD_FORMAT_EXTENSION: &'static str = "vmd";
-    pub const CAMERA_AND_LIGHT_TARGET_MODEL_NAME: &'static str = "カァラ・照明";
+    pub const CAMERA_AND_LIGHT_TARGET_MODEL_NAME: &'static str = "カメラ・照明";
     pub const CAMERA_AND_LIGHT_TARGET_MODEL_NAME_BYTES: &'static [u8] = &[
         0xe3, 0x82, 0xab, 0xe3, 0x83, 0xa1, 0xe3, 0x83, 0xa9, 0xe3, 0x83, 0xbb, 0xe7, 0x85, 0xa7,
         0xe6, 0x98, 0x8e, 0,

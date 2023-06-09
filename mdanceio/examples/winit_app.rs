@@ -59,7 +59,9 @@ impl State {
             .unwrap();
         log::info!("{:?}", device.features());
         let surface_caps = surface.get_capabilities(&adapter);
-        let surface_format = surface_caps.formats.iter()
+        let surface_format = surface_caps
+            .formats
+            .iter()
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
@@ -107,6 +109,7 @@ impl State {
         model_path: &PathBuf,
         texture_dir: &PathBuf,
         motion_path: Option<&PathBuf>,
+        camera_path: Option<&PathBuf>,
     ) -> Result<(), Box<dyn std::error::Error + 'static>> {
         log::info!("Loading Model...");
         let model_data = std::fs::read(model_path)?;
@@ -154,6 +157,10 @@ impl State {
         if let Some(motion_path) = motion_path {
             let motion_data = std::fs::read(motion_path)?;
             self.application.load_model_motion(&motion_data)?;
+        }
+        if let Some(camera_path) = camera_path {
+            let motion_data = std::fs::read(camera_path)?;
+            self.application.load_camera_motion(&motion_data)?;
         }
         self.application.play();
         Ok(())
@@ -218,6 +225,13 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             )
             .required(false)
             .value_parser(clap::value_parser!(PathBuf)),
+        )
+        .arg(
+            clap::arg!(
+                --camera <FILE> "Path to the camera motion to load"
+            )
+            .required(false)
+            .value_parser(clap::value_parser!(PathBuf)),
         );
 
     let matches = app.clone().get_matches();
@@ -239,6 +253,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
             dir
         });
     let motion_path = matches.get_one::<PathBuf>("motion");
+    let camera_path = matches.get_one::<PathBuf>("camera");
 
     let logfile = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new(
@@ -261,7 +276,7 @@ pub async fn main() -> Result<(), Box<dyn std::error::Error + 'static>> {
 
     let mut state = State::new(&window).await;
 
-    state.load_sample_data(model_path, &texture_dir, motion_path)?;
+    state.load_sample_data(model_path, &texture_dir, motion_path, camera_path)?;
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::WindowEvent {
