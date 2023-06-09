@@ -644,7 +644,7 @@ impl BoneSet {
             .try_get(constraint.origin.effector_bone_index)
             .cloned()
             .unwrap();
-        let angle_limit = Deg(constraint.origin.angle_limit);
+        let angle_limit = Rad(constraint.origin.angle_limit);
         if let Some(mut joint_result) = ConstraintJoint::solve_axis_angle(
             joint_bone.matrices.world_transform,
             effector_bone.world_translation().extend(1f32),
@@ -657,7 +657,6 @@ impl BoneSet {
                 }
             }
             let new_angle_limit = angle_limit * (joints.len() as f32);
-            let new_angle_limit = new_angle_limit.into();
             joint_result.angle = if new_angle_limit > joint_result.angle {
                 joint_result.angle
             } else {
