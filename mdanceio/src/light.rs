@@ -1,6 +1,4 @@
-use cgmath::{AbsDiffEq, InnerSpace, Matrix, Matrix4, Vector3, VectorSpace, Zero};
-
-use crate::{motion::Motion, utils::f128_to_vec3};
+use cgmath::{AbsDiffEq, InnerSpace, Matrix, Matrix4, Vector3, Zero};
 
 pub trait Light {
     // TODO

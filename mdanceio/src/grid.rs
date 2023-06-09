@@ -33,13 +33,6 @@ impl Grid {
         self.visible
     }
 
-    pub fn set_visible(&mut self, value: bool) {
-        if value != self.visible {
-            self.visible = value;
-            // TODO: publish event
-        }
-    }
-
     pub fn draw(
         &self,
         color_view: &wgpu::TextureView,

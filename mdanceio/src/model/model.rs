@@ -4,10 +4,7 @@ use std::{
     iter,
 };
 
-use cgmath::{
-    AbsDiffEq, ElementWise, InnerSpace, Matrix3, Matrix4, One, Quaternion, Rad, Rotation3, Vector3,
-    Vector4, VectorSpace, Zero,
-};
+use cgmath::{AbsDiffEq, ElementWise, InnerSpace, Matrix4, Vector3, Vector4, VectorSpace, Zero};
 use nanoem::{
     model::{ModelMorphCategory, ModelRigidBodyTransformType},
     motion::{MotionBoneKeyframe, MotionModelKeyframe, MotionTrackBundle},
@@ -203,10 +200,10 @@ impl Model {
                 let mut vertices = opaque
                     .vertices
                     .iter()
-                    .map(|vertex| Vertex::from_nanoem(vertex))
+                    .map(Vertex::from_nanoem)
                     .collect::<Vec<_>>();
                 let indices = opaque.vertex_indices.clone();
-                let mut bones = BoneSet::new(&opaque.bones, &opaque.constraints, language_type);
+                let bones = BoneSet::new(&opaque.bones, &opaque.constraints, language_type);
                 let mut bone_set: HashSet<BoneIndex> = HashSet::new();
                 let mut morphs_by_name = HashMap::new();
                 let morphs = opaque
@@ -214,7 +211,7 @@ impl Model {
                     .iter()
                     .map(|morph| Morph::from_nanoem(&morph, language_type))
                     .collect::<Vec<_>>();
-                for (index, morph) in opaque.morphs.iter().enumerate() {
+                for (_, morph) in opaque.morphs.iter().enumerate() {
                     if let nanoem::model::ModelMorphType::Vertex(morph_vertices) = morph.get_type()
                     {
                         for morph_vertex in morph_vertices {
@@ -229,7 +226,6 @@ impl Model {
                             }
                         }
                     }
-                    let category = morph.category;
                     for language in nanoem::common::LanguageType::all() {
                         morphs_by_name
                             .insert(morph.get_name(*language).to_owned(), morph.base.index);
@@ -240,7 +236,7 @@ impl Model {
                         .morphs
                         .iter()
                         .enumerate()
-                        .find(|(index, morph)| morph.category == category)
+                        .find(|(_, morph)| morph.category == category)
                         .map(|(idx, _)| idx)
                 };
                 let active_morph = ModelMorphUsage {
@@ -311,13 +307,15 @@ impl Model {
                         for bone_index in vertex.bone_indices {
                             if let Some(bone) = opaque.get_one_bone_object(bone_index) {
                                 let bone_index = bone.base.index;
-                                if !index_hash.contains_key(&bone_index) {
-                                    index_hash.insert(bone_index, unique_bone_index_per_material);
+                                if let std::collections::hash_map::Entry::Vacant(e) =
+                                    index_hash.entry(bone_index)
+                                {
+                                    e.insert(unique_bone_index_per_material);
                                     unique_bone_index_per_material += 1;
                                 }
                                 references
                                     .entry(bone_index)
-                                    .or_insert_with(|| HashSet::new())
+                                    .or_insert_with(HashSet::new)
                                     .insert(vertex.base.index);
                             }
                         }
@@ -428,7 +426,7 @@ impl Model {
 
                 let mut materials = vec![];
                 let mut index_offset = 0usize;
-                for (idx, material) in opaque.materials.iter().enumerate() {
+                for (_, material) in opaque.materials.iter().enumerate() {
                     let num_indices = material.num_vertex_indices;
                     materials.push(Material::from_nanoem(
                         material,
@@ -451,13 +449,13 @@ impl Model {
                         num_indices as u32,
                         device,
                     ));
+                    index_offset += num_indices;
                 }
                 let mut index_offset = 0;
                 for nanoem_material in &opaque.materials {
                     let num_indices = nanoem_material.get_num_vertex_indices();
-                    for i in index_offset..(index_offset + num_indices) {
-                        let vertex_index = indices[i];
-                        if let Some(vertex) = vertices.get_mut(vertex_index as usize) {
+                    for vertex_index in indices.iter().skip(index_offset).take(num_indices) {
+                        if let Some(vertex) = vertices.get_mut(*vertex_index as usize) {
                             vertex.set_material(nanoem_material.get_index());
                         }
                     }
@@ -599,7 +597,7 @@ impl Model {
         for material in &mut self.materials {
             let num_indices = material.origin.num_vertex_indices as u32;
             let mut updated = false;
-            material
+            if let Some(texture) = material
                 .origin
                 .get_diffuse_texture_object(&self.opaque.textures)
                 .and_then(|texture_object| {
@@ -609,12 +607,12 @@ impl Model {
                         None
                     }
                 })
-                .map(|texture| {
-                    material.diffuse_image =
-                        Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
-                    updated = true;
-                });
-            material
+            {
+                material.diffuse_image =
+                    Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+                updated = true;
+            }
+            if let Some(texture) = material
                 .origin
                 .get_sphere_map_texture_object(&self.opaque.textures)
                 .and_then(|texture_object| {
@@ -624,12 +622,12 @@ impl Model {
                         None
                     }
                 })
-                .map(|texture| {
-                    material.sphere_map_image =
-                        Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
-                    updated = true;
-                });
-            material
+            {
+                material.sphere_map_image =
+                    Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+                updated = true;
+            }
+            if let Some(texture) = material
                 .origin
                 .get_toon_texture_object(&self.opaque.textures)
                 .and_then(|texture_object| {
@@ -639,11 +637,11 @@ impl Model {
                         None
                     }
                 })
-                .map(|texture| {
-                    material.toon_image =
-                        Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
-                    updated = true;
-                });
+            {
+                material.toon_image =
+                    Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+                updated = true;
+            }
             if updated {
                 material.update_bind(
                     &mut MaterialDrawContext {
@@ -668,8 +666,6 @@ impl Model {
             index_offset += num_indices;
         }
     }
-
-    fn create_image() {}
 
     pub fn create_all_bone_bounds_rigid_bodies(&mut self) {
         for (handle, rigid_body) in self.rigid_bodies.iter().enumerate() {
@@ -845,16 +841,14 @@ impl Model {
                     {
                         rigid_body.enable_kinematic(physics_engine);
                     }
-                } else {
-                    if let (Some(prev_frame), Some(next_frame)) = motion
-                        .opaque
-                        .search_closest_bone_keyframes(&bone_name, frame_index)
+                } else if let (Some(prev_frame), Some(next_frame)) = motion
+                    .opaque
+                    .search_closest_bone_keyframes(&bone_name, frame_index)
+                {
+                    if prev_frame.is_physics_simulation_enabled
+                        && !next_frame.is_physics_simulation_enabled
                     {
-                        if prev_frame.is_physics_simulation_enabled
-                            && !next_frame.is_physics_simulation_enabled
-                        {
-                            rigid_body.enable_kinematic(physics_engine);
-                        }
+                        rigid_body.enable_kinematic(physics_engine);
                     }
                 }
             }
@@ -895,7 +889,7 @@ impl Model {
                     .cloned();
                 rigid_body.synchronize_transform_feedback_from_simulation(
                     self.bones.get_mut(bone_idx).unwrap(),
-                    (&parent_bone).as_ref(),
+                    parent_bone.as_ref(),
                     follow_type,
                     physics_engine,
                 );
@@ -1171,15 +1165,17 @@ impl Model {
                     }
                 }
                 nanoem::model::ModelMorphType::Flip(children) => {
-                    if weight > 0f32 && children.len() > 0 {
+                    if weight > 0f32 && !children.is_empty() {
                         let target_idx = (((children.len() + 1) as f32 * weight) as usize - 1)
                             .clamp(0, children.len() - 1);
                         let child = &children[target_idx];
                         let child_weight = child.weight;
-                        usize::try_from(child.morph_index)
+                        if let Some(morph) = usize::try_from(child.morph_index)
                             .ok()
                             .and_then(|idx| self.morphs.get_mut(idx))
-                            .map(|morph| morph.set_weight(weight));
+                        {
+                            morph.set_weight(child_weight);
+                        }
                     }
                 }
                 nanoem::model::ModelMorphType::Material(children) => {
@@ -1210,7 +1206,7 @@ impl Model {
 
     fn deform_morph(&mut self, morph_idx: MorphIndex, check_dirty: bool) {
         if let Some(morph) = self.morphs.get_mut(morph_idx) {
-            if !check_dirty || (check_dirty && morph.dirty) {
+            if !check_dirty || morph.dirty {
                 let weight = morph.weight;
                 match &morph.origin.typ {
                     nanoem::model::ModelMorphType::Group(children) => {
@@ -1232,7 +1228,7 @@ impl Model {
                         }
                     }
 
-                    nanoem::model::ModelMorphType::Flip(children) => {}
+                    nanoem::model::ModelMorphType::Flip(_children) => {}
                     nanoem::model::ModelMorphType::Impulse(children) => {
                         for child in children {
                             if let Some(rigid_body) = usize::try_from(child.rigid_body_index)
@@ -1467,7 +1463,7 @@ impl Model {
     }
 
     pub fn world_transform(&self, initial: &Matrix4<f32>) -> Matrix4<f32> {
-        initial.clone()
+        *initial
     }
 
     pub fn contains_bone(&self, name: &str) -> bool {

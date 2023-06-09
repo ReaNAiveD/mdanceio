@@ -1,20 +1,14 @@
-use std::{cell::RefCell, collections::HashMap};
-
 use cgmath::{
     AbsDiffEq, Deg, ElementWise, InnerSpace, Matrix3, Matrix4, MetricSpace, Quaternion, Rad,
-    Rotation3, SquareMatrix, Vector1, Vector2, Vector3, Vector4, VectorSpace, Zero,
+    Rotation3, SquareMatrix, Vector2, Vector3, Vector4, Zero,
 };
 
 use crate::{
-    bezier_curve::{BezierCurve, Curve},
     model::{Bone, Model},
-    motion::{KeyframeInterpolationPoint, Motion},
     project::Project,
     ray::Ray,
     utils::{f128_to_vec3, infinite_perspective, intersect_ray_plane, project, un_project, Invert},
 };
-
-use nanoem::motion::{MotionCameraKeyframe, MotionTrackBundle};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub enum TransformCoordinateType {
@@ -49,20 +43,9 @@ struct CurveCacheKey {
     interval: u32,
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct CameraKeyframeInterpolation {
-    lookat_x: KeyframeInterpolationPoint,
-    lookat_y: KeyframeInterpolationPoint,
-    lookat_z: KeyframeInterpolationPoint,
-    angle: KeyframeInterpolationPoint,
-    fov: KeyframeInterpolationPoint,
-    distance: KeyframeInterpolationPoint,
-}
-
 #[derive(Debug, Clone)]
 pub struct PerspectiveCamera {
     // TODO: undo_stack_t *m_undoStack;
-    bezier_curves_data: RefCell<HashMap<CurveCacheKey, Box<BezierCurve>>>,
     outside_parent: (String, String),
     transform_coordinate_type: TransformCoordinateType,
     view_matrix: Matrix4<f32>,
@@ -73,8 +56,6 @@ pub struct PerspectiveCamera {
     angle: Vector3<f32>,
     distance: f32,
     fov: (i32, f32),
-    pub interpolation: CameraKeyframeInterpolation,
-    automatic_bezier_control_point: Vector4<u8>,
     following_type: FollowingType,
     perspective: bool,
     locked: bool,
@@ -84,7 +65,6 @@ pub struct PerspectiveCamera {
 impl Default for PerspectiveCamera {
     fn default() -> Self {
         Self {
-            bezier_curves_data: RefCell::new(HashMap::new()),
             outside_parent: (String::default(), String::default()),
             transform_coordinate_type: TransformCoordinateType::Local,
             view_matrix: Matrix4::identity(),
@@ -95,8 +75,6 @@ impl Default for PerspectiveCamera {
             angle: Vector3::zero(),
             distance: Self::INITIAL_DISTANCE,
             fov: (Self::INITIAL_FOV, Self::INITIAL_FOV_RADIAN),
-            interpolation: CameraKeyframeInterpolation::default(),
-            automatic_bezier_control_point: Self::DEFAULT_AUTOMATIC_BEZIER_CONTROL_POINT,
             following_type: FollowingType::None,
             perspective: true,
             locked: false,
@@ -109,8 +87,7 @@ impl PerspectiveCamera {
     pub const ANGLE_SCALE_FACTOR: Vector3<f32> = Vector3::new(-1f32, 1f32, 1f32);
     pub const INITIAL_LOOK_AT: Vector3<f32> = Vector3::new(0f32, 10f32, 0f32);
     pub const INITIAL_DISTANCE: f32 = 45f32;
-    pub const INITIAL_FOV_RADIAN: f32 =
-        (Self::INITIAL_FOV as f32) * 0.01745329251994329576923690768489f32;
+    pub const INITIAL_FOV_RADIAN: f32 = (Self::INITIAL_FOV as f32) * 0.017_453_292_f32;
     pub const MAX_FOV: i32 = 135;
     pub const MIN_FOV: i32 = 1;
     pub const INITIAL_FOV: i32 = 30;
@@ -128,7 +105,6 @@ impl PerspectiveCamera {
         self.distance = Self::INITIAL_DISTANCE;
         self.fov = (Self::INITIAL_FOV, Self::INITIAL_FOV_RADIAN);
         self.set_dirty(true);
-        self.interpolation = CameraKeyframeInterpolation::default();
     }
 
     pub fn update(&mut self, viewport_image_size: Vector2<u32>, bound_look_at: Vector3<f32>) {
@@ -171,24 +147,6 @@ impl PerspectiveCamera {
             self.projection_matrix = projection_matrix;
         }
     }
-    fn synchronize_outside_parent(
-        &mut self,
-        keyframe: &MotionCameraKeyframe,
-        project: &Project,
-        global_track_bundle: &MotionTrackBundle<()>,
-    ) {
-        if let Some(op) = &keyframe.outside_parent {
-            if let Some(model) = global_track_bundle
-                .resolve_id(op.global_model_track_index)
-                .and_then(|name| project.find_model_by_name(name))
-            {
-                if let Some(bone_name) = global_track_bundle.resolve_id(op.global_bone_track_index)
-                {
-                    self.outside_parent = (model.get_name().to_owned(), bone_name.clone());
-                }
-            }
-        }
-    }
 
     pub fn un_projected(&self, value: &Vector3<f32>, viewport_size: Vector2<u32>) -> Vector3<f32> {
         let viewport = Vector4::new(0f32, 0f32, viewport_size.x as f32, viewport_size.y as f32);
@@ -204,8 +162,8 @@ impl PerspectiveCamera {
         let viewport_rect = Vector4::new(
             0f32,
             0f32,
-            device_scale_uniformed_viewport_image_size.x.into(),
-            device_scale_uniformed_viewport_image_size.y.into(),
+            device_scale_uniformed_viewport_image_size.x,
+            device_scale_uniformed_viewport_image_size.y,
         );
         let x = (device_scale_uniformed_viewport_layout_rect.z
             - device_scale_uniformed_viewport_layout_rect.x) as f32
@@ -219,10 +177,10 @@ impl PerspectiveCamera {
             &self.projection_matrix,
             &viewport_rect,
         );
-        return Vector2::new(
+        Vector2::new(
             (x + coordinate.x) as i32,
             (device_scale_uniformed_viewport_layout_rect.w as f32 - coordinate.y - y) as i32,
-        );
+        )
     }
 
     pub fn to_device_screen_coordinate_in_window(

@@ -168,7 +168,7 @@ impl Default for ClockAudioPlayer {
 }
 
 impl AudioPlayer for ClockAudioPlayer {
-    fn load(bytes: &[u8]) -> Result<Self, MdanceioError>
+    fn load(_bytes: &[u8]) -> Result<Self, MdanceioError>
     where
         Self: Sized,
     {
@@ -186,7 +186,7 @@ impl AudioPlayer for ClockAudioPlayer {
         }
     }
 
-    fn play_part(&mut self, start: f64, length: f64) {}
+    fn play_part(&mut self, _start: f64, _length: f64) {}
 
     fn pause(&mut self) {
         if self.is_playing() {

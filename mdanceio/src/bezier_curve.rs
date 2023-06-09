@@ -24,16 +24,14 @@ impl BezierCurve {
     pub fn new(c0: Vector2<f32>, c1: Vector2<f32>, interval: u32) -> Self {
         let interval = interval.max(1u32);
         let mut points = vec![];
-        let c0f = c0.map(|v| v as f32);
-        let c1f = c1.map(|v| v as f32);
         let interval_f = interval as f32;
         for i in 0..=interval {
             let t = i as f32 / interval_f;
             let it = 1f32 - t;
             points.push(
                 Self::P0 * it.powi(3)
-                    + c0f * t * it.powi(2) * 3f32
-                    + c1f * t.powi(2) * it * 3f32
+                    + c0 * t * it.powi(2) * 3f32
+                    + c1 * t.powi(2) * it * 3f32
                     + Self::P1 * t.powi(3),
             );
         }
@@ -103,7 +101,7 @@ impl Curve for BezierCurve {
             if n.1.x > v {
                 break;
             }
-            n = (n.1, point.clone())
+            n = (n.1, *point)
         }
         if n.0.x == n.1.x {
             n.0.y

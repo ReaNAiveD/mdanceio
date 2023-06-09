@@ -524,7 +524,7 @@ impl Seek for MotionTrack<MotionSelfShadowKeyframe> {
             .map(|keyframe| Some(keyframe.into()))
     }
 
-    fn seek(&self, frame_index: u32, curve_factory: &dyn BezierCurveFactory) -> Self::Frame {
+    fn seek(&self, frame_index: u32, _curve_factory: &dyn BezierCurveFactory) -> Self::Frame {
         if let Some(frame) = self.find(frame_index) {
             frame
         } else if let (Some(prev_frame), Some(next_frame)) = self.search_closest(frame_index) {
@@ -678,7 +678,6 @@ pub struct Motion {
     pub opaque: NanoemMotion,
     // Will Get a new Empty bundle when clone
     bezier_cache: BezierCurveCache,
-    annotations: HashMap<String, String>,
     pub dirty: bool,
 }
 
@@ -698,7 +697,6 @@ impl Motion {
             Ok(motion) => Ok(Self {
                 opaque: motion,
                 bezier_cache: BezierCurveCache::new(),
-                annotations: HashMap::new(),
                 dirty: false,
             }),
             Err(status) => Err(MdanceioError::from_nanoem(
@@ -713,7 +711,7 @@ impl Motion {
             // selection: (),
             opaque: NanoemMotion::empty(),
             bezier_cache: BezierCurveCache::new(),
-            annotations: HashMap::new(),
+            // annotations: HashMap::new(),
             // file_uri: (),
             // format_type: (),
             dirty: false,
@@ -1408,7 +1406,7 @@ impl KeyframeInterpolationPoint {
     }
 
     pub fn new(interpolation: &[u8; 4]) -> Self {
-        if Self::is_linear_interpolation(&interpolation) {
+        if Self::is_linear_interpolation(interpolation) {
             Self::default()
         } else {
             Self {
