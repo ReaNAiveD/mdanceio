@@ -36,23 +36,27 @@ pub struct PhysicsEngine {
     narrow_phase: NarrowPhase,
     ccd_solver: CCDSolver,
     pub simulation_mode: SimulationMode,
+    dt_residual: f32,
 }
 
 impl Default for PhysicsEngine {
     fn default() -> Self {
+        let mut it = IntegrationParameters::default();
+        it.set_inv_dt(120f32);
         Self {
             rigid_body_set: RigidBodySet::new(),
             collider_set: ColliderSet::new(),
             impulse_joint_set: ImpulseJointSet::new(),
             multibody_joint_set: MultibodyJointSet::new(),
             gravity: nalgebra::vector![0f32, -9.8f32, 0f32],
-            integration_parameters: IntegrationParameters::default(),
+            integration_parameters: it,
             physics_pipeline: PhysicsPipeline::new(),
             island_manager: IslandManager::new(),
             broad_phase: BroadPhase::new(),
             narrow_phase: NarrowPhase::new(),
             ccd_solver: CCDSolver::new(),
             simulation_mode: SimulationMode::Disable,
+            dt_residual: 0f32,
         }
     }
 }
@@ -63,22 +67,26 @@ impl PhysicsEngine {
     }
 
     pub fn step(&mut self, delta: f32) {
-        self.integration_parameters.dt = delta;
-        self.physics_pipeline.step(
-            &self.gravity,
-            &self.integration_parameters,
-            &mut self.island_manager,
-            &mut self.broad_phase,
-            &mut self.narrow_phase,
-            &mut self.rigid_body_set,
-            &mut self.collider_set,
-            &mut self.impulse_joint_set,
-            &mut self.multibody_joint_set,
-            &mut self.ccd_solver,
-            None,
-            &(),
-            &(),
-        )
+        let dt = self.integration_parameters.dt;
+        let it_count = (delta + self.dt_residual).div_euclid(dt) as u32;
+        self.dt_residual = (delta + self.dt_residual).rem_euclid(dt);
+        for _ in 0..it_count {
+            self.physics_pipeline.step(
+                &self.gravity,
+                &self.integration_parameters,
+                &mut self.island_manager,
+                &mut self.broad_phase,
+                &mut self.narrow_phase,
+                &mut self.rigid_body_set,
+                &mut self.collider_set,
+                &mut self.impulse_joint_set,
+                &mut self.multibody_joint_set,
+                &mut self.ccd_solver,
+                None,
+                &(),
+                &(),
+            )
+        }
     }
 
     pub fn reset(&mut self) {}
