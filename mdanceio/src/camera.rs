@@ -171,44 +171,6 @@ impl PerspectiveCamera {
             self.projection_matrix = projection_matrix;
         }
     }
-
-    fn lerp_interpolation<T>(
-        &self,
-        next_interpolation: &[u8; 4],
-        prev_value: &T,
-        next_value: &T,
-        interval: u32,
-        coef: f32,
-    ) -> T
-    where
-        T: VectorSpace<Scalar = f32>,
-    {
-        if KeyframeInterpolationPoint::is_linear_interpolation(next_interpolation) {
-            prev_value.lerp(*next_value, coef)
-        } else {
-            let t2 = self.bezier_curve(next_interpolation, interval, coef);
-            prev_value.lerp(*next_value, t2)
-        }
-    }
-
-    fn lerp_value_interpolation(
-        &self,
-        next_interpolation: &[u8; 4],
-        prev_value: f32,
-        next_value: f32,
-        interval: u32,
-        coef: f32,
-    ) -> f32 {
-        self.lerp_interpolation(
-            next_interpolation,
-            &Vector1::new(prev_value),
-            &Vector1::new(next_value),
-            interval,
-            coef,
-        )
-        .x
-    }
-
     fn synchronize_outside_parent(
         &mut self,
         keyframe: &MotionCameraKeyframe,
@@ -225,26 +187,6 @@ impl PerspectiveCamera {
                     self.outside_parent = (model.get_name().to_owned(), bone_name.clone());
                 }
             }
-        }
-    }
-
-    fn bezier_curve(&self, next: &[u8; 4], interval: u32, value: f32) -> f32 {
-        let key = CurveCacheKey {
-            next: next.clone(),
-            interval,
-        };
-        let mut cache = self.bezier_curves_data.borrow_mut();
-        if let Some(curve) = cache.get(&key) {
-            curve.value(value)
-        } else {
-            let curve = BezierCurve::new(
-                Vector2::new(next[0], next[1]),
-                Vector2::new(next[2], next[3]),
-                interval,
-            );
-            let r = curve.value(value);
-            cache.insert(key, Box::new(curve));
-            r
         }
     }
 
