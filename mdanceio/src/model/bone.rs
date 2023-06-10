@@ -1,20 +1,19 @@
 use std::collections::{HashMap, HashSet};
 
 use cgmath::{
-    AbsDiffEq, Deg, ElementWise, Euler, InnerSpace, Matrix4, One, Quaternion, Rad, Rotation3,
+    AbsDiffEq, ElementWise, Euler, InnerSpace, Matrix4, One, Quaternion, Rad, Rotation3,
     SquareMatrix, Vector3, Vector4, VectorSpace, Zero,
 };
 
 use crate::{
-    motion::{BoneFrameTransform, BoneKeyframeInterpolation, KeyframeInterpolationPoint, Motion},
+    motion::{BoneKeyframeInterpolation, Motion},
     physics_engine::PhysicsEngine,
     utils::{f128_to_quat, f128_to_vec3, mat4_truncate},
 };
 
 use super::{
     constraint::{Constraint, ConstraintJoint, ConstraintSet},
-    model::RigidBody,
-    BoneIndex, ConstraintIndex, NanoemBone, NanoemConstraint, NanoemConstraintJoint,
+    BoneIndex, ConstraintIndex, NanoemBone, NanoemConstraint, NanoemConstraintJoint, RigidBody,
 };
 
 #[derive(Debug, Clone, Copy)]

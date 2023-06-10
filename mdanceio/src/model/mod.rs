@@ -23,6 +23,8 @@ pub type SoftBodyIndex = usize;
 pub mod bone;
 pub mod constraint;
 pub mod model;
+pub mod rigid_body;
 
 pub use bone::Bone;
 pub use model::{Material, Model, Morph, Vertex, VertexUnit};
+pub use rigid_body::RigidBody;

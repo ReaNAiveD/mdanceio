@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet},
-    f32::consts::PI,
     iter,
 };
 
@@ -22,18 +21,16 @@ use crate::{
         technique::{EdgePassKey, ObjectPassKey, ShadowPassKey, TechniqueType, ZplotPassKey},
     },
     light::Light,
+    model::RigidBody,
     motion::Motion,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
-    utils::{
-        f128_to_isometry, f128_to_vec3, f128_to_vec4, from_isometry, lerp_f32, mat4_truncate,
-        to_isometry, to_na_vec3, Invert,
-    },
+    utils::{f128_to_vec3, f128_to_vec4, lerp_f32},
 };
 
 use super::{
-    bone::BoneSet, Bone, BoneIndex, MaterialIndex, MorphIndex, NanoemJoint, NanoemLabel,
-    NanoemMaterial, NanoemModel, NanoemMorph, NanoemRigidBody, NanoemSoftBody, NanoemTexture,
-    NanoemVertex, RigidBodyIndex, SoftBodyIndex, VertexIndex,
+    bone::BoneSet, rigid_body::Joint, Bone, BoneIndex, MaterialIndex, MorphIndex, NanoemLabel,
+    NanoemMaterial, NanoemModel, NanoemMorph, NanoemSoftBody, NanoemTexture, NanoemVertex,
+    RigidBodyIndex, SoftBodyIndex, VertexIndex,
 };
 
 #[repr(C)]
@@ -703,8 +700,8 @@ impl Model {
                 self.edge_size_scale_factor = keyframe.edge_scale_factor;
                 // TODO: do something if having active effect
                 visible = keyframe.visible;
-                self.set_physics_simulation_enabled(keyframe.is_physics_simulation_enabled);
-                self.set_visible(visible);
+                self.set_physics_simulation_enabled(keyframe.is_physics_simulation_enabled, physics_engine);
+                self.set_visible(visible, physics_engine);
                 self.synchronize_all_constraint_states(
                     keyframe,
                     &motion.opaque.local_bone_motion_track_bundle,
@@ -1078,9 +1075,13 @@ impl Model {
         }
     }
 
-    pub fn set_physics_simulation_enabled(&mut self, value: bool) {
+    pub fn set_physics_simulation_enabled(
+        &mut self,
+        value: bool,
+        physics_engine: &mut PhysicsEngine,
+    ) {
         if self.states.physics_simulation != value {
-            self.set_all_physics_objects_enabled(value && self.states.visible);
+            self.set_all_physics_objects_enabled(value && self.states.visible, physics_engine);
             self.states.physics_simulation = value;
         }
     }
@@ -1092,22 +1093,29 @@ impl Model {
         }
     }
 
-    pub fn set_visible(&mut self, value: bool) {
+    pub fn set_visible(&mut self, value: bool, physics_engine: &mut PhysicsEngine) {
         if self.states.visible != value {
-            self.set_all_physics_objects_enabled(value & self.states.physics_simulation);
+            self.set_all_physics_objects_enabled(
+                value & self.states.physics_simulation,
+                physics_engine,
+            );
             // TODO: enable effect
             self.states.visible = value;
             // TODO: publish set visible event
         }
     }
 
-    pub fn set_all_physics_objects_enabled(&mut self, value: bool) {
+    pub fn set_all_physics_objects_enabled(
+        &mut self,
+        value: bool,
+        physics_engine: &mut PhysicsEngine,
+    ) {
         if value {
             for soft_body in &mut self.soft_bodies {
                 soft_body.enable();
             }
             for rigid_body in &mut self.rigid_bodies {
-                rigid_body.enable();
+                rigid_body.enable(&self.bones, physics_engine);
             }
             for joint in &mut self.joints {
                 joint.enable();
@@ -1117,7 +1125,7 @@ impl Model {
                 soft_body.disable();
             }
             for rigid_body in &mut self.rigid_bodies {
-                rigid_body.disable();
+                rigid_body.disable(physics_engine);
             }
             for joint in &mut self.joints {
                 joint.disable();
@@ -1533,19 +1541,11 @@ impl Model {
             match &self.skin_deformer {
                 Deformer::Wgpu(deformer) => {
                     deformer.update_buffer(self, camera, queue);
-                    deformer.execute(
-                        &self.vertex_buffer,
-                        device,
-                        queue,
-                    );
+                    deformer.execute(&self.vertex_buffer, device, queue);
                 }
-                Deformer::Software(deformer) => deformer.execute_model(
-                    self,
-                    camera,
-                    &self.vertex_buffer,
-                    device,
-                    queue,
-                ),
+                Deformer::Software(deformer) => {
+                    deformer.execute_model(self, camera, &self.vertex_buffer, device, queue)
+                }
             }
             self.stage_vertex_buffer_index = 1 - self.stage_vertex_buffer_index;
             self.states.dirty_morph = false;
@@ -2675,507 +2675,6 @@ impl Label {
             name,
             canonical_name,
             origin: label.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct RigidBodyStates {
-    pub enabled: bool,
-    pub all_forces_should_reset: bool,
-    pub editing_masked: bool,
-}
-
-#[derive(Debug)]
-pub struct RigidBody {
-    // TODO: physics engine and shape mesh and engine rigid_body
-    physics_rigid_body: rapier3d::dynamics::RigidBodyHandle,
-    physics_collider: Option<rapier3d::geometry::ColliderHandle>,
-    initial_world_transform: nalgebra::Isometry3<f32>,
-    global_torque_force: (Vector3<f32>, bool),
-    global_velocity_force: (Vector3<f32>, bool),
-    local_torque_force: (Vector3<f32>, bool),
-    local_velocity_force: (Vector3<f32>, bool),
-    name: String,
-    canonical_name: String,
-    states: RigidBodyStates,
-    origin: NanoemRigidBody,
-}
-
-impl RigidBody {
-    pub const PRIVATE_STATE_ENABLED: u32 = 1u32 << 1;
-    pub const PRIVATE_STATE_ALL_FORCES_SHOULD_RESET: u32 = 1u32 << 2;
-    pub const PRIVATE_STATE_EDITING_MASKED: u32 = 1u32 << 3;
-    pub const PRIVATE_STATE_RESERVED: u32 = 1u32 << 31;
-
-    pub const PRIVATE_STATE_INITIAL_VALUE: u32 = 0u32;
-
-    pub fn from_nanoem(
-        rigid_body: &NanoemRigidBody,
-        language: nanoem::common::LanguageType,
-        is_morph: bool,
-        bones: &BoneSet,
-        physics_engine: &mut PhysicsEngine,
-    ) -> Self {
-        // TODO: set physics engine and bind to engine rigid_body
-        let mut name = rigid_body.get_name(language).to_owned();
-        let mut canonical_name = rigid_body
-            .get_name(nanoem::common::LanguageType::default())
-            .to_owned();
-        if canonical_name.is_empty() {
-            canonical_name = format!("Label{}", rigid_body.get_index());
-        }
-        if name.is_empty() {
-            name = canonical_name.clone();
-        }
-        let orientation = rigid_body.orientation;
-        let origin = rigid_body.origin;
-        let mut world_transform = f128_to_isometry(origin, orientation);
-        let mut initial_world_transform = world_transform;
-        if rigid_body.is_bone_relative {
-            if let Some(bone) = usize::try_from(rigid_body.bone_index)
-                .ok()
-                .and_then(|idx| bones.get(idx))
-            {
-                let bone_origin = bone.origin.origin;
-                let offset = nalgebra::Isometry3::translation(
-                    bone_origin[0],
-                    bone_origin[1],
-                    bone_origin[2],
-                );
-                world_transform = offset * world_transform;
-                initial_world_transform = world_transform;
-                let skinning_transform = to_isometry(bone.matrices.skinning_transform);
-                world_transform *= skinning_transform;
-            }
-        }
-        let rigid_body_builder = rapier3d::dynamics::RigidBodyBuilder::new(
-            rapier3d::dynamics::RigidBodyType::KinematicPositionBased,
-        )
-        .position(world_transform)
-        .angular_damping(rigid_body.angular_damping)
-        .linear_damping(rigid_body.linear_damping);
-        let size = rigid_body.size;
-        let mut collider_builder = match rigid_body.shape_type {
-            nanoem::model::ModelRigidBodyShapeType::Unknown => None,
-            nanoem::model::ModelRigidBodyShapeType::Sphere => {
-                Some(rapier3d::geometry::ColliderBuilder::ball(size[0]))
-            }
-
-            nanoem::model::ModelRigidBodyShapeType::Box => Some(
-                rapier3d::geometry::ColliderBuilder::cuboid(size[0], size[1], size[2]),
-            ),
-
-            nanoem::model::ModelRigidBodyShapeType::Capsule => Some(
-                rapier3d::geometry::ColliderBuilder::capsule_y(size[1] / 2f32, size[0]),
-            ),
-        };
-        let mut mass = rigid_body.mass;
-        if let nanoem::model::ModelRigidBodyTransformType::FromBoneToSimulation =
-            rigid_body.transform_type
-        {
-            mass = 0f32;
-        }
-        collider_builder = collider_builder.map(|builder| {
-            builder
-                .mass(mass)
-                .friction(rigid_body.friction)
-                .restitution(rigid_body.restitution)
-                .collision_groups(rapier3d::geometry::InteractionGroups::new(
-                    rapier3d::geometry::Group::from_bits_truncate(
-                        0x1u32 << rigid_body.collision_group_id.clamp(0, 15),
-                    ),
-                    rapier3d::geometry::Group::from_bits_truncate(
-                        (rigid_body.collision_mask & 0xffff) as u32,
-                    ),
-                ))
-        });
-        let rigid_body_handle = physics_engine
-            .rigid_body_set
-            .insert(rigid_body_builder.build());
-        let physics_collider = collider_builder.map(|collider_builder| {
-            physics_engine.collider_set.insert_with_parent(
-                collider_builder.build(),
-                rigid_body_handle,
-                &mut physics_engine.rigid_body_set,
-            )
-        });
-        Self {
-            global_torque_force: (Vector3::zero(), false),
-            global_velocity_force: (Vector3::zero(), false),
-            local_torque_force: (Vector3::zero(), false),
-            local_velocity_force: (Vector3::zero(), false),
-            name,
-            canonical_name,
-            states: RigidBodyStates::default(),
-            origin: rigid_body.clone(),
-            physics_rigid_body: rigid_body_handle,
-            physics_collider,
-            initial_world_transform,
-        }
-    }
-
-    pub fn enable(&mut self) {
-        if !self.states.enabled {
-            // TODO: add to physics engine
-            self.states.enabled = true;
-        }
-    }
-
-    pub fn disable(&mut self) {
-        if self.states.enabled {
-            // TODO: remove from physics engine
-            self.states.enabled = false;
-        }
-    }
-
-    pub fn mark_all_forces_reset(&mut self) {
-        self.states.all_forces_should_reset = true;
-    }
-
-    pub fn add_global_torque_force(&mut self, value: Vector3<f32>, weight: f32) {
-        self.global_torque_force.0 += value * weight;
-        self.global_torque_force.1 = true;
-    }
-
-    pub fn add_global_velocity_force(&mut self, value: Vector3<f32>, weight: f32) {
-        self.global_velocity_force.0 += value * weight;
-        self.global_velocity_force.1 = true;
-    }
-
-    pub fn add_local_torque_force(&mut self, value: Vector3<f32>, weight: f32) {
-        self.local_torque_force.0 += value * weight;
-        self.local_torque_force.1 = true;
-    }
-
-    pub fn add_local_velocity_force(&mut self, value: Vector3<f32>, weight: f32) {
-        self.local_velocity_force.0 += value * weight;
-        self.local_velocity_force.1 = true;
-    }
-
-    pub fn initialize_transform_feedback(
-        &mut self,
-        bone: &Bone,
-        physics_engine: &mut PhysicsEngine,
-    ) {
-        if let Some(physics_rigid_body) = physics_engine
-            .rigid_body_set
-            .get_mut(self.physics_rigid_body)
-        {
-            let skinning_transform = to_isometry(bone.matrices.skinning_transform);
-            physics_rigid_body
-                .set_position(skinning_transform * self.initial_world_transform, true);
-            physics_rigid_body.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
-            physics_rigid_body.set_angvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
-            physics_rigid_body.reset_forces(true);
-        }
-    }
-
-    pub fn enable_kinematic(&mut self, physics_engine: &mut PhysicsEngine) {
-        if let Some(physics_rigid_body) = physics_engine
-            .rigid_body_set
-            .get_mut(self.physics_rigid_body)
-        {
-            if !physics_rigid_body.is_kinematic() {
-                physics_rigid_body.set_body_type(
-                    rapier3d::dynamics::RigidBodyType::KinematicVelocityBased,
-                    true,
-                );
-            }
-        }
-    }
-
-    pub fn disable_kinematic(&mut self, physics_engine: &mut PhysicsEngine) {
-        if let Some(physics_rigid_body) = physics_engine
-            .rigid_body_set
-            .get_mut(self.physics_rigid_body)
-        {
-            if physics_rigid_body.is_kinematic() {
-                physics_rigid_body.set_body_type(rapier3d::dynamics::RigidBodyType::Dynamic, true);
-            }
-        }
-    }
-
-    pub fn apply_all_forces(&mut self, bone: Option<&Bone>, physics_engine: &mut PhysicsEngine) {
-        if let Some(physics_rigid_body) = physics_engine
-            .rigid_body_set
-            .get_mut(self.physics_rigid_body)
-        {
-            if self.states.all_forces_should_reset {
-                physics_rigid_body.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
-                physics_rigid_body.set_angvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
-                physics_rigid_body.reset_forces(true);
-            } else {
-                if self.global_torque_force.1 {
-                    physics_rigid_body
-                        .apply_torque_impulse(to_na_vec3(self.global_torque_force.0), true);
-                    self.global_torque_force = (Vector3::new(0f32, 0f32, 0f32), false);
-                }
-                if self.local_torque_force.1 {
-                    if let Some(bone) = bone {
-                        let local_orientation = (to_isometry(bone.matrices.world_transform)
-                            * physics_rigid_body.position())
-                        .rotation;
-                        physics_rigid_body.apply_torque_impulse(
-                            local_orientation * to_na_vec3(self.local_torque_force.0),
-                            true,
-                        );
-                        self.local_torque_force = (Vector3::new(0f32, 0f32, 0f32), false);
-                    }
-                }
-                if self.global_velocity_force.1 {
-                    physics_rigid_body
-                        .apply_impulse(to_na_vec3(self.global_velocity_force.0), true);
-                    self.global_velocity_force = (Vector3::new(0f32, 0f32, 0f32), false);
-                }
-                if self.local_velocity_force.1 {
-                    if let Some(bone) = bone {
-                        let local_orientation = (to_isometry(bone.matrices.world_transform)
-                            * physics_rigid_body.position())
-                        .rotation;
-                        physics_rigid_body.apply_torque_impulse(
-                            local_orientation * to_na_vec3(self.local_velocity_force.0),
-                            true,
-                        );
-                        self.local_velocity_force = (Vector3::new(0f32, 0f32, 0f32), false);
-                    }
-                }
-            }
-            self.states.all_forces_should_reset = false;
-        }
-    }
-
-    pub fn synchronize_transform_feedback_to_simulation(
-        &mut self,
-        bone: &Bone,
-        physics_engine: &mut PhysicsEngine,
-    ) {
-        if let Some(physics_rigid_body) = physics_engine
-            .rigid_body_set
-            .get_mut(self.physics_rigid_body)
-        {
-            if self.origin.transform_type == ModelRigidBodyTransformType::FromBoneToSimulation
-                || physics_rigid_body.is_kinematic()
-            {
-                let initial_transform = self.initial_world_transform;
-                let skinning_transform = to_isometry(bone.matrices.skinning_transform);
-                let world_transform = skinning_transform * initial_transform;
-                physics_rigid_body.set_position(world_transform, true);
-                physics_rigid_body.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
-                physics_rigid_body.set_angvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
-                physics_rigid_body.reset_forces(true);
-            }
-        }
-    }
-
-    pub fn synchronize_transform_feedback_from_simulation(
-        &mut self,
-        bone: &mut Bone,
-        parent_bone: Option<&Bone>,
-        follow_type: RigidBodyFollowBone,
-        physics_engine: &mut PhysicsEngine,
-    ) {
-        if let Some(physics_rigid_body) = physics_engine
-            .rigid_body_set
-            .get_mut(self.physics_rigid_body)
-        {
-            if (self.origin.transform_type == ModelRigidBodyTransformType::FromSimulationToBone
-                || self.origin.transform_type
-                    == ModelRigidBodyTransformType::FromBoneOrientationAndSimulationToBone)
-                && !physics_rigid_body.is_kinematic()
-            {
-                let initial_transform = self.initial_world_transform;
-                let mut world_transform = *physics_rigid_body.position();
-                if follow_type == RigidBodyFollowBone::Perform
-                    && self.origin.transform_type
-                        == ModelRigidBodyTransformType::FromBoneOrientationAndSimulationToBone
-                {
-                    let local_transform = to_isometry(bone.matrices.local_transform);
-                    world_transform =
-                        nalgebra::Isometry3::from(local_transform.translation.inverse())
-                            * world_transform;
-                    physics_rigid_body.set_position(world_transform, true);
-                }
-                let skinning_transform =
-                    from_isometry(world_transform * initial_transform.inverse());
-                bone.update_matrices_by_skinning(skinning_transform);
-                if let Some(parent_bone) = parent_bone {
-                    let offset =
-                        f128_to_vec3(self.origin.origin) - f128_to_vec3(parent_bone.origin.origin);
-                    let local_transform = parent_bone
-                        .matrices
-                        .world_transform
-                        .affine_invert()
-                        .unwrap()
-                        * bone.matrices.world_transform;
-                    bone.local_user_translation = local_transform[3].truncate() - offset;
-                    bone.local_user_orientation = mat4_truncate(local_transform).into();
-                } else {
-                    let local_transform = bone.matrices.world_transform;
-                    bone.local_user_translation =
-                        local_transform[3].truncate() - f128_to_vec3(bone.origin.origin);
-                    bone.local_user_orientation = mat4_truncate(local_transform).into();
-                }
-                physics_rigid_body.wake_up(false);
-            }
-        }
-    }
-
-    pub fn is_kinematic(&self, physics_engine: &PhysicsEngine) -> bool {
-        physics_engine
-            .rigid_body_set
-            .get(self.physics_rigid_body)
-            .unwrap()
-            .is_kinematic()
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct JointStates {
-    pub enabled: bool,
-    pub editing_masked: bool,
-}
-
-pub struct Joint {
-    // TODO: physics engine and shape mesh and engine rigid_body
-    name: String,
-    canonical_name: String,
-    physics_joint: Option<rapier3d::dynamics::ImpulseJointHandle>,
-    states: JointStates,
-    origin: NanoemJoint,
-}
-
-impl Joint {
-    pub fn from_nanoem(
-        joint: &NanoemJoint,
-        language: nanoem::common::LanguageType,
-        rigid_bodies: &[RigidBody],
-        physics_engine: &mut PhysicsEngine,
-    ) -> Self {
-        let mut name = joint.get_name(language).to_owned();
-        let mut canonical_name = joint
-            .get_name(nanoem::common::LanguageType::default())
-            .to_owned();
-        if canonical_name.is_empty() {
-            canonical_name = format!("Label{}", joint.get_index());
-        }
-        if name.is_empty() {
-            name = canonical_name.clone();
-        }
-        let orientation = joint.orientation;
-        let origin = joint.origin;
-        let world_transform = f128_to_isometry(origin, orientation);
-        let rigid_body_a = usize::try_from(joint.rigid_body_a_index)
-            .ok()
-            .and_then(|idx| rigid_bodies.get(idx));
-        let rigid_body_b = usize::try_from(joint.rigid_body_b_index)
-            .ok()
-            .and_then(|idx| rigid_bodies.get(idx));
-        let physics_joint = if let (Some(rigid_body_a), Some(rigid_body_b)) =
-            (rigid_body_a, rigid_body_b)
-        {
-            let mut physics_joint = rapier3d::dynamics::GenericJoint::default();
-            let local_frame_a = rigid_body_a.initial_world_transform.inverse() * world_transform;
-            let local_frame_b = rigid_body_b.initial_world_transform.inverse() * world_transform;
-            physics_joint.set_local_frame1(local_frame_a);
-            physics_joint.set_local_frame2(local_frame_b);
-
-            fn limit(
-                joint: &mut rapier3d::dynamics::GenericJoint,
-                axis: rapier3d::dynamics::JointAxis,
-                min: f32,
-                max: f32,
-                max_limit: f32,
-                stiffness: f32,
-            ) {
-                if max - min < max_limit && max - min > 0f32 {
-                    joint.set_limits(axis, [min, max]);
-                    if stiffness > 0f32 {
-                        joint.set_motor(axis, 0f32, 0f32, stiffness, 100f32);
-                    }
-                } else if min == max {
-                    joint.lock_axes(axis.into());
-                }
-            }
-
-            limit(
-                &mut physics_joint,
-                rapier3d::dynamics::JointAxis::X,
-                joint.linear_lower_limit[0],
-                joint.linear_upper_limit[0],
-                100.,
-                joint.linear_stiffness[0],
-            );
-            limit(
-                &mut physics_joint,
-                rapier3d::dynamics::JointAxis::Y,
-                joint.linear_lower_limit[1],
-                joint.linear_upper_limit[1],
-                100.,
-                joint.linear_stiffness[1],
-            );
-            limit(
-                &mut physics_joint,
-                rapier3d::dynamics::JointAxis::Z,
-                joint.linear_lower_limit[2],
-                joint.linear_upper_limit[2],
-                100.,
-                joint.linear_stiffness[2],
-            );
-            limit(
-                &mut physics_joint,
-                rapier3d::dynamics::JointAxis::AngX,
-                joint.angular_lower_limit[0],
-                joint.angular_upper_limit[0],
-                PI * 2.,
-                joint.angular_stiffness[0],
-            );
-            limit(
-                &mut physics_joint,
-                rapier3d::dynamics::JointAxis::AngY,
-                joint.angular_lower_limit[1],
-                joint.angular_upper_limit[1],
-                PI * 2.,
-                joint.angular_stiffness[1],
-            );
-            limit(
-                &mut physics_joint,
-                rapier3d::dynamics::JointAxis::AngZ,
-                joint.angular_lower_limit[2],
-                joint.angular_upper_limit[2],
-                PI * 2.,
-                joint.angular_stiffness[2],
-            );
-            Some(physics_engine.impulse_joint_set.insert(
-                rigid_body_a.physics_rigid_body,
-                rigid_body_b.physics_rigid_body,
-                physics_joint,
-                true,
-            ))
-        } else {
-            None
-        };
-
-        Self {
-            name,
-            canonical_name,
-            physics_joint,
-            states: JointStates::default(),
-            origin: joint.clone(),
-        }
-    }
-
-    pub fn enable(&mut self) {
-        if !self.states.enabled {
-            // TODO: add to physics engine
-            self.states.enabled = true;
-        }
-    }
-
-    pub fn disable(&mut self) {
-        if self.states.enabled {
-            // TODO: remove from physics engine
-            self.states.enabled = false;
         }
     }
 }

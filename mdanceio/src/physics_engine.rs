@@ -1,6 +1,6 @@
 use rapier3d::prelude::{
     BroadPhase, CCDSolver, ColliderSet, ImpulseJointSet, IntegrationParameters, IslandManager,
-    MultibodyJointSet, NarrowPhase, PhysicsPipeline, RigidBodySet,
+    MultibodyJointSet, NarrowPhase, PhysicsPipeline, RigidBody, RigidBodyHandle, RigidBodySet,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,4 +90,15 @@ impl PhysicsEngine {
     }
 
     pub fn reset(&mut self) {}
+
+    pub fn remove_rb(&mut self, handle: RigidBodyHandle) -> Option<RigidBody> {
+        self.rigid_body_set.remove(
+            handle,
+            &mut self.island_manager,
+            &mut self.collider_set,
+            &mut self.impulse_joint_set,
+            &mut self.multibody_joint_set,
+            true,
+        )
+    }
 }
