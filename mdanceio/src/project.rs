@@ -1027,7 +1027,7 @@ impl Project {
         let physics_simulation_time_step = self.physics_simulation_time_step();
         for (handle, model) in &mut self.model_handle_map {
             if model.edge_size_scale_factor() > 0f32 && !model.is_staging_vertex_buffer_dirty() {
-                model.reset_all_morph_deform_states(
+                model.reset_morphs_deform_state(
                     self.model_to_motion.get(handle).unwrap(),
                     self.local_frame_index.0,
                     &mut self.physics_engine,
@@ -1321,15 +1321,15 @@ impl Project {
     }
 
     fn internal_perform_physics_simulation(&mut self, delta: f32) {
-        // if self.is_physics_simulation_enabled() {
+        if self.is_physics_simulation_enabled() {
             self.physics_engine.step(delta);
             for model in &mut self.model_handle_map.values_mut() {
-                model.synchronize_from_physics(
+                model.synchronize_from_simulation(
                     RigidBodyFollowBone::Perform,
                     &mut self.physics_engine,
                 );
             }
-        // }
+        }
     }
 
     pub fn load_texture(

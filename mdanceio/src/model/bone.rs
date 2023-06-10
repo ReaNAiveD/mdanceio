@@ -194,9 +194,12 @@ impl Bone {
         self.local_user_translation = transform.mixed_translation(self.local_user_translation);
         self.local_user_orientation = transform.mixed_orientation(self.local_user_orientation);
         self.interpolation = transform.interpolation;
-        if transform.enable_physics {
-            if let Some(rigid_body) = rigid_body {
+        if let Some(rigid_body) = rigid_body {
+            if transform.enable_physics && rigid_body.is_from_simulation() {
                 rigid_body.disable_kinematic(physics_engine);
+            }
+            if transform.disable_physics {
+                rigid_body.enable_kinematic(physics_engine);
             }
         }
     }

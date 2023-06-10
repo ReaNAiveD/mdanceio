@@ -638,7 +638,7 @@ impl Model {
 
     pub fn reset_physics_simulation(&mut self, physics_engine: &mut PhysicsEngine) {
         self.initialize_all_rigid_bodies_transform_feedback(physics_engine);
-        self.rigid_bodies.synchronize_from_physics(
+        self.rigid_bodies.synchronize_from_simulation(
             &mut self.bones,
             RigidBodyFollowBone::Perform,
             physics_engine,
@@ -712,8 +712,8 @@ impl Model {
             match timing {
                 SimulationTiming::Before => {
                     self.bounding_box.reset();
-                    self.reset_all_materials();
-                    self.reset_all_bone_local_transform();
+                    self.reset_materials();
+                    self.reset_bone_local_transform();
                     self.synchronize_morph_motion(motion, frame_index, amount);
                     self.synchronize_bone_motion(
                         motion,
@@ -723,14 +723,8 @@ impl Model {
                         physics_engine,
                         outside_parent_bone_map,
                     );
-                    self.rigid_bodies.synchronize_all_rigid_body_kinematics(
-                        motion,
-                        &self.bones,
-                        frame_index,
-                        physics_engine,
-                    );
                     self.rigid_bodies
-                        .synchronize_to_physics(&self.bones, physics_engine);
+                        .synchronize_to_simulation(&self.bones, physics_engine);
                 }
                 SimulationTiming::After => {
                     self.synchronize_bone_motion(
@@ -800,11 +794,11 @@ impl Model {
     ) {
         if let SimulationTiming::Before = timing {
             for bone in self.bones.iter_mut() {
-                let rigid_body = self.rigid_bodies.get_mut_by_bone(bone.handle);
+                let rigid_body = self.rigid_bodies.find_mut_by_bone(bone.handle);
                 bone.synchronize_motion(motion, rigid_body, frame_index, amount, physics_engine);
             }
         }
-        self.apply_all_bones_transform(timing, outside_parent_bone_map);
+        self.apply_bones_transform(timing, outside_parent_bone_map);
     }
 
     fn synchronize_morph_motion(&mut self, motion: &Motion, frame_index: u32, amount: f32) {
@@ -822,13 +816,13 @@ impl Model {
         }
     }
 
-    pub fn synchronize_from_physics(
+    pub fn synchronize_from_simulation(
         &mut self,
         follow_type: RigidBodyFollowBone,
         physics_engine: &mut PhysicsEngine,
     ) {
         if self.is_physics_simulation_enabled() {
-            self.rigid_bodies.synchronize_from_physics(
+            self.rigid_bodies.synchronize_from_simulation(
                 &mut self.bones,
                 follow_type,
                 physics_engine,
@@ -836,7 +830,7 @@ impl Model {
         }
     }
 
-    pub fn reset_all_morph_deform_states(
+    pub fn reset_morphs_deform_state(
         &mut self,
         motion: &Motion,
         frame_index: u32,
@@ -853,7 +847,7 @@ impl Model {
                 nanoem::model::ModelMorphType::Bone(children) => {
                     for child in children {
                         if let Some(bone) = self.bones.try_get_mut(child.bone_index) {
-                            let rigid_body = self.rigid_bodies.get_mut_by_bone(bone.handle);
+                            let rigid_body = self.rigid_bodies.find_mut_by_bone_bound(bone.handle);
                             bone.reset_morph_transform();
                             bone.synchronize_motion(
                                 motion,
@@ -918,12 +912,11 @@ impl Model {
         }
     }
 
-    fn apply_all_bones_transform(
+    fn apply_bones_transform(
         &mut self,
         timing: SimulationTiming,
         outside_parent_bone_map: &HashMap<(String, String), Bone>,
     ) {
-        // TODO: Here nanoem use a ordered bone. If any sort to bone happened, I will change logic here.
         for idx in self.bones.iter_idx() {
             let bone = self.bones.get(idx).unwrap();
             if (bone.origin.flags.is_affected_by_physics_simulation
@@ -945,7 +938,7 @@ impl Model {
         }
     }
 
-    fn reset_all_bone_transforms(&mut self) {
+    fn reset_bones_transform(&mut self) {
         for bone in self.bones.iter_mut() {
             bone.reset_local_transform();
             bone.reset_morph_transform();
@@ -953,7 +946,7 @@ impl Model {
         }
     }
 
-    fn reset_all_bone_local_transform(&mut self) {
+    fn reset_bone_local_transform(&mut self) {
         for bone in self.bones.iter_mut() {
             bone.reset_local_transform();
         }
@@ -966,7 +959,7 @@ impl Model {
         }
     }
 
-    fn reset_all_materials(&mut self) {
+    fn reset_materials(&mut self) {
         for material in &mut self.materials {
             material.reset();
         }
@@ -1227,18 +1220,18 @@ impl Model {
         outside_parent_bone_map: &HashMap<(String, String), Bone>,
     ) {
         self.bounding_box.reset();
-        self.apply_all_bones_transform(SimulationTiming::Before, outside_parent_bone_map);
+        self.apply_bones_transform(SimulationTiming::Before, outside_parent_bone_map);
         if physics_engine.simulation_mode == SimulationMode::EnableAnytime {
             self.rigid_bodies
-                .synchronize_to_physics(&self.bones, physics_engine);
+                .synchronize_to_simulation(&self.bones, physics_engine);
             physics_engine.step(physics_simulation_time_step);
-            self.rigid_bodies.synchronize_from_physics(
+            self.rigid_bodies.synchronize_from_simulation(
                 &mut self.bones,
                 RigidBodyFollowBone::Skip,
                 physics_engine,
             );
         }
-        self.apply_all_bones_transform(SimulationTiming::After, outside_parent_bone_map);
+        self.apply_bones_transform(SimulationTiming::After, outside_parent_bone_map);
         self.mark_staging_vertex_buffer_dirty();
         // TODO: handle owned camera
     }

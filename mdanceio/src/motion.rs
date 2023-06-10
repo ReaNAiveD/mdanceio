@@ -100,6 +100,7 @@ pub struct BoneFrameTransform {
     pub interpolation: BoneKeyframeInterpolation,
     pub local_transform_mix: Option<f32>,
     pub enable_physics: bool,
+    pub disable_physics: bool,
 }
 
 impl BoneFrameTransform {
@@ -128,6 +129,7 @@ impl Default for BoneFrameTransform {
             interpolation: BoneKeyframeInterpolation::default(),
             local_transform_mix: None,
             enable_physics: false,
+            disable_physics: false,
         }
     }
 }
@@ -144,6 +146,7 @@ impl Seek for MotionTrack<MotionBoneKeyframe> {
                 interpolation: BoneKeyframeInterpolation::build(keyframe.interpolation),
                 local_transform_mix: None,
                 enable_physics: keyframe.is_physics_simulation_enabled,
+                disable_physics: false,
             })
     }
 
@@ -168,6 +171,7 @@ impl Seek for MotionTrack<MotionBoneKeyframe> {
                     interpolation: BoneKeyframeInterpolation::build(next_frame.interpolation),
                     local_transform_mix: Some(coef),
                     enable_physics: false,
+                    disable_physics: true,
                 }
             } else {
                 let prev_translation = f128_to_vec3(prev_frame.translation);
@@ -191,6 +195,7 @@ impl Seek for MotionTrack<MotionBoneKeyframe> {
                     interpolation: BoneKeyframeInterpolation::build(next_frame.interpolation),
                     local_transform_mix: None,
                     enable_physics: prev_enabled && next_enabled,
+                    disable_physics: false,
                 }
             }
         } else {
@@ -219,6 +224,7 @@ impl Seek for MotionTrack<MotionBoneKeyframe> {
                 interpolation: f0.interpolation.lerp(f1.interpolation, amount),
                 local_transform_mix,
                 enable_physics: f0.enable_physics && f1.enable_physics,
+                disable_physics: f0.disable_physics || f1.disable_physics,
             }
         } else {
             f0

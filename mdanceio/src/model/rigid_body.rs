@@ -204,7 +204,7 @@ impl RigidBody {
         }
     }
 
-    pub fn apply_all_forces(&mut self, bone: Option<&Bone>, physics_engine: &mut PhysicsEngine) {
+    pub fn apply_forces(&mut self, bone: Option<&Bone>, physics_engine: &mut PhysicsEngine) {
         if let Some(physics_rb) = physics_engine.get_rb_mut(self.physics_rb) {
             if self.states.all_forces_should_reset {
                 physics_rb.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
@@ -248,14 +248,9 @@ impl RigidBody {
         }
     }
 
-    pub fn synchronize_to_physics(&mut self, bone: &Bone, physics_engine: &mut PhysicsEngine) {
-        if let Some(physics_rigid_body) = self
-            .physics_rb
-            .and_then(|handle| physics_engine.rigid_body_set.get_mut(handle))
-        {
-            if self.origin.transform_type == ModelRigidBodyTransformType::FromBoneToSimulation
-                || physics_rigid_body.is_kinematic()
-            {
+    pub fn synchronize_to_simulation(&mut self, bone: &Bone, physics_engine: &mut PhysicsEngine) {
+        if let Some(physics_rigid_body) = physics_engine.get_rb_mut(self.physics_rb) {
+            if self.is_to_simulation() || physics_rigid_body.is_kinematic() {
                 let initial_transform = self.initial_world_transform;
                 let skinning_transform = to_isometry(bone.matrices.skinning_transform);
                 let world_transform = skinning_transform * initial_transform;
@@ -267,22 +262,15 @@ impl RigidBody {
         }
     }
 
-    pub fn synchronize_from_physics(
+    pub fn synchronize_from_simulation(
         &mut self,
         bone: &mut Bone,
         parent_bone: Option<&Bone>,
         follow_type: RigidBodyFollowBone,
         physics_engine: &mut PhysicsEngine,
     ) {
-        if let Some(physics_rigid_body) = self
-            .physics_rb
-            .and_then(|handle| physics_engine.rigid_body_set.get_mut(handle))
-        {
-            if (self.origin.transform_type == ModelRigidBodyTransformType::FromSimulationToBone
-                || self.origin.transform_type
-                    == ModelRigidBodyTransformType::FromBoneOrientationAndSimulationToBone)
-                && !physics_rigid_body.is_kinematic()
-            {
+        if let Some(physics_rigid_body) = physics_engine.get_rb_mut(self.physics_rb) {
+            if self.is_from_simulation() && !physics_rigid_body.is_kinematic() {
                 let initial_transform = self.initial_world_transform;
                 let mut world_transform = *physics_rigid_body.position();
                 if follow_type == RigidBodyFollowBone::Perform
@@ -321,10 +309,25 @@ impl RigidBody {
     }
 
     pub fn is_kinematic(&self, physics_engine: &PhysicsEngine) -> bool {
-        self.physics_rb
-            .and_then(|handle| physics_engine.rigid_body_set.get(handle))
+        physics_engine
+            .get_rb(self.physics_rb)
             .map(|rigid_body| rigid_body.is_kinematic())
             .unwrap_or(true)
+    }
+
+    pub fn is_to_simulation(&self) -> bool {
+        matches!(
+            self.origin.get_transform_type(),
+            ModelRigidBodyTransformType::FromBoneToSimulation
+        )
+    }
+
+    pub fn is_from_simulation(&self) -> bool {
+        matches!(
+            self.origin.get_transform_type(),
+            ModelRigidBodyTransformType::FromSimulationToBone
+                | ModelRigidBodyTransformType::FromBoneOrientationAndSimulationToBone
+        )
     }
 }
 
@@ -395,6 +398,7 @@ impl RigidBody {
 
 pub struct RigidBodySet {
     rigid_bodies: Vec<RigidBody>,
+    bone_to_rigid_bodies: HashMap<BoneIndex, RigidBodyIndex>,
     bone_bound_rigid_bodies: HashMap<BoneIndex, RigidBodyIndex>,
 }
 
@@ -418,21 +422,22 @@ impl RigidBodySet {
                 } else {
                     false
                 };
-                // TODO: initializeTransformFeedback
                 RigidBody::from_nanoem(rigid_body, language_type, is_morph, bones, physics_engine)
             })
             .collect();
+        let mut bone_to_rigid_bodies = HashMap::new();
         let mut bone_bound_rigid_bodies = HashMap::new();
         for (handle, rigid_body) in rigid_bodies.iter().enumerate() {
-            if rigid_body.origin.transform_type != ModelRigidBodyTransformType::FromBoneToSimulation
-            {
-                if let Ok(bone) = usize::try_from(rigid_body.origin.bone_index) {
-                    bone_bound_rigid_bodies.insert(bone, handle);
+            if let Some(bone) = bones.try_get(rigid_body.origin.bone_index) {
+                bone_to_rigid_bodies.insert(bone.handle, handle);
+                if rigid_body.is_from_simulation() {
+                    bone_bound_rigid_bodies.insert(bone.handle, handle);
                 }
             }
         }
         Self {
             rigid_bodies,
+            bone_to_rigid_bodies,
             bone_bound_rigid_bodies,
         }
     }
@@ -445,15 +450,17 @@ impl RigidBodySet {
         self.rigid_bodies.get_mut(handle)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = &RigidBody> {
-        self.rigid_bodies.iter()
-    }
-
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut RigidBody> {
         self.rigid_bodies.iter_mut()
     }
 
-    pub fn get_mut_by_bone(&mut self, bone: BoneIndex) -> Option<&mut RigidBody> {
+    pub fn find_mut_by_bone(&mut self, bone: BoneIndex) -> Option<&mut RigidBody> {
+        self.bone_to_rigid_bodies
+            .get(&bone)
+            .and_then(|idx| self.rigid_bodies.get_mut(*idx))
+    }
+
+    pub fn find_mut_by_bone_bound(&mut self, bone: BoneIndex) -> Option<&mut RigidBody> {
         self.bone_bound_rigid_bodies
             .get(&bone)
             .and_then(|idx| self.rigid_bodies.get_mut(*idx))
@@ -461,50 +468,21 @@ impl RigidBodySet {
 }
 
 impl RigidBodySet {
-    pub fn synchronize_all_rigid_body_kinematics(
+    pub fn synchronize_to_simulation(
         &mut self,
-        motion: &Motion,
         bones: &BoneSet,
-        frame_index: u32,
         physics_engine: &mut PhysicsEngine,
     ) {
         for rigid_body in self.rigid_bodies.iter_mut() {
-            if let Some(bone) = bones.try_get(rigid_body.origin.bone_index) {
-                let bone_name = &bone.canonical_name;
-                if let (Some(prev_frame), Some(next_frame)) = (
-                    motion.find_bone_keyframe(bone_name, frame_index),
-                    motion.find_bone_keyframe(bone_name, frame_index + 1),
-                ) {
-                    if prev_frame.is_physics_simulation_enabled
-                        && !next_frame.is_physics_simulation_enabled
-                    {
-                        rigid_body.enable_kinematic(physics_engine);
-                    }
-                } else if let (Some(prev_frame), Some(next_frame)) = motion
-                    .opaque
-                    .search_closest_bone_keyframes(bone_name, frame_index)
-                {
-                    if prev_frame.is_physics_simulation_enabled
-                        && !next_frame.is_physics_simulation_enabled
-                    {
-                        rigid_body.enable_kinematic(physics_engine);
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn synchronize_to_physics(&mut self, bones: &BoneSet, physics_engine: &mut PhysicsEngine) {
-        for rigid_body in self.rigid_bodies.iter_mut() {
             let bone = bones.try_get(rigid_body.origin.bone_index);
-            rigid_body.apply_all_forces(bone, physics_engine);
+            rigid_body.apply_forces(bone, physics_engine);
             if let Some(bone) = bone {
-                rigid_body.synchronize_to_physics(bone, physics_engine);
+                rigid_body.synchronize_to_simulation(bone, physics_engine);
             }
         }
     }
 
-    pub fn synchronize_from_physics(
+    pub fn synchronize_from_simulation(
         &mut self,
         bones: &mut BoneSet,
         follow_type: RigidBodyFollowBone,
@@ -513,7 +491,7 @@ impl RigidBodySet {
         for rigid_body in self.rigid_bodies.iter_mut() {
             if let Some(bone) = bones.try_get(rigid_body.origin.bone_index) {
                 let parent_bone = bones.try_get(bone.origin.parent_bone_index).cloned();
-                rigid_body.synchronize_from_physics(
+                rigid_body.synchronize_from_simulation(
                     bones.get_mut(bone.handle).unwrap(),
                     parent_bone.as_ref(),
                     follow_type,
