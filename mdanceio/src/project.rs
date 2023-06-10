@@ -1013,13 +1013,8 @@ impl Project {
 
     pub fn reset_physics_simulation(&mut self) {
         self.physics_engine.reset();
-        for (handle, model) in &mut self.model_handle_map {
-            model.initialize_all_rigid_bodies_transform_feedback(&mut self.physics_engine);
-            model.synchronize_all_rigid_bodies_transform_feedback_from_simulation(
-                RigidBodyFollowBone::Perform,
-                &mut self.physics_engine,
-            );
-            model.mark_staging_vertex_buffer_dirty();
+        for model in self.model_handle_map.values_mut() {
+            model.reset_physics_simulation(&mut self.physics_engine);
         }
         self.physics_engine.step(0f32);
         self.restart(self.current_frame_index());
@@ -1197,11 +1192,11 @@ impl Project {
         })
     }
 
-    pub fn add_model(&mut self, mut model: Model) -> ModelHandle {
-        model.clear_all_bone_bounds_rigid_bodies();
-        if !self.state_flags.disable_hidden_bone_bounds_rigid_body {
-            model.create_all_bone_bounds_rigid_bodies();
-        }
+    pub fn add_model(&mut self, model: Model) -> ModelHandle {
+        // model.clear_all_bone_bounds_rigid_bodies();
+        // if !self.state_flags.disable_hidden_bone_bounds_rigid_body {
+        //     model.create_all_bone_bounds_rigid_bodies();
+        // }
         let model_handle = self.object_handler_allocator.next();
         self.model_handle_map.insert(model_handle, model);
         self.transform_model_order_list.push(model_handle);
@@ -1326,17 +1321,15 @@ impl Project {
     }
 
     fn internal_perform_physics_simulation(&mut self, delta: f32) {
-        if self.is_physics_simulation_enabled() {
+        // if self.is_physics_simulation_enabled() {
             self.physics_engine.step(delta);
             for model in &mut self.model_handle_map.values_mut() {
-                if model.is_physics_simulation_enabled() {
-                    model.synchronize_all_rigid_bodies_transform_feedback_from_simulation(
-                        RigidBodyFollowBone::Perform,
-                        &mut self.physics_engine,
-                    );
-                }
+                model.synchronize_from_physics(
+                    RigidBodyFollowBone::Perform,
+                    &mut self.physics_engine,
+                );
             }
-        }
+        // }
     }
 
     pub fn load_texture(

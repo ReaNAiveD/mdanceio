@@ -1,10 +1,15 @@
-use std::f32::consts::PI;
+use std::{
+    collections::{HashMap, HashSet},
+    f32::consts::PI,
+};
 
 use cgmath::{Vector3, Zero};
 use nalgebra::Isometry3;
-use nanoem::model::ModelRigidBodyTransformType;
+use nanoem::{common::LanguageType, model::ModelRigidBodyTransformType};
+use rapier3d::prelude::RigidBodyType;
 
 use crate::{
+    motion::Motion,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone},
     utils::{
         f128_to_isometry, f128_to_vec3, from_isometry, mat4_truncate, to_isometry, to_na_vec3,
@@ -12,7 +17,7 @@ use crate::{
     },
 };
 
-use super::{bone::BoneSet, Bone, NanoemJoint, NanoemRigidBody};
+use super::{bone::BoneSet, Bone, BoneIndex, NanoemJoint, NanoemRigidBody, RigidBodyIndex};
 
 type RapierRB = rapier3d::dynamics::RigidBody;
 type RapierRBHandle = rapier3d::dynamics::RigidBodyHandle;
@@ -28,7 +33,7 @@ pub struct RigidBodyStates {
 #[derive(Debug)]
 pub struct RigidBody {
     // TODO: physics engine and shape mesh and engine rigid_body
-    physics_rigid_body: Option<RapierRBHandle>,
+    physics_rb: Option<RapierRBHandle>,
     initial_world_transform: nalgebra::Isometry3<f32>,
     global_torque_force: (Vector3<f32>, bool),
     global_velocity_force: (Vector3<f32>, bool),
@@ -95,9 +100,12 @@ impl RigidBody {
             local_velocity_force: (Vector3::zero(), false),
             name,
             canonical_name,
-            states: RigidBodyStates::default(),
+            states: RigidBodyStates {
+                enabled: true,
+                ..Default::default()
+            },
             origin: rigid_body.clone(),
-            physics_rigid_body: Some(rigid_body_handle),
+            physics_rb: Some(rigid_body_handle),
             initial_world_transform,
             is_morph,
         }
@@ -122,14 +130,14 @@ impl RigidBody {
                     &mut physics_engine.rigid_body_set,
                 )
             });
-            self.physics_rigid_body = Some(rigid_body_handle);
+            self.physics_rb = Some(rigid_body_handle);
             self.states.enabled = true;
         }
     }
 
     pub fn disable(&mut self, physics_engine: &mut PhysicsEngine) {
         if self.states.enabled {
-            if let Some(handle) = self.physics_rigid_body {
+            if let Some(handle) = self.physics_rb {
                 physics_engine.remove_rb(handle);
             }
             self.states.enabled = false;
@@ -162,68 +170,57 @@ impl RigidBody {
 
     pub fn initialize_transform_feedback(
         &mut self,
-        bone: &Bone,
+        bone: Option<&Bone>,
         physics_engine: &mut PhysicsEngine,
     ) {
         if let Some(physics_rigid_body) = self
-            .physics_rigid_body
+            .physics_rb
             .and_then(|handle| physics_engine.rigid_body_set.get_mut(handle))
         {
-            let skinning_transform = to_isometry(bone.matrices.skinning_transform);
-            physics_rigid_body
-                .set_position(skinning_transform * self.initial_world_transform, true);
-            physics_rigid_body.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
-            physics_rigid_body.set_angvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
-            physics_rigid_body.reset_forces(true);
+            if let Some(bone) = bone {
+                let skinning_transform = to_isometry(bone.matrices.skinning_transform);
+                physics_rigid_body
+                    .set_position(skinning_transform * self.initial_world_transform, true);
+                physics_rigid_body.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
+                physics_rigid_body.set_angvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
+                physics_rigid_body.reset_forces(true);
+            }
         }
     }
 
     pub fn enable_kinematic(&mut self, physics_engine: &mut PhysicsEngine) {
-        if let Some(physics_rigid_body) = self
-            .physics_rigid_body
-            .and_then(|handle| physics_engine.rigid_body_set.get_mut(handle))
-        {
-            if !physics_rigid_body.is_kinematic() {
-                physics_rigid_body.set_body_type(
-                    rapier3d::dynamics::RigidBodyType::KinematicPositionBased,
-                    true,
-                );
+        if let Some(physics_rb) = physics_engine.get_rb_mut(self.physics_rb) {
+            if !physics_rb.is_kinematic() {
+                physics_rb.set_body_type(RigidBodyType::KinematicPositionBased, true);
             }
         }
     }
 
     pub fn disable_kinematic(&mut self, physics_engine: &mut PhysicsEngine) {
-        if let Some(physics_rigid_body) = self
-            .physics_rigid_body
-            .and_then(|handle| physics_engine.rigid_body_set.get_mut(handle))
-        {
-            if physics_rigid_body.is_kinematic() {
-                physics_rigid_body.set_body_type(rapier3d::dynamics::RigidBodyType::Dynamic, true);
+        if let Some(physics_rb) = physics_engine.get_rb_mut(self.physics_rb) {
+            if physics_rb.is_kinematic() {
+                physics_rb.set_body_type(RigidBodyType::Dynamic, true);
             }
         }
     }
 
     pub fn apply_all_forces(&mut self, bone: Option<&Bone>, physics_engine: &mut PhysicsEngine) {
-        if let Some(physics_rigid_body) = self
-            .physics_rigid_body
-            .and_then(|handle| physics_engine.rigid_body_set.get_mut(handle))
-        {
+        if let Some(physics_rb) = physics_engine.get_rb_mut(self.physics_rb) {
             if self.states.all_forces_should_reset {
-                physics_rigid_body.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
-                physics_rigid_body.set_angvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
-                physics_rigid_body.reset_forces(true);
+                physics_rb.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
+                physics_rb.set_angvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
+                physics_rb.reset_forces(true);
             } else {
                 if self.global_torque_force.1 {
-                    physics_rigid_body
-                        .apply_torque_impulse(to_na_vec3(self.global_torque_force.0), true);
+                    physics_rb.apply_torque_impulse(to_na_vec3(self.global_torque_force.0), true);
                     self.global_torque_force = (Vector3::new(0f32, 0f32, 0f32), false);
                 }
                 if self.local_torque_force.1 {
                     if let Some(bone) = bone {
                         let local_orientation = (to_isometry(bone.matrices.world_transform)
-                            * physics_rigid_body.position())
+                            * physics_rb.position())
                         .rotation;
-                        physics_rigid_body.apply_torque_impulse(
+                        physics_rb.apply_torque_impulse(
                             local_orientation * to_na_vec3(self.local_torque_force.0),
                             true,
                         );
@@ -231,16 +228,15 @@ impl RigidBody {
                     }
                 }
                 if self.global_velocity_force.1 {
-                    physics_rigid_body
-                        .apply_impulse(to_na_vec3(self.global_velocity_force.0), true);
+                    physics_rb.apply_impulse(to_na_vec3(self.global_velocity_force.0), true);
                     self.global_velocity_force = (Vector3::new(0f32, 0f32, 0f32), false);
                 }
                 if self.local_velocity_force.1 {
                     if let Some(bone) = bone {
                         let local_orientation = (to_isometry(bone.matrices.world_transform)
-                            * physics_rigid_body.position())
+                            * physics_rb.position())
                         .rotation;
-                        physics_rigid_body.apply_torque_impulse(
+                        physics_rb.apply_impulse(
                             local_orientation * to_na_vec3(self.local_velocity_force.0),
                             true,
                         );
@@ -252,13 +248,9 @@ impl RigidBody {
         }
     }
 
-    pub fn synchronize_transform_feedback_to_simulation(
-        &mut self,
-        bone: &Bone,
-        physics_engine: &mut PhysicsEngine,
-    ) {
+    pub fn synchronize_to_physics(&mut self, bone: &Bone, physics_engine: &mut PhysicsEngine) {
         if let Some(physics_rigid_body) = self
-            .physics_rigid_body
+            .physics_rb
             .and_then(|handle| physics_engine.rigid_body_set.get_mut(handle))
         {
             if self.origin.transform_type == ModelRigidBodyTransformType::FromBoneToSimulation
@@ -275,7 +267,7 @@ impl RigidBody {
         }
     }
 
-    pub fn synchronize_transform_feedback_from_simulation(
+    pub fn synchronize_from_physics(
         &mut self,
         bone: &mut Bone,
         parent_bone: Option<&Bone>,
@@ -283,7 +275,7 @@ impl RigidBody {
         physics_engine: &mut PhysicsEngine,
     ) {
         if let Some(physics_rigid_body) = self
-            .physics_rigid_body
+            .physics_rb
             .and_then(|handle| physics_engine.rigid_body_set.get_mut(handle))
         {
             if (self.origin.transform_type == ModelRigidBodyTransformType::FromSimulationToBone
@@ -329,7 +321,7 @@ impl RigidBody {
     }
 
     pub fn is_kinematic(&self, physics_engine: &PhysicsEngine) -> bool {
-        self.physics_rigid_body
+        self.physics_rb
             .and_then(|handle| physics_engine.rigid_body_set.get(handle))
             .map(|rigid_body| rigid_body.is_kinematic())
             .unwrap_or(true)
@@ -342,12 +334,11 @@ impl RigidBody {
         world_transform: Isometry3<f32>,
         is_morph: bool,
     ) -> RapierRB {
-        let rigid_body_builder = rapier3d::dynamics::RigidBodyBuilder::new(
-            rapier3d::dynamics::RigidBodyType::KinematicPositionBased,
-        )
-        .position(world_transform)
-        .angular_damping(origin_rb.angular_damping)
-        .linear_damping(origin_rb.linear_damping);
+        let rigid_body_builder =
+            rapier3d::dynamics::RigidBodyBuilder::new(RigidBodyType::KinematicPositionBased)
+                .position(world_transform)
+                .angular_damping(origin_rb.angular_damping)
+                .linear_damping(origin_rb.linear_damping);
         let mut rigid_body = rigid_body_builder.build();
         if matches!(
             origin_rb.transform_type,
@@ -402,6 +393,137 @@ impl RigidBody {
     }
 }
 
+pub struct RigidBodySet {
+    rigid_bodies: Vec<RigidBody>,
+    bone_bound_rigid_bodies: HashMap<BoneIndex, RigidBodyIndex>,
+}
+
+impl RigidBodySet {
+    pub fn new(
+        rigid_bodies: &[NanoemRigidBody],
+        bones: &BoneSet,
+        morph_bones: &HashSet<BoneIndex>,
+        language_type: LanguageType,
+        physics_engine: &mut PhysicsEngine,
+    ) -> Self {
+        let rigid_bodies: Vec<RigidBody> = rigid_bodies
+            .iter()
+            .map(|rigid_body| {
+                let is_dynamic = !matches!(
+                    rigid_body.get_transform_type(),
+                    nanoem::model::ModelRigidBodyTransformType::FromBoneToSimulation
+                );
+                let is_morph = if let Some(bone) = bones.try_get(rigid_body.get_bone_index()) {
+                    is_dynamic && morph_bones.contains(&bone.handle)
+                } else {
+                    false
+                };
+                // TODO: initializeTransformFeedback
+                RigidBody::from_nanoem(rigid_body, language_type, is_morph, bones, physics_engine)
+            })
+            .collect();
+        let mut bone_bound_rigid_bodies = HashMap::new();
+        for (handle, rigid_body) in rigid_bodies.iter().enumerate() {
+            if rigid_body.origin.transform_type != ModelRigidBodyTransformType::FromBoneToSimulation
+            {
+                if let Ok(bone) = usize::try_from(rigid_body.origin.bone_index) {
+                    bone_bound_rigid_bodies.insert(bone, handle);
+                }
+            }
+        }
+        Self {
+            rigid_bodies,
+            bone_bound_rigid_bodies,
+        }
+    }
+
+    pub fn get(&self, handle: RigidBodyIndex) -> Option<&RigidBody> {
+        self.rigid_bodies.get(handle)
+    }
+
+    pub fn get_mut(&mut self, handle: RigidBodyIndex) -> Option<&mut RigidBody> {
+        self.rigid_bodies.get_mut(handle)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &RigidBody> {
+        self.rigid_bodies.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut RigidBody> {
+        self.rigid_bodies.iter_mut()
+    }
+
+    pub fn get_mut_by_bone(&mut self, bone: BoneIndex) -> Option<&mut RigidBody> {
+        self.bone_bound_rigid_bodies
+            .get(&bone)
+            .and_then(|idx| self.rigid_bodies.get_mut(*idx))
+    }
+}
+
+impl RigidBodySet {
+    pub fn synchronize_all_rigid_body_kinematics(
+        &mut self,
+        motion: &Motion,
+        bones: &BoneSet,
+        frame_index: u32,
+        physics_engine: &mut PhysicsEngine,
+    ) {
+        for rigid_body in self.rigid_bodies.iter_mut() {
+            if let Some(bone) = bones.try_get(rigid_body.origin.bone_index) {
+                let bone_name = &bone.canonical_name;
+                if let (Some(prev_frame), Some(next_frame)) = (
+                    motion.find_bone_keyframe(bone_name, frame_index),
+                    motion.find_bone_keyframe(bone_name, frame_index + 1),
+                ) {
+                    if prev_frame.is_physics_simulation_enabled
+                        && !next_frame.is_physics_simulation_enabled
+                    {
+                        rigid_body.enable_kinematic(physics_engine);
+                    }
+                } else if let (Some(prev_frame), Some(next_frame)) = motion
+                    .opaque
+                    .search_closest_bone_keyframes(bone_name, frame_index)
+                {
+                    if prev_frame.is_physics_simulation_enabled
+                        && !next_frame.is_physics_simulation_enabled
+                    {
+                        rigid_body.enable_kinematic(physics_engine);
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn synchronize_to_physics(&mut self, bones: &BoneSet, physics_engine: &mut PhysicsEngine) {
+        for rigid_body in self.rigid_bodies.iter_mut() {
+            let bone = bones.try_get(rigid_body.origin.bone_index);
+            rigid_body.apply_all_forces(bone, physics_engine);
+            if let Some(bone) = bone {
+                rigid_body.synchronize_to_physics(bone, physics_engine);
+            }
+        }
+    }
+
+    pub fn synchronize_from_physics(
+        &mut self,
+        bones: &mut BoneSet,
+        follow_type: RigidBodyFollowBone,
+        physics_engine: &mut PhysicsEngine,
+    ) {
+        for rigid_body in self.rigid_bodies.iter_mut() {
+            if let Some(bone) = bones.try_get(rigid_body.origin.bone_index) {
+                let parent_bone = bones.try_get(bone.origin.parent_bone_index).cloned();
+                rigid_body.synchronize_from_physics(
+                    bones.get_mut(bone.handle).unwrap(),
+                    parent_bone.as_ref(),
+                    follow_type,
+                    physics_engine,
+                );
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct JointStates {
     pub enabled: bool,
@@ -421,7 +543,7 @@ impl Joint {
     pub fn from_nanoem(
         joint: &NanoemJoint,
         language: nanoem::common::LanguageType,
-        rigid_bodies: &[RigidBody],
+        rigid_bodies: &RigidBodySet,
         physics_engine: &mut PhysicsEngine,
     ) -> Self {
         let mut name = joint.get_name(language).to_owned();
@@ -519,8 +641,8 @@ impl Joint {
                 joint.angular_stiffness[2],
             );
             Some(physics_engine.impulse_joint_set.insert(
-                rigid_body_a.physics_rigid_body.unwrap(),
-                rigid_body_b.physics_rigid_body.unwrap(),
+                rigid_body_a.physics_rb.unwrap(),
+                rigid_body_b.physics_rb.unwrap(),
                 physics_joint,
                 true,
             ))

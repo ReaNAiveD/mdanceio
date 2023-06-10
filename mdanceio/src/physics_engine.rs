@@ -101,4 +101,12 @@ impl PhysicsEngine {
             true,
         )
     }
+
+    pub fn get_rb(&self, handle: Option<RigidBodyHandle>) -> Option<&RigidBody> {
+        handle.and_then(|handle| self.rigid_body_set.get(handle))
+    }
+
+    pub fn get_rb_mut(&mut self, handle: Option<RigidBodyHandle>) -> Option<&mut RigidBody> {
+        handle.and_then(|handle| self.rigid_body_set.get_mut(handle))
+    }
 }
