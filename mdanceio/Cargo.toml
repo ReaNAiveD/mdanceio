@@ -23,7 +23,7 @@ wgpu = { version = "0.16.0", features = ["trace"] }
 log = "0.4"
 bytemuck = { version = "1.13.1", features = ["derive"] }
 cgmath = "0.18.0"
-rapier3d = { version = "0.17.2", features = ["simd-stable"] }
+rapier3d = { version = "0.17.2", features = ["simd-stable", "debug-render"] }
 nalgebra = { version = "0.32.2" }
 instant = { version = "0.1.12" }
 
