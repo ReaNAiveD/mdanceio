@@ -7,7 +7,6 @@ use wgpu::util::DeviceExt;
 #[derive(Debug, Clone, Copy, Default, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct VertexInput {
     position: [f32; 3],
-    padding: f32,
 }
 
 #[repr(C)]
@@ -174,11 +173,9 @@ impl<'a> rapier3d::pipeline::DebugRenderBackend for PhysicsDrawer<'a> {
             .write_buffer(self.uniform_buffer, 0, bytemuck::cast_slice(&[uniform]));
         let a = VertexInput {
             position: a.into(),
-            padding: 0.,
         };
         let b = VertexInput {
             position: b.into(),
-            padding: 0.,
         };
         self.queue
             .write_buffer(self.vertex_buffer, 0, bytemuck::cast_slice(&[a, b]));

@@ -441,6 +441,10 @@ impl RigidBodySet {
         self.rigid_bodies.get_mut(handle)
     }
 
+    pub fn try_get(&self, idx: i32) -> Option<&RigidBody> {
+        usize::try_from(idx).ok().and_then(|idx| self.get(idx))
+    }
+
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut RigidBody> {
         self.rigid_bodies.iter_mut()
     }
@@ -528,12 +532,8 @@ impl Joint {
         let orientation = joint.orientation;
         let origin = joint.origin;
         let world_transform = f128_to_isometry(origin, orientation);
-        let rigid_body_a = usize::try_from(joint.rigid_body_a_index)
-            .ok()
-            .and_then(|idx| rigid_bodies.get(idx));
-        let rigid_body_b = usize::try_from(joint.rigid_body_b_index)
-            .ok()
-            .and_then(|idx| rigid_bodies.get(idx));
+        let rigid_body_a = rigid_bodies.try_get(joint.rigid_body_a_index);
+        let rigid_body_b = rigid_bodies.try_get(joint.rigid_body_b_index);
         let physics_joint = if let (Some(rigid_body_a), Some(rigid_body_b)) =
             (rigid_body_a, rigid_body_b)
         {
@@ -609,7 +609,6 @@ impl Joint {
                 PI * 2.,
                 joint.angular_stiffness[2],
             );
-            log::info!("Joint {:?}, {:?}", joint.name_ja, physics_joint);
             Some(physics_engine.impulse_joint_set.insert(
                 rigid_body_a.physics_rb.unwrap(),
                 rigid_body_b.physics_rb.unwrap(),
