@@ -64,8 +64,8 @@ impl ShadowCamera {
         let color_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ShadowCamera/Color"),
             size: wgpu::Extent3d {
-                width: Self::INITIAL_TEXTURE_SIZE as u32,
-                height: Self::INITIAL_TEXTURE_SIZE as u32,
+                width: Self::INITIAL_TEXTURE_SIZE,
+                height: Self::INITIAL_TEXTURE_SIZE,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -79,8 +79,8 @@ impl ShadowCamera {
         let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("ShadowCamera/Depth"),
             size: wgpu::Extent3d {
-                width: Self::INITIAL_TEXTURE_SIZE as u32,
-                height: Self::INITIAL_TEXTURE_SIZE as u32,
+                width: Self::INITIAL_TEXTURE_SIZE,
+                height: Self::INITIAL_TEXTURE_SIZE,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,

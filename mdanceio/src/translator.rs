@@ -7,8 +7,8 @@ pub enum LanguageType {
 }
 
 pub trait Translator {
-    fn translate(&self, text: &String) -> String;
-    fn is_translatable(&self, text: &String) -> bool;
+    fn translate(&self, text: &str) -> String;
+    fn is_translatable(&self, text: &str) -> bool;
 
     fn language(&self) -> LanguageType;
     fn set_language(&mut self, lang: LanguageType);

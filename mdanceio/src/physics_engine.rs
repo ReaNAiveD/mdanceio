@@ -1,7 +1,11 @@
+use cgmath::Matrix4;
 use rapier3d::prelude::{
-    BroadPhase, CCDSolver, ColliderSet, ImpulseJointSet, IntegrationParameters, IslandManager,
-    MultibodyJointSet, NarrowPhase, PhysicsPipeline, RigidBodySet,
+    BroadPhase, CCDSolver, ColliderSet, DebugRenderMode, DebugRenderPipeline, DebugRenderStyle,
+    ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase,
+    PhysicsPipeline, RigidBody, RigidBodyHandle, RigidBodySet,
 };
+
+use crate::graphics::physics_debug::PhysicsDrawerBuilder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RigidBodyFollowBone {
@@ -37,12 +41,14 @@ pub struct PhysicsEngine {
     ccd_solver: CCDSolver,
     pub simulation_mode: SimulationMode,
     dt_residual: f32,
+    debug_render_pipeline: DebugRenderPipeline,
+    debug_drawer_builder: Option<PhysicsDrawerBuilder>,
 }
 
 impl Default for PhysicsEngine {
     fn default() -> Self {
         let mut it = IntegrationParameters::default();
-        it.set_inv_dt(120f32);
+        it.set_inv_dt(60f32);
         Self {
             rigid_body_set: RigidBodySet::new(),
             collider_set: ColliderSet::new(),
@@ -57,20 +63,34 @@ impl Default for PhysicsEngine {
             ccd_solver: CCDSolver::new(),
             simulation_mode: SimulationMode::Disable,
             dt_residual: 0f32,
+            debug_render_pipeline: DebugRenderPipeline::new(
+                DebugRenderStyle::default(),
+                DebugRenderMode::IMPULSE_JOINTS | DebugRenderMode::COLLIDER_SHAPES | DebugRenderMode::RIGID_BODY_AXES,
+            ),
+            debug_drawer_builder: None,
         }
     }
 }
 
 impl PhysicsEngine {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(debug_drawer_builder: Option<PhysicsDrawerBuilder>) -> Self {
+        Self {
+            debug_drawer_builder,
+            ..Default::default()
+        }
     }
 
-    pub fn step(&mut self, delta: f32) {
+    pub fn step(&mut self, delta: f32, before_step: impl Fn(&mut Self, f32)) {
         let dt = self.integration_parameters.dt;
-        let it_count = (delta + self.dt_residual).div_euclid(dt) as u32;
+        let mut it_count = (delta + self.dt_residual).div_euclid(dt) as u32;
         self.dt_residual = (delta + self.dt_residual).rem_euclid(dt);
-        for _ in 0..it_count {
+        if it_count == 0 {
+            it_count += 1;
+            self.dt_residual = 0f32;
+        }
+        for i in 0..it_count {
+            let amount = 1f32 / (it_count - i) as f32;
+            before_step(self, amount);
             self.physics_pipeline.step(
                 &self.gravity,
                 &self.integration_parameters,
@@ -90,4 +110,47 @@ impl PhysicsEngine {
     }
 
     pub fn reset(&mut self) {}
+
+    pub fn remove_rb(&mut self, handle: RigidBodyHandle) -> Option<RigidBody> {
+        self.rigid_body_set.remove(
+            handle,
+            &mut self.island_manager,
+            &mut self.collider_set,
+            &mut self.impulse_joint_set,
+            &mut self.multibody_joint_set,
+            true,
+        )
+    }
+
+    pub fn get_rb(&self, handle: Option<RigidBodyHandle>) -> Option<&RigidBody> {
+        handle.and_then(|handle| self.rigid_body_set.get(handle))
+    }
+
+    pub fn get_rb_mut(&mut self, handle: Option<RigidBodyHandle>) -> Option<&mut RigidBody> {
+        handle.and_then(|handle| self.rigid_body_set.get_mut(handle))
+    }
+
+    pub fn debug_draw(
+        &mut self,
+        view_projection: Matrix4<f32>,
+        view: &wgpu::TextureView,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        if let Some(drawer_builder) = &mut self.debug_drawer_builder {
+            let mut drawer = drawer_builder.build(view_projection, view, device, queue);
+            self.debug_render_pipeline.render_joints(
+                &mut drawer,
+                &self.rigid_body_set,
+                &self.impulse_joint_set,
+                &self.multibody_joint_set,
+            );
+            // self.debug_render_pipeline.render_colliders(
+            //     &mut drawer,
+            //     &self.rigid_body_set,
+            //     &self.collider_set,
+            // );
+            self.debug_render_pipeline.render_rigid_bodies(&mut drawer, &self.rigid_body_set);
+        }
+    }
 }

@@ -30,8 +30,4 @@ impl BoundingBox {
         self.min = self.min.min_element_wise(min);
         self.max = self.max.max_element_wise(max);
     }
-
-    pub fn set_other(&mut self, other: Self) {
-        self.set_min_max(other.min, other.max);
-    }
 }

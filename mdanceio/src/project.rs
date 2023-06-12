@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cgmath::{ElementWise, Matrix4, Vector2, Vector3, Vector4, VectorSpace};
+use cgmath::{ElementWise, Vector2, Vector3, Vector4};
 
 use crate::{
     audio_player::{AudioPlayer, ClockAudioPlayer},
@@ -9,7 +9,7 @@ use crate::{
     effect::ScriptOrder,
     error::MdanceioError,
     graphics::ClearPass,
-    graphics::ModelProgramBundle,
+    graphics::{physics_debug::PhysicsDrawerBuilder, ModelProgramBundle},
     grid::Grid,
     injector::Injector,
     light::{DirectionalLight, Light},
@@ -19,7 +19,7 @@ use crate::{
     shadow_camera::ShadowCamera,
     time_line_segment::TimeLineSegment,
     translator::LanguageType,
-    utils::{f32_array_to_mat4_col_major_order, lerp_f32},
+    utils::f32_array_to_mat4_col_major_order,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -517,7 +517,7 @@ impl Project {
         camera.update(viewport_size, camera.look_at(None));
         camera.set_dirty(false);
         let mut shadow_camera =
-            ShadowCamera::new(&shadow_bind_group_layout, &shadow_sampler, &device);
+            ShadowCamera::new(&shadow_bind_group_layout, &shadow_sampler, device);
         if adapter.get_info().backend == wgpu::Backend::Gl {
             // TODO: disable shadow map when gles3
             shadow_camera.set_enabled(false);
@@ -525,7 +525,8 @@ impl Project {
         shadow_camera.set_dirty(false);
         let directional_light = DirectionalLight::new();
 
-        let mut physics_engine = Box::new(PhysicsEngine::new());
+        let physics_drawer = PhysicsDrawerBuilder::new(injector.texture_format(), device);
+        let mut physics_engine = Box::new(PhysicsEngine::new(Some(physics_drawer)));
         physics_engine.simulation_mode = SimulationMode::EnablePlaying;
 
         let object_handler_allocator = HandleAllocator::new();
@@ -538,7 +539,7 @@ impl Project {
         self_shadow_motion.initialize_self_shadow_frame_0(&shadow_camera);
 
         Self {
-            audio_player: Box::new(ClockAudioPlayer::default()),
+            audio_player: Box::<ClockAudioPlayer>::default(),
             editing_mode: EditingMode::None,
             playing_segment: TimeLineSegment::default(),
             selection_segment: TimeLineSegment::default(),
@@ -1013,15 +1014,15 @@ impl Project {
 
     pub fn reset_physics_simulation(&mut self) {
         self.physics_engine.reset();
-        for (handle, model) in &mut self.model_handle_map {
-            model.initialize_all_rigid_bodies_transform_feedback(&mut self.physics_engine);
-            model.synchronize_all_rigid_bodies_transform_feedback_from_simulation(
-                RigidBodyFollowBone::Perform,
-                &mut self.physics_engine,
-            );
-            model.mark_staging_vertex_buffer_dirty();
+        for model in self.model_handle_map.values_mut() {
+            model.reset_physics_simulation(&mut self.physics_engine);
+            model.apply_forces(&mut self.physics_engine);
         }
-        self.physics_engine.step(0f32);
+        self.physics_engine.step(0f32, |physics_engine, amount| {
+            for model in &mut self.model_handle_map.values() {
+                model.synchronize_to_simulation_by_lerp(physics_engine, amount);
+            }
+        });
         self.restart(self.current_frame_index());
     }
 
@@ -1032,7 +1033,7 @@ impl Project {
         let physics_simulation_time_step = self.physics_simulation_time_step();
         for (handle, model) in &mut self.model_handle_map {
             if model.edge_size_scale_factor() > 0f32 && !model.is_staging_vertex_buffer_dirty() {
-                model.reset_all_morph_deform_states(
+                model.reset_morphs_deform_state(
                     self.model_to_motion.get(handle).unwrap(),
                     self.local_frame_index.0,
                     &mut self.physics_engine,
@@ -1197,11 +1198,11 @@ impl Project {
         })
     }
 
-    pub fn add_model(&mut self, mut model: Model) -> ModelHandle {
-        model.clear_all_bone_bounds_rigid_bodies();
-        if !self.state_flags.disable_hidden_bone_bounds_rigid_body {
-            model.create_all_bone_bounds_rigid_bodies();
-        }
+    pub fn add_model(&mut self, model: Model) -> ModelHandle {
+        // model.clear_all_bone_bounds_rigid_bodies();
+        // if !self.state_flags.disable_hidden_bone_bounds_rigid_body {
+        //     model.create_all_bone_bounds_rigid_bodies();
+        // }
         let model_handle = self.object_handler_allocator.next();
         self.model_handle_map.insert(model_handle, model);
         self.transform_model_order_list.push(model_handle);
@@ -1327,14 +1328,19 @@ impl Project {
 
     fn internal_perform_physics_simulation(&mut self, delta: f32) {
         if self.is_physics_simulation_enabled() {
-            self.physics_engine.step(delta);
-            for model in &mut self.model_handle_map.values_mut() {
-                if model.is_physics_simulation_enabled() {
-                    model.synchronize_all_rigid_bodies_transform_feedback_from_simulation(
-                        RigidBodyFollowBone::Perform,
-                        &mut self.physics_engine,
-                    );
+            for model in self.model_handle_map.values_mut() {
+                model.apply_forces(&mut self.physics_engine);
+            }
+            self.physics_engine.step(delta, |physics_engine, amount| {
+                for model in self.model_handle_map.values() {
+                    model.synchronize_to_simulation_by_lerp(physics_engine, amount);
                 }
+            });
+            for model in self.model_handle_map.values_mut() {
+                model.synchronize_from_simulation(
+                    RigidBodyFollowBone::Perform,
+                    &mut self.physics_engine,
+                );
             }
         }
     }
@@ -1653,6 +1659,7 @@ impl Project {
             // TODO: 渲染前边部分
         }
         self.local_frame_index.1 = 0;
+        // self.physics_engine.debug_draw(projection_matrix*view_matrix, view, device, queue);
         encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
         log::debug!("Submit new viewport task");
