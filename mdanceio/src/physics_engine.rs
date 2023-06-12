@@ -48,7 +48,7 @@ pub struct PhysicsEngine {
 impl Default for PhysicsEngine {
     fn default() -> Self {
         let mut it = IntegrationParameters::default();
-        it.set_inv_dt(120f32);
+        it.set_inv_dt(60f32);
         Self {
             rigid_body_set: RigidBodySet::new(),
             collider_set: ColliderSet::new(),
@@ -80,11 +80,17 @@ impl PhysicsEngine {
         }
     }
 
-    pub fn step(&mut self, delta: f32) {
+    pub fn step(&mut self, delta: f32, before_step: impl Fn(&mut Self, f32)) {
         let dt = self.integration_parameters.dt;
-        let it_count = (delta + self.dt_residual).div_euclid(dt) as u32;
+        let mut it_count = (delta + self.dt_residual).div_euclid(dt) as u32;
         self.dt_residual = (delta + self.dt_residual).rem_euclid(dt);
-        for _ in 0..it_count {
+        if it_count == 0 {
+            it_count += 1;
+            self.dt_residual = 0f32;
+        }
+        for i in 0..it_count {
+            let amount = 1f32 / (it_count - i) as f32;
+            before_step(self, amount);
             self.physics_pipeline.step(
                 &self.gravity,
                 &self.integration_parameters,
@@ -139,11 +145,11 @@ impl PhysicsEngine {
                 &self.impulse_joint_set,
                 &self.multibody_joint_set,
             );
-            self.debug_render_pipeline.render_colliders(
-                &mut drawer,
-                &self.rigid_body_set,
-                &self.collider_set,
-            );
+            // self.debug_render_pipeline.render_colliders(
+            //     &mut drawer,
+            //     &self.rigid_body_set,
+            //     &self.collider_set,
+            // );
             self.debug_render_pipeline.render_rigid_bodies(&mut drawer, &self.rigid_body_set);
         }
     }

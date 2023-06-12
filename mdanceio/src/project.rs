@@ -1016,8 +1016,13 @@ impl Project {
         self.physics_engine.reset();
         for model in self.model_handle_map.values_mut() {
             model.reset_physics_simulation(&mut self.physics_engine);
+            model.apply_forces(&mut self.physics_engine);
         }
-        self.physics_engine.step(0f32);
+        self.physics_engine.step(0f32, |physics_engine, amount| {
+            for model in &mut self.model_handle_map.values() {
+                model.synchronize_to_simulation_by_lerp(physics_engine, amount);
+            }
+        });
         self.restart(self.current_frame_index());
     }
 
@@ -1323,8 +1328,15 @@ impl Project {
 
     fn internal_perform_physics_simulation(&mut self, delta: f32) {
         if self.is_physics_simulation_enabled() {
-            self.physics_engine.step(delta);
-            for model in &mut self.model_handle_map.values_mut() {
+            for model in self.model_handle_map.values_mut() {
+                model.apply_forces(&mut self.physics_engine);
+            }
+            self.physics_engine.step(delta, |physics_engine, amount| {
+                for model in self.model_handle_map.values() {
+                    model.synchronize_to_simulation_by_lerp(physics_engine, amount);
+                }
+            });
+            for model in self.model_handle_map.values_mut() {
                 model.synchronize_from_simulation(
                     RigidBodyFollowBone::Perform,
                     &mut self.physics_engine,

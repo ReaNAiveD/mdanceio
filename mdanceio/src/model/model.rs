@@ -723,8 +723,6 @@ impl Model {
                         physics_engine,
                         outside_parent_bone_map,
                     );
-                    self.rigid_bodies
-                        .synchronize_to_simulation(&self.bones, physics_engine);
                 }
                 SimulationTiming::After => {
                     self.synchronize_bone_motion(
@@ -813,6 +811,20 @@ impl Model {
                 morph.dirty = false;
             }
             self.states.dirty_morph = true;
+        }
+    }
+
+    pub fn synchronize_to_simulation_by_lerp(
+        &self,
+        physics_engine: &mut PhysicsEngine,
+        amount: f32,
+    ) {
+        if self.is_physics_simulation_enabled() {
+            self.rigid_bodies.synchronize_to_simulation_by_lerp(
+                &self.bones,
+                physics_engine,
+                amount,
+            );
         }
     }
 
@@ -936,6 +948,10 @@ impl Model {
                 self.bounding_box.set(bone.world_translation());
             }
         }
+    }
+
+    pub fn apply_forces(&mut self, physics_engine: &mut PhysicsEngine) {
+        self.rigid_bodies.apply_forces(&self.bones, physics_engine);
     }
 
     fn reset_bones_transform(&mut self) {
@@ -1222,9 +1238,14 @@ impl Model {
         self.bounding_box.reset();
         self.apply_bones_transform(SimulationTiming::Before, outside_parent_bone_map);
         if physics_engine.simulation_mode == SimulationMode::EnableAnytime {
-            self.rigid_bodies
-                .synchronize_to_simulation(&self.bones, physics_engine);
-            physics_engine.step(physics_simulation_time_step);
+            self.rigid_bodies.apply_forces(&self.bones, physics_engine);
+            physics_engine.step(physics_simulation_time_step, |physics_engine, amount| {
+                self.rigid_bodies.synchronize_to_simulation_by_lerp(
+                    &self.bones,
+                    physics_engine,
+                    amount,
+                )
+            });
             self.rigid_bodies.synchronize_from_simulation(
                 &mut self.bones,
                 RigidBodyFollowBone::Skip,

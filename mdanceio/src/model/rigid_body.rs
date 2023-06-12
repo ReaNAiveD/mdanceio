@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     collections::{HashMap, HashSet},
     f32::consts::PI,
 };
@@ -6,7 +7,7 @@ use std::{
 use cgmath::{Vector3, Zero};
 use nalgebra::Isometry3;
 use nanoem::{common::LanguageType, model::ModelRigidBodyTransformType};
-use rapier3d::prelude::RigidBodyType;
+use rapier3d::prelude::{JointAxesMask, RigidBodyType};
 
 use crate::{
     physics_engine::{PhysicsEngine, RigidBodyFollowBone},
@@ -34,6 +35,7 @@ pub struct RigidBody {
     // TODO: physics engine and shape mesh and engine rigid_body
     physics_rb: Option<RapierRBHandle>,
     initial_world_transform: nalgebra::Isometry3<f32>,
+    prev_world_transform: Cell<Option<nalgebra::Isometry3<f32>>>,
     global_torque_force: (Vector3<f32>, bool),
     global_velocity_force: (Vector3<f32>, bool),
     local_torque_force: (Vector3<f32>, bool),
@@ -103,6 +105,7 @@ impl RigidBody {
             origin: rigid_body.clone(),
             physics_rb: Some(rigid_body_handle),
             initial_world_transform,
+            prev_world_transform: Cell::new(None),
             is_morph,
         }
     }
@@ -239,11 +242,26 @@ impl RigidBody {
     }
 
     pub fn synchronize_to_simulation(&mut self, bone: &Bone, physics_engine: &mut PhysicsEngine) {
+        self.synchronize_to_simulation_by_lerp(bone, physics_engine, 1f32)
+    }
+
+    pub fn synchronize_to_simulation_by_lerp(
+        &self,
+        bone: &Bone,
+        physics_engine: &mut PhysicsEngine,
+        amount: f32,
+    ) {
         if let Some(physics_rigid_body) = physics_engine.get_rb_mut(self.physics_rb) {
             if self.is_to_simulation() || physics_rigid_body.is_kinematic() {
                 let initial_transform = self.initial_world_transform;
                 let skinning_transform = to_isometry(bone.matrices.skinning_transform);
-                let world_transform = skinning_transform * initial_transform;
+                let mut world_transform = skinning_transform * initial_transform;
+                if amount != 1f32 {
+                    if let Some(prev) = self.prev_world_transform.get() {
+                        world_transform = prev.lerp_slerp(&world_transform, amount);
+                    }
+                }
+                self.prev_world_transform.set(Some(world_transform));
                 physics_rigid_body.set_position(world_transform, true);
                 physics_rigid_body.set_linvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
                 physics_rigid_body.set_angvel(rapier3d::na::vector![0f32, 0f32, 0f32], true);
@@ -459,16 +477,23 @@ impl RigidBodySet {
 }
 
 impl RigidBodySet {
-    pub fn synchronize_to_simulation(
-        &mut self,
-        bones: &BoneSet,
-        physics_engine: &mut PhysicsEngine,
-    ) {
+    pub fn apply_forces(&mut self, bones: &BoneSet, physics_engine: &mut PhysicsEngine) {
         for rigid_body in self.rigid_bodies.iter_mut() {
             let bone = bones.try_get(rigid_body.origin.bone_index);
             rigid_body.apply_forces(bone, physics_engine);
+        }
+    }
+
+    pub fn synchronize_to_simulation_by_lerp(
+        &self,
+        bones: &BoneSet,
+        physics_engine: &mut PhysicsEngine,
+        amount: f32,
+    ) {
+        for rigid_body in self.rigid_bodies.iter() {
+            let bone = bones.try_get(rigid_body.origin.bone_index);
             if let Some(bone) = bone {
-                rigid_body.synchronize_to_simulation(bone, physics_engine);
+                rigid_body.synchronize_to_simulation_by_lerp(bone, physics_engine, amount);
             }
         }
     }
@@ -550,7 +575,9 @@ impl Joint {
                 if max - min < max_limit && max - min > 0f32 {
                     joint.set_limits(axis, [min, max]);
                     if stiffness > 0f32 {
-                        joint.set_motor(axis, 0f32, 0f32, stiffness, 1f32);
+                        joint.set_motor(axis, 0f32, 0f32, stiffness, 10f32);
+                    } else if JointAxesMask::ANG_AXES.contains(axis.into()) {
+                        joint.set_motor(axis, 0f32, 0f32, 10000., 10000.);
                     }
                 } else {
                     joint.lock_axes(axis.into());
@@ -674,7 +701,7 @@ fn test_joint_with_kinematic() {
     physics_joint.set_limits(JointAxis::AngX, [-20f32.to_radians(), 20f32.to_radians()]);
     physics_joint.set_limits(JointAxis::AngZ, [-20f32.to_radians(), 20f32.to_radians()]);
     let mut impulse_joint_set = ImpulseJointSet::new();
-    let j = impulse_joint_set.insert(rb_a, rb_b, physics_joint, true);
+    impulse_joint_set.insert(rb_a, rb_b, physics_joint, true);
     println!("{:?}", rbs.get(rb_a).unwrap().position());
     println!("{:?}", rbs.get(rb_b).unwrap().position());
     let mut pipeline = PhysicsPipeline::new();
