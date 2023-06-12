@@ -1,7 +1,11 @@
+use cgmath::Matrix4;
 use rapier3d::prelude::{
-    BroadPhase, CCDSolver, ColliderSet, ImpulseJointSet, IntegrationParameters, IslandManager,
-    MultibodyJointSet, NarrowPhase, PhysicsPipeline, RigidBody, RigidBodyHandle, RigidBodySet,
+    BroadPhase, CCDSolver, ColliderSet, DebugRenderMode, DebugRenderPipeline, DebugRenderStyle,
+    ImpulseJointSet, IntegrationParameters, IslandManager, MultibodyJointSet, NarrowPhase,
+    PhysicsPipeline, RigidBody, RigidBodyHandle, RigidBodySet,
 };
+
+use crate::graphics::physics_debug::PhysicsDrawerBuilder;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RigidBodyFollowBone {
@@ -37,6 +41,8 @@ pub struct PhysicsEngine {
     ccd_solver: CCDSolver,
     pub simulation_mode: SimulationMode,
     dt_residual: f32,
+    debug_render_pipeline: DebugRenderPipeline,
+    debug_drawer_builder: Option<PhysicsDrawerBuilder>,
 }
 
 impl Default for PhysicsEngine {
@@ -57,13 +63,21 @@ impl Default for PhysicsEngine {
             ccd_solver: CCDSolver::new(),
             simulation_mode: SimulationMode::Disable,
             dt_residual: 0f32,
+            debug_render_pipeline: DebugRenderPipeline::new(
+                DebugRenderStyle::default(),
+                DebugRenderMode::IMPULSE_JOINTS,
+            ),
+            debug_drawer_builder: None,
         }
     }
 }
 
 impl PhysicsEngine {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(debug_drawer_builder: Option<PhysicsDrawerBuilder>) -> Self {
+        Self {
+            debug_drawer_builder,
+            ..Default::default()
+        }
     }
 
     pub fn step(&mut self, delta: f32) {
@@ -108,5 +122,23 @@ impl PhysicsEngine {
 
     pub fn get_rb_mut(&mut self, handle: Option<RigidBodyHandle>) -> Option<&mut RigidBody> {
         handle.and_then(|handle| self.rigid_body_set.get_mut(handle))
+    }
+
+    pub fn debug_draw_joint(
+        &mut self,
+        view_projection: Matrix4<f32>,
+        view: &wgpu::TextureView,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) {
+        if let Some(drawer_builder) = &mut self.debug_drawer_builder {
+            let mut drawer = drawer_builder.build(view_projection, view, device, queue);
+            self.debug_render_pipeline.render_joints(
+                &mut drawer,
+                &self.rigid_body_set,
+                &self.impulse_joint_set,
+                &self.multibody_joint_set,
+            );
+        }
     }
 }

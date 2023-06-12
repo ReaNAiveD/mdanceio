@@ -1017,7 +1017,7 @@ impl Model {
                 soft_body.enable();
             }
             for rigid_body in self.rigid_bodies.iter_mut() {
-                rigid_body.enable(&self.bones, physics_engine);
+                rigid_body.enable(physics_engine);
             }
             for joint in &mut self.joints {
                 joint.enable();

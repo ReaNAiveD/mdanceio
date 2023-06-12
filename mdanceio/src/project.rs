@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cgmath::{ElementWise, Matrix4, Vector2, Vector3, Vector4, VectorSpace};
+use cgmath::{ElementWise, Vector2, Vector3, Vector4};
 
 use crate::{
     audio_player::{AudioPlayer, ClockAudioPlayer},
@@ -9,7 +9,7 @@ use crate::{
     effect::ScriptOrder,
     error::MdanceioError,
     graphics::ClearPass,
-    graphics::ModelProgramBundle,
+    graphics::{physics_debug::PhysicsDrawerBuilder, ModelProgramBundle},
     grid::Grid,
     injector::Injector,
     light::{DirectionalLight, Light},
@@ -19,7 +19,7 @@ use crate::{
     shadow_camera::ShadowCamera,
     time_line_segment::TimeLineSegment,
     translator::LanguageType,
-    utils::{f32_array_to_mat4_col_major_order, lerp_f32},
+    utils::f32_array_to_mat4_col_major_order,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -517,7 +517,7 @@ impl Project {
         camera.update(viewport_size, camera.look_at(None));
         camera.set_dirty(false);
         let mut shadow_camera =
-            ShadowCamera::new(&shadow_bind_group_layout, &shadow_sampler, &device);
+            ShadowCamera::new(&shadow_bind_group_layout, &shadow_sampler, device);
         if adapter.get_info().backend == wgpu::Backend::Gl {
             // TODO: disable shadow map when gles3
             shadow_camera.set_enabled(false);
@@ -525,7 +525,8 @@ impl Project {
         shadow_camera.set_dirty(false);
         let directional_light = DirectionalLight::new();
 
-        let mut physics_engine = Box::new(PhysicsEngine::new());
+        let physics_drawer = PhysicsDrawerBuilder::new(injector.texture_format(), device);
+        let mut physics_engine = Box::new(PhysicsEngine::new(Some(physics_drawer)));
         physics_engine.simulation_mode = SimulationMode::EnablePlaying;
 
         let object_handler_allocator = HandleAllocator::new();
@@ -538,7 +539,7 @@ impl Project {
         self_shadow_motion.initialize_self_shadow_frame_0(&shadow_camera);
 
         Self {
-            audio_player: Box::new(ClockAudioPlayer::default()),
+            audio_player: Box::<ClockAudioPlayer>::default(),
             editing_mode: EditingMode::None,
             playing_segment: TimeLineSegment::default(),
             selection_segment: TimeLineSegment::default(),
@@ -1646,6 +1647,7 @@ impl Project {
             // TODO: 渲染前边部分
         }
         self.local_frame_index.1 = 0;
+        self.physics_engine.debug_draw_joint(projection_matrix*view_matrix, view, device, queue);
         encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
         log::debug!("Submit new viewport task");

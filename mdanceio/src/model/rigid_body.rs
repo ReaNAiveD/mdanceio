@@ -9,7 +9,6 @@ use nanoem::{common::LanguageType, model::ModelRigidBodyTransformType};
 use rapier3d::prelude::RigidBodyType;
 
 use crate::{
-    motion::Motion,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone},
     utils::{
         f128_to_isometry, f128_to_vec3, from_isometry, mat4_truncate, to_isometry, to_na_vec3,
@@ -79,8 +78,6 @@ impl RigidBody {
                 );
                 world_transform = offset * world_transform;
                 initial_world_transform = world_transform;
-                let skinning_transform = to_isometry(bone.matrices.skinning_transform);
-                world_transform *= skinning_transform;
             }
         }
 
@@ -111,15 +108,9 @@ impl RigidBody {
         }
     }
 
-    pub fn enable(&mut self, bones: &BoneSet, physics_engine: &mut PhysicsEngine) {
+    pub fn enable(&mut self, physics_engine: &mut PhysicsEngine) {
         if !self.states.enabled {
-            let mut world_transform = self.initial_world_transform;
-            if self.origin.is_bone_relative {
-                if let Some(bone) = bones.try_get(self.origin.bone_index) {
-                    let skinning_transform = to_isometry(bone.matrices.skinning_transform);
-                    world_transform *= skinning_transform;
-                }
-            }
+            let world_transform = self.initial_world_transform;
             let inner_rigid_body =
                 Self::build_physics_rb(&self.origin, world_transform, self.is_morph);
             let rigid_body_handle = physics_engine.rigid_body_set.insert(inner_rigid_body);
@@ -565,7 +556,7 @@ impl Joint {
                     if stiffness > 0f32 {
                         joint.set_motor(axis, 0f32, 0f32, stiffness, 1f32);
                     }
-                } else if min == max {
+                } else {
                     joint.lock_axes(axis.into());
                 }
             }
@@ -618,6 +609,7 @@ impl Joint {
                 PI * 2.,
                 joint.angular_stiffness[2],
             );
+            log::info!("Joint {:?}, {:?}", joint.name_ja, physics_joint);
             Some(physics_engine.impulse_joint_set.insert(
                 rigid_body_a.physics_rb.unwrap(),
                 rigid_body_b.physics_rb.unwrap(),
