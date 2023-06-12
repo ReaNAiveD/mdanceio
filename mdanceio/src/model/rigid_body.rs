@@ -67,7 +67,6 @@ impl RigidBody {
         let orientation = rigid_body.orientation;
         let origin = rigid_body.origin;
         let mut world_transform = f128_to_isometry(origin, orientation);
-        let mut initial_world_transform = world_transform;
         if rigid_body.is_bone_relative {
             if let Some(bone) = bones.try_get(rigid_body.bone_index) {
                 let bone_origin = bone.origin.origin;
@@ -77,9 +76,9 @@ impl RigidBody {
                     bone_origin[2],
                 );
                 world_transform = offset * world_transform;
-                initial_world_transform = world_transform;
             }
         }
+        let initial_world_transform = world_transform;
 
         let inner_rigid_body = Self::build_physics_rb(rigid_body, world_transform, is_morph);
         let rigid_body_handle = physics_engine.rigid_body_set.insert(inner_rigid_body);
@@ -362,17 +361,14 @@ impl RigidBody {
             ModelRigidBodyTransformType::FromBoneToSimulation => 0f32,
             _ => origin_rb.mass,
         };
-        let mut group = rapier3d::geometry::Group::from_bits_truncate(
+        let group = rapier3d::geometry::Group::from_bits_truncate(
             0x1u32 << origin_rb.collision_group_id.clamp(0, 15),
         );
-        if matches!(
-            origin_rb.transform_type,
-            ModelRigidBodyTransformType::FromBoneToSimulation
-        ) {
-            group |= rapier3d::geometry::Group::GROUP_2;
-        }
+        // let orientation = origin_rb.orientation;
+        // let pos = f128_to_isometry([0., 0., 0., 0.], orientation);
         collider_builder.map(|builder| {
             builder
+                // .position(pos)
                 .mass(mass)
                 .friction(origin_rb.friction)
                 .restitution(origin_rb.restitution)
@@ -641,4 +637,139 @@ impl Joint {
             self.states.enabled = false;
         }
     }
+}
+
+#[test]
+fn test_joint_with_kinematic() {
+    use nalgebra::{vector, Isometry3, Rotation};
+    use rapier3d::prelude::{
+        BroadPhase, CCDSolver, ColliderBuilder, ColliderSet, ImpulseJointSet,
+        IntegrationParameters, IslandManager, JointAxesMask, JointAxis, MultibodyJointSet,
+        NarrowPhase, PhysicsPipeline, RigidBodyBuilder, RigidBodyType,
+    };
+    let a_pos = Isometry3::new(vector![0.0, -1.0, 0.0], vector![0.0, 0.0, 0.0]);
+    let rigid_body_a = RigidBodyBuilder::new(RigidBodyType::KinematicPositionBased)
+        .position(a_pos)
+        .additional_mass(1f32)
+        .build();
+    let b_pos = Isometry3::new(vector![0.0, 1.0, 0.0], vector![0.0, 0.0, 0.0]);
+    let rigid_body_b = RigidBodyBuilder::new(RigidBodyType::Dynamic)
+        .position(b_pos)
+        .additional_mass(1f32)
+        .build();
+    let mut rbs = rapier3d::dynamics::RigidBodySet::new();
+    let rb_a = rbs.insert(rigid_body_a);
+    let rb_b = rbs.insert(rigid_body_b);
+    let mut collider_set = ColliderSet::new();
+    let collider_a = ColliderBuilder::ball(0.5).restitution(0.7).build();
+    collider_set.insert_with_parent(collider_a, rb_a, &mut rbs);
+    let collider_b = ColliderBuilder::ball(0.5).restitution(0.7).build();
+    collider_set.insert_with_parent(collider_b, rb_b, &mut rbs);
+    let joint_pos = Isometry3::new(vector![0.0, 0.0, 0.0], vector![0.0, 0.0, 0.0]);
+    let mut physics_joint = rapier3d::dynamics::GenericJoint::default();
+    physics_joint.set_local_frame1(a_pos.inverse() * joint_pos);
+    physics_joint.set_local_frame2(b_pos.inverse() * joint_pos);
+    physics_joint
+        .lock_axes(JointAxesMask::X | JointAxesMask::Y | JointAxesMask::Z | JointAxesMask::ANG_Y);
+    physics_joint.set_limits(JointAxis::AngX, [-20f32.to_radians(), 20f32.to_radians()]);
+    physics_joint.set_limits(JointAxis::AngZ, [-20f32.to_radians(), 20f32.to_radians()]);
+    let mut impulse_joint_set = ImpulseJointSet::new();
+    let j = impulse_joint_set.insert(rb_a, rb_b, physics_joint, true);
+    println!("{:?}", rbs.get(rb_a).unwrap().position());
+    println!("{:?}", rbs.get(rb_b).unwrap().position());
+    let mut pipeline = PhysicsPipeline::new();
+    let gravity = vector![0.0, -9.81, 0.0];
+    let integration_parameters = IntegrationParameters::default();
+    let mut island_manager = IslandManager::new();
+    let mut broad_phase = BroadPhase::new();
+    let mut narrow_phase = NarrowPhase::new();
+    let mut multibody_joint_set = MultibodyJointSet::new();
+    let mut ccd_solver = CCDSolver::new();
+    println!("Stepping...");
+    pipeline.step(
+        &gravity,
+        &integration_parameters,
+        &mut island_manager,
+        &mut broad_phase,
+        &mut narrow_phase,
+        &mut rbs,
+        &mut collider_set,
+        &mut impulse_joint_set,
+        &mut multibody_joint_set,
+        &mut ccd_solver,
+        None,
+        &(),
+        &(),
+    );
+    println!("{:?}", rbs.get(rb_a).unwrap().position());
+    println!("{:?}", rbs.get(rb_b).unwrap().position());
+    rbs.get_mut(rb_a)
+        .unwrap()
+        .set_translation(vector![0.0, -4.0, 1.0], true);
+    println!("Stepping...");
+    pipeline.step(
+        &gravity,
+        &integration_parameters,
+        &mut island_manager,
+        &mut broad_phase,
+        &mut narrow_phase,
+        &mut rbs,
+        &mut collider_set,
+        &mut impulse_joint_set,
+        &mut multibody_joint_set,
+        &mut ccd_solver,
+        None,
+        &(),
+        &(),
+    );
+    println!("{:?}", rbs.get(rb_a).unwrap().position());
+    println!("{:?}", rbs.get(rb_b).unwrap().position());
+    rbs.get_mut(rb_a).unwrap().set_rotation(
+        Rotation::from_axis_angle(&nalgebra::Vector3::y_axis(), 0.2f32).into(),
+        true,
+    );
+    println!("Stepping...");
+    pipeline.step(
+        &gravity,
+        &integration_parameters,
+        &mut island_manager,
+        &mut broad_phase,
+        &mut narrow_phase,
+        &mut rbs,
+        &mut collider_set,
+        &mut impulse_joint_set,
+        &mut multibody_joint_set,
+        &mut ccd_solver,
+        None,
+        &(),
+        &(),
+    );
+    println!("{:?}", rbs.get(rb_a).unwrap().position());
+    println!("{:?}", rbs.get(rb_b).unwrap().position());
+
+    // rbs.get_mut(rb_a)
+    //     .unwrap()
+    //     .set_translation(vector![0.0, -10.0, 0.0], true);
+    rbs.get_mut(rb_a).unwrap().set_rotation(
+        Rotation::from_axis_angle(&nalgebra::Vector3::y_axis(), -0.8f32).into(),
+        true,
+    );
+    println!("Stepping...");
+    pipeline.step(
+        &gravity,
+        &integration_parameters,
+        &mut island_manager,
+        &mut broad_phase,
+        &mut narrow_phase,
+        &mut rbs,
+        &mut collider_set,
+        &mut impulse_joint_set,
+        &mut multibody_joint_set,
+        &mut ccd_solver,
+        None,
+        &(),
+        &(),
+    );
+    println!("{:?}", rbs.get(rb_a).unwrap().position());
+    println!("{:?}", rbs.get(rb_b).unwrap().position());
 }

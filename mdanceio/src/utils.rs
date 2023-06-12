@@ -29,7 +29,7 @@ pub fn f32_array_to_mat4_col_major_order(v: [f32; 16]) -> Matrix4<f32> {
 pub fn f128_to_isometry(origin: [f32; 4], orientation: [f32; 4]) -> nalgebra::Isometry3<f32> {
     nalgebra::Isometry::from_parts(
         nalgebra::Translation3::new(origin[0], origin[1], origin[2]),
-        nalgebra::UnitQuaternion::from_euler_angles(orientation[2], orientation[0], orientation[1]),
+        nalgebra::UnitQuaternion::from_euler_angles(orientation[0], orientation[1], orientation[2]),
     )
 }
 
@@ -116,6 +116,7 @@ fn test_na_mat_trans() {
     println!("I {:?}", it * iv);
     println!("C {:?}", ct * cv);
     println!("I2 {:?}", it2 * iv);
+    println!("Quaternion {:?}", f128_to_isometry([0., 0., 0., 0.], [0., 1., 0., 0.]));
 }
 
 pub trait CompareElementWise<Rhs = Self> {

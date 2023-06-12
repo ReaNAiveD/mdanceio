@@ -65,7 +65,7 @@ impl Default for PhysicsEngine {
             dt_residual: 0f32,
             debug_render_pipeline: DebugRenderPipeline::new(
                 DebugRenderStyle::default(),
-                DebugRenderMode::IMPULSE_JOINTS,
+                DebugRenderMode::IMPULSE_JOINTS | DebugRenderMode::COLLIDER_SHAPES | DebugRenderMode::RIGID_BODY_AXES,
             ),
             debug_drawer_builder: None,
         }
@@ -124,7 +124,7 @@ impl PhysicsEngine {
         handle.and_then(|handle| self.rigid_body_set.get_mut(handle))
     }
 
-    pub fn debug_draw_joint(
+    pub fn debug_draw(
         &mut self,
         view_projection: Matrix4<f32>,
         view: &wgpu::TextureView,
@@ -139,6 +139,12 @@ impl PhysicsEngine {
                 &self.impulse_joint_set,
                 &self.multibody_joint_set,
             );
+            self.debug_render_pipeline.render_colliders(
+                &mut drawer,
+                &self.rigid_body_set,
+                &self.collider_set,
+            );
+            self.debug_render_pipeline.render_rigid_bodies(&mut drawer, &self.rigid_body_set);
         }
     }
 }

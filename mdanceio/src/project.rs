@@ -1647,7 +1647,7 @@ impl Project {
             // TODO: 渲染前边部分
         }
         self.local_frame_index.1 = 0;
-        self.physics_engine.debug_draw_joint(projection_matrix*view_matrix, view, device, queue);
+        // self.physics_engine.debug_draw(projection_matrix*view_matrix, view, device, queue);
         encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
         log::debug!("Submit new viewport task");
