@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 
 use crate::{
     camera::Camera,
-    model::{Bone, Model, Morph, Vertex, VertexUnit, bone::BoneSet},
+    model::{Bone, Model, Morph, Vertex, VertexUnit, bone::BoneSet, vertex::VertexSet, morph::MorphSet},
     utils::{f128_to_vec3, mat4_truncate},
 };
 
@@ -41,10 +41,10 @@ pub struct WgpuDeformer {
 
 impl WgpuDeformer {
     pub fn new(
-        vertices: &[Vertex],
+        vertices: &VertexSet,
         bones: &BoneSet,
         fallback_bone: &Bone,
-        morphs: &[Morph],
+        morphs: &MorphSet,
         edge_size: f32,
         device: &wgpu::Device,
     ) -> Self {
@@ -62,7 +62,7 @@ impl WgpuDeformer {
         });
         let num_vertices = vertices.len();
         let mut vertex2morphs = vec![vec![]; num_vertices];
-        for morph in morphs {
+        for morph in morphs.iter() {
             match &morph.origin.typ {
                 nanoem::model::ModelMorphType::Vertex(items) => {
                     for item in items {
@@ -263,7 +263,7 @@ impl WgpuDeformer {
         matrix_buffer_data
     }
 
-    fn build_morph_weight_buffer_data(morphs: &[Morph]) -> Vec<f32> {
+    fn build_morph_weight_buffer_data(morphs: &MorphSet) -> Vec<f32> {
         let mut morph_weight_buffer_data = vec![0f32; morphs.len() + 1];
         for (idx, morph) in morphs.iter().enumerate() {
             morph_weight_buffer_data[idx + 1] = morph.weight();
@@ -356,7 +356,7 @@ pub struct CommonDeformer {
 }
 
 impl CommonDeformer {
-    pub fn new(vertices: &[Vertex]) -> Self {
+    pub fn new(vertices: &VertexSet) -> Self {
         let vertex_buffer_data: Vec<VertexUnit> = vertices.iter().map(|v| v.simd.into()).collect();
         Self { vertex_buffer_data }
     }
@@ -382,9 +382,9 @@ impl CommonDeformer {
 
     pub fn execute(
         &self,
-        vertices: &[Vertex],
+        vertices: &VertexSet,
         bones: &BoneSet,
-        morphs: &[Morph],
+        morphs: &MorphSet,
         edge_size: f32,
         output_buffer: &wgpu::Buffer,
         device: &wgpu::Device,
@@ -392,7 +392,7 @@ impl CommonDeformer {
     ) {
         let mut output = self.vertex_buffer_data.clone();
         let mut vertex_position_deltas = vec![Vector3::zero(); vertices.len()];
-        for morph in morphs {
+        for morph in morphs.iter() {
             match &morph.origin.typ {
                 nanoem::model::ModelMorphType::Vertex(items) => {
                     for item in items {
