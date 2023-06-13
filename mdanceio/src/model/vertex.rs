@@ -2,7 +2,9 @@ use cgmath::{ElementWise, Vector4, Zero};
 
 use crate::utils::f128_to_vec4;
 
-use super::{bone::BoneSet, BoneIndex, MaterialIndex, NanoemVertex, SoftBodyIndex, VertexIndex, material::MaterialSet};
+use super::{
+    material::MaterialSet, BoneIndex, MaterialIndex, NanoemVertex, SoftBodyIndex, VertexIndex,
+};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -53,21 +55,23 @@ pub struct VertexSimd {
     pub delta_uva: [Vector4<f32>; 5],
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct VertexState {
+    pub skinning_enabled: bool,
+    pub editing: bool,
+}
+
 #[derive(Clone)]
 pub struct Vertex {
     material: Option<MaterialIndex>,
     soft_body: Option<SoftBodyIndex>,
     bones: [Option<BoneIndex>; 4],
-    states: u32,
+    states: VertexState,
     pub simd: VertexSimd,
     pub origin: NanoemVertex,
 }
 
 impl Vertex {
-    const PRIVATE_STATE_SKINNING_ENABLED: u32 = 1 << 1;
-    const PRIVATE_STATE_EDITING_MASKED: u32 = 1 << 2;
-    const PRIVATE_STATE_INITIAL_VALUE: u32 = 0;
-
     fn from_nanoem(vertex: &NanoemVertex) -> Self {
         let direction = Vector4::new(1f32, 1f32, 1f32, 1f32);
         let texcoord = vertex.get_tex_coord();
@@ -164,7 +168,7 @@ impl Vertex {
             material: None,
             soft_body: None,
             bones,
-            states: Self::PRIVATE_STATE_INITIAL_VALUE,
+            states: VertexState::default(),
             simd,
             origin: vertex.clone(),
         }
@@ -176,7 +180,7 @@ impl Vertex {
     }
 
     pub fn deform(&mut self, morph: &nanoem::model::ModelMorphVertex, weight: f32) {
-        self.simd.delta = self.simd.delta + f128_to_vec4(morph.position) * weight;
+        self.simd.delta += f128_to_vec4(morph.position) * weight;
     }
 
     pub fn deform_uv(&mut self, morph: &nanoem::model::ModelMorphUv, uv_idx: usize, weight: f32) {
@@ -188,11 +192,7 @@ impl Vertex {
     }
 
     pub fn set_skinning_enabled(&mut self, value: bool) {
-        self.states = if value {
-            self.states | Self::PRIVATE_STATE_SKINNING_ENABLED
-        } else {
-            self.states & !Self::PRIVATE_STATE_SKINNING_ENABLED
-        }
+        self.states.skinning_enabled = value;
     }
 }
 
@@ -202,11 +202,7 @@ pub struct VertexSet {
 }
 
 impl VertexSet {
-    pub fn new(
-        vertices: &[NanoemVertex],
-        vertex_indices: &[u32],
-        materials: &MaterialSet,
-    ) -> Self {
+    pub fn new(vertices: &[NanoemVertex], vertex_indices: &[u32], materials: &MaterialSet) -> Self {
         let mut vertices = vertices.iter().map(Vertex::from_nanoem).collect::<Vec<_>>();
         let indices = vertex_indices.to_vec();
         let mut index_offset = 0;

@@ -90,7 +90,7 @@ impl MorphSet {
     ) -> Self {
         let morphs = morphs
             .iter()
-            .map(|morph| Morph::from_nanoem(&morph, language_type))
+            .map(|morph| Morph::from_nanoem(morph, language_type))
             .collect::<Vec<_>>();
         let mut morphs_by_name = HashMap::new();
         let mut affected_bones: HashSet<BoneIndex> = HashSet::new();

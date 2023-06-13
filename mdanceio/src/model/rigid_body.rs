@@ -1,13 +1,12 @@
 use std::{
     cell::Cell,
     collections::{HashMap, HashSet},
-    f32::consts::PI,
 };
 
 use cgmath::{Vector3, Zero};
 use nalgebra::Isometry3;
 use nanoem::{common::LanguageType, model::ModelRigidBodyTransformType};
-use rapier3d::prelude::{JointAxesMask, RigidBodyType};
+use rapier3d::prelude::RigidBodyType;
 
 use crate::{
     physics_engine::{PhysicsEngine, RigidBodyFollowBone},
@@ -17,7 +16,7 @@ use crate::{
     },
 };
 
-use super::{bone::BoneSet, Bone, BoneIndex, NanoemJoint, NanoemRigidBody, RigidBodyIndex};
+use super::{bone::BoneSet, Bone, BoneIndex, NanoemRigidBody, RigidBodyIndex};
 
 type RapierRB = rapier3d::dynamics::RigidBody;
 type RapierRBHandle = rapier3d::dynamics::RigidBodyHandle;
