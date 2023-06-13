@@ -1318,7 +1318,7 @@ impl Project {
     fn restart(&mut self, frame_index: u32) {
         self.synchronize_all_motions(frame_index, 0f32, SimulationTiming::Before);
         for (handle, model) in &mut self.model_handle_map {
-            model.initialize_all_rigid_bodies_transform_feedback(&mut self.physics_engine);
+            model.initialize_rigid_bodies_simulation(&mut self.physics_engine);
             // TODO: soft_bodies
         }
         self.internal_perform_physics_simulation(self.physics_simulation_time_step());

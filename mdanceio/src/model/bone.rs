@@ -403,6 +403,7 @@ pub struct BoneSet {
     inherent_bones: HashMap<BoneIndex, HashSet<BoneIndex>>,
     parent_bone_tree: HashMap<BoneIndex, Vec<BoneIndex>>,
     constraints: ConstraintSet,
+    active_bone_pair: (Option<BoneIndex>, Option<BoneIndex>),
 }
 
 impl BoneSet {
@@ -448,6 +449,7 @@ impl BoneSet {
             inherent_bones,
             parent_bone_tree,
             constraints,
+            active_bone_pair: (None, None),
         }
     }
 
@@ -554,6 +556,26 @@ impl BoneSet {
         self.bones.iter_mut()
     }
 
+    pub fn get_active(&self) -> Option<&Bone> {
+        self.active_bone_pair.0.and_then(|idx| self.bones.get(idx))
+    }
+
+    pub fn set_active(&mut self, bone_idx: Option<BoneIndex>) {
+        if self.active_bone_pair.0 != bone_idx {
+            self.active_bone_pair.0 = bone_idx;
+        }
+    }
+
+    pub fn get_active_outside_parent_subject_bone(&self) -> Option<&Bone> {
+        self.active_bone_pair.1.and_then(|idx| self.bones.get(idx))
+    }
+
+    pub fn set_active_outside_parent_subject_bone(&mut self, bone_idx: Option<BoneIndex>) {
+        if self.active_bone_pair.1 != bone_idx {
+            self.active_bone_pair.1 = bone_idx;
+        }
+    }
+
     pub fn has_any_dirty_bone(&self) -> bool {
         self.bones
             .iter()
@@ -576,6 +598,12 @@ impl BoneSet {
         }
         if let Some(constraint) = self.constraints.find_by_target(bone).cloned() {
             self.solve_constraint(&constraint);
+        }
+    }
+
+    pub fn reset_local_transform(&mut self) {
+        for bone in &mut self.bones {
+            bone.reset_local_transform();
         }
     }
 

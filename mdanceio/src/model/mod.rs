@@ -27,6 +27,7 @@ pub mod morph;
 pub mod rigid_body;
 pub mod vertex;
 pub mod material;
+pub mod joint;
 
 pub use bone::Bone;
 pub use model::Model;
@@ -34,3 +35,4 @@ pub use morph::Morph;
 pub use rigid_body::RigidBody;
 pub use vertex::{Vertex, VertexUnit};
 pub use material::Material;
+pub use  joint::Joint;
