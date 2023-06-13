@@ -748,7 +748,7 @@ impl Motion {
                 );
             }
         }
-        for morph in model.morphs() {
+        for morph in model.morphs().iter() {
             if self.find_morph_keyframe(&morph.canonical_name, 0).is_none() {
                 let _ = self.opaque.local_morph_motion_track_bundle.insert_keyframe(
                     MotionMorphKeyframe {
