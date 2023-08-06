@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::{HashMap, HashSet}, rc::Rc};
 
 use cgmath::{ElementWise, Vector2, Vector3, Vector4};
 
@@ -6,7 +6,7 @@ use crate::{
     audio_player::{AudioPlayer, ClockAudioPlayer},
     camera::{Camera, PerspectiveCamera},
     drawable::{DrawContext, DrawType, Drawable},
-    effect::ScriptOrder,
+    effect::{technique::TechniqueType, Effect, ScriptOrder, render_target::{ScreenRenderTarget, RenderTargetBuilder, RendererConfig}, RenderFormat},
     error::MdanceioError,
     graphics::ClearPass,
     graphics::{physics_debug::PhysicsDrawerBuilder, ModelProgramBundle},
@@ -528,6 +528,38 @@ impl Project {
         let physics_drawer = PhysicsDrawerBuilder::new(injector.texture_format(), device);
         let mut physics_engine = Box::new(PhysicsEngine::new(Some(physics_drawer)));
         physics_engine.simulation_mode = SimulationMode::EnablePlaying;
+
+        let shaders = HashMap::from([
+            (
+                TechniqueType::Object,
+                include_str!("../resources/shaders/model_color.wgsl"),
+            ),
+            (
+                TechniqueType::Edge,
+                include_str!("../resources/shaders/model_edge.wgsl"),
+            ),
+            (
+                TechniqueType::Shadow,
+                include_str!("../resources/shaders/model_ground_shadow.wgsl"),
+            ),
+            (
+                TechniqueType::Zplot,
+                include_str!("../resources/shaders/model_zplot.wgsl"),
+            ),
+        ]);
+        let model_effect = Rc::new(Effect::new(shaders, true, device));
+        let main_render_target = ScreenRenderTarget::new(RenderTargetBuilder {
+            clear_color: Vector4::new(1., 1., 1., 1.),
+            clear_depth: 0.,
+            config: RendererConfig {
+                format: RenderFormat {
+                    color: injector.texture_format(),
+                    depth: Some(wgpu::TextureFormat::Depth16Unorm),
+                },
+                size: wgpu::Extent3d { width: injector.viewport_size[0], height: injector.viewport_size[1], depth_or_array_layers: 1 },
+                techniques: HashSet::from([TechniqueType::Object, TechniqueType::Edge, TechniqueType::Shadow, TechniqueType::Zplot]),
+            }
+        }, &HashMap::new(), shadow_camera.bind_group(), &model_effect, device);
 
         let object_handler_allocator = HandleAllocator::new();
 

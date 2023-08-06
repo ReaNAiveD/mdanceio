@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use cgmath::{ElementWise, Vector3, Vector4, VectorSpace};
 
@@ -101,13 +101,15 @@ pub struct Material {
     diffuse_image: Option<wgpu::TextureView>,
     sphere_map_image: Option<wgpu::TextureView>,
     toon_image: Option<wgpu::TextureView>,
-    texture_bind: wgpu::BindGroup,
+    texture_bind: Rc<wgpu::BindGroup>,
     pub object_bundle: wgpu::RenderBundle,
     pub edge_bundle: wgpu::RenderBundle,
     pub shadow_bundle: wgpu::RenderBundle,
     pub zplot_bundle: wgpu::RenderBundle,
     pub name: String,
     pub canonical_name: String,
+    pub index_offset: u32,
+    pub num_indices: u32,
     index_hash: HashMap<u32, u32>,
     toon_color: Vector4<f32>,
     states: MaterialStates,
@@ -121,7 +123,7 @@ impl Material {
         material: &NanoemMaterial,
         language_type: nanoem::common::LanguageType,
         ctx: &mut MaterialDrawContext,
-        num_offset: u32,
+        index_offset: u32,
         num_indices: u32,
         device: &wgpu::Device,
     ) -> Self {
@@ -181,7 +183,7 @@ impl Material {
             ctx.fallback_shadow_bind,
             &ctx.vertex_buffer,
             ctx.index_buffer,
-            num_offset,
+            index_offset,
             num_indices,
             device,
         );
@@ -212,13 +214,15 @@ impl Material {
             diffuse_image: None,
             sphere_map_image: None,
             toon_image: None,
-            texture_bind: bind_group,
+            texture_bind: Rc::new(bind_group),
             object_bundle,
             edge_bundle,
             shadow_bundle,
             zplot_bundle,
             name,
             canonical_name,
+            num_indices,
+            index_offset,
             index_hash: HashMap::new(),
             toon_color: Vector4::new(1f32, 1f32, 1f32, 1f32),
             states: MaterialStates {
@@ -438,7 +442,7 @@ impl Material {
         num_indices: u32,
         device: &wgpu::Device,
     ) {
-        self.texture_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        self.texture_bind = Rc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some(format!("Model/TextureBindGroup/Material").as_str()),
             layout: ctx.bind_group_layout,
             entries: &[
@@ -473,7 +477,7 @@ impl Material {
                     resource: wgpu::BindingResource::Sampler(ctx.sampler),
                 },
             ],
-        });
+        }));
         self.rebuild_bundles(ctx, num_offset, num_indices, device);
     }
 
@@ -511,8 +515,8 @@ impl Material {
         self.zplot_bundle = zplot_bundle;
     }
 
-    pub fn bind_group(&self) -> &wgpu::BindGroup {
-        &self.texture_bind
+    pub fn bind_group(&self) -> Rc<wgpu::BindGroup> {
+        self.texture_bind.clone()
     }
 
     pub fn sphere_map_texture_type(&self) -> nanoem::model::ModelMaterialSphereMapTextureType {
@@ -710,6 +714,10 @@ impl MaterialSet {
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut Material> {
         self.materials.iter_mut()
+    }
+
+    pub fn len(&self) -> usize {
+        self.materials.len()
     }
 
     pub fn create_all_images(

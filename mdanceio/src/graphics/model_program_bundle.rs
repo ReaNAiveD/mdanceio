@@ -306,7 +306,7 @@ impl UniformBind {
 
 pub struct ModelRenderLayout {
     pub color_texture_format: wgpu::TextureFormat,
-    pub depth_texture_format: wgpu::TextureFormat,
+    pub depth_texture_format: Option<wgpu::TextureFormat>,
     pub color_bind_layout: wgpu::BindGroupLayout,
     pub uniform_bind_layout: wgpu::BindGroupLayout,
     pub shadow_bind_layout: wgpu::BindGroupLayout,
@@ -317,7 +317,7 @@ pub struct ModelRenderLayout {
 impl ModelRenderLayout {
     pub fn new(
         color_texture_format: wgpu::TextureFormat,
-        depth_texture_format: wgpu::TextureFormat,
+        depth_texture_format: Option<wgpu::TextureFormat>,
         device: &wgpu::Device,
     ) -> Self {
         let color_bind_layout = Self::build_color_bind_layout(device);
@@ -525,7 +525,7 @@ impl ModelProgramBundle {
         depth_texture_format: wgpu::TextureFormat,
         device: &wgpu::Device,
     ) -> Self {
-        let layout = ModelRenderLayout::new(color_texture_format, depth_texture_format, device);
+        let layout = ModelRenderLayout::new(color_texture_format, Some(depth_texture_format), device);
         Self {
             layout,
             object_technique: ObjectTechnique::new(device),
