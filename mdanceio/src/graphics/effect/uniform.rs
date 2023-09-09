@@ -178,7 +178,6 @@ impl UniformBindData {
         world: &Matrix4<f32>,
         camera: &PerspectiveCamera,
         light: &DirectionalLight,
-        technique_type: TechniqueType,
     ) {
         let (view, projection) = shadow_camera.get_view_projection(camera, light);
         let crop = shadow_camera.get_crop_matrix();

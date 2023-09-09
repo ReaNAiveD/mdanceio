@@ -2,6 +2,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use super::{
     layout::RendererLayout,
+    render_target::DrawType,
     technique::{Technique, TechniqueType},
 };
 
@@ -21,6 +22,7 @@ impl Effect {
     pub fn new(
         shaders: HashMap<TechniqueType, &str>,
         depth_enabled: bool,
+        fallback_shadow_bind: &Rc<wgpu::BindGroup>,
         device: &wgpu::Device,
     ) -> Self {
         let layout = Rc::new(RendererLayout::new(device));
@@ -40,7 +42,9 @@ impl Effect {
                     label: Some("Effect/Object/Shader"),
                     source: wgpu::ShaderSource::Wgsl((*shader).into()),
                 });
-                (*typ, { Technique::new(*typ, config, shader, &layout) })
+                (*typ, {
+                    Technique::new(*typ, config, shader, &layout, fallback_shadow_bind)
+                })
             })
             .collect();
         Self {
@@ -50,4 +54,24 @@ impl Effect {
         }
     }
 
+    pub fn find_technique(&self, draw_type: DrawType) -> Option<&Technique> {
+        match draw_type {
+            DrawType::Color(true) => {
+                if self.technique.get(&TechniqueType::Zplot).is_some() {
+                    self.technique.get(&TechniqueType::Object)
+                } else {
+                    self.technique
+                        .get(&TechniqueType::ObjectSs)
+                        .or_else(|| self.technique.get(&TechniqueType::Object))
+                }
+            }
+            DrawType::Color(false) => self
+                .technique
+                .get(&TechniqueType::ObjectSs)
+                .or_else(|| self.technique.get(&TechniqueType::Object)),
+            DrawType::Edge => self.technique.get(&TechniqueType::Edge),
+            DrawType::GroundShadow => self.technique.get(&TechniqueType::Shadow),
+            DrawType::ShadowMap => self.technique.get(&TechniqueType::Zplot),
+        }
+    }
 }

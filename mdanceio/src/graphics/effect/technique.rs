@@ -4,10 +4,7 @@ use std::{
     sync::RwLock,
 };
 
-use crate::{
-    model::{vertex, Material, Model},
-    project::ModelHandle,
-};
+use crate::{model::Material, project::ModelHandle};
 
 use super::{
     effect::EffectConfig,
@@ -60,6 +57,7 @@ pub struct Technique {
     config: EffectConfig,
     shader: wgpu::ShaderModule,
     layout: Rc<RendererLayout>,
+    fallback_shadow_bind: Rc<wgpu::BindGroup>,
     pipelines: RwLock<HashMap<PipelineKey, Weak<wgpu::RenderPipeline>>>,
     uniforms: RwLock<HashMap<ModelHandle, UniformBind>>,
 }
@@ -70,12 +68,14 @@ impl Technique {
         config: EffectConfig,
         shader: wgpu::ShaderModule,
         layout: &Rc<RendererLayout>,
+        fallback_shadow_bind: &Rc<wgpu::BindGroup>,
     ) -> Self {
         Self {
             typ,
             config,
             shader,
             layout: layout.clone(),
+            fallback_shadow_bind: fallback_shadow_bind.clone(),
             pipelines: RwLock::new(HashMap::new()),
             uniforms: RwLock::new(HashMap::new()),
         }
@@ -99,6 +99,11 @@ impl Technique {
                 }
             }
         };
+        let color_blend = if matches!(self.typ, TechniqueType::Zplot) {
+            None
+        } else {
+            Some(color_blend)
+        };
         let primitive_type = if material.is_line_draw_enabled() {
             wgpu::PrimitiveTopology::LineList
         } else if material.is_point_draw_enabled() {
@@ -110,7 +115,7 @@ impl Technique {
             format: render_format,
             cull_mode,
             primitive_type,
-            color_blend: Some(color_blend),
+            color_blend,
         };
         self.get_sharing_pipeline(&key).unwrap_or_else(|| {
             let pipeline = Rc::new(self.build_pipeline(&key, device));
@@ -189,12 +194,17 @@ impl Technique {
             .and_then(|map| map.get(&handle).map(|bind| bind.bind_group()))
     }
 
-    pub fn update_uniform(&self, updater: &dyn Fn(ModelHandle, &mut UniformBindData), queue: &wgpu::Queue) {
+    pub fn update_uniform(
+        &self,
+        handle: ModelHandle,
+        updater: &dyn Fn(&mut UniformBindData),
+        queue: &wgpu::Queue,
+    ) {
         match self.uniforms.read() {
             Ok(map) => {
-                for (handle, bind) in map.iter() {
+                if let Some(bind) = map.get(&handle) {
                     let mut data = bind.get_empty_uniform_data();
-                    updater(*handle, &mut data);
+                    updater(&mut data);
                     bind.update(&data, queue);
                 }
             }
@@ -219,10 +229,23 @@ impl Technique {
             wgpu::BlendState::ALPHA_BLENDING
         };
         let color_bind = material.bind_group();
-        let pipeline = self.get_pipeline(config.format, color_blend, material, device);
+        let format = if self.typ == TechniqueType::Zplot {
+            RenderFormat {
+                color: wgpu::TextureFormat::R32Float,
+                depth: config.format.depth,
+            }
+        } else {
+            config.format
+        };
+        let shadow_bind = if self.typ == TechniqueType::Zplot {
+            &self.fallback_shadow_bind
+        } else {
+            shadow_bind
+        };
+        let pipeline = self.get_pipeline(format, color_blend, material, device);
         DrawPass::new(
             pipeline,
-            config.format,
+            format,
             DrawPassBind {
                 color_bind,
                 shadow_bind: shadow_bind.clone(),
@@ -278,7 +301,7 @@ impl DrawPass {
         }
     }
 
-    fn update_color_bind(&mut self, color_bind: Rc<wgpu::BindGroup>, device: &wgpu::Device) {
+    pub fn update_color_bind(&mut self, color_bind: Rc<wgpu::BindGroup>, device: &wgpu::Device) {
         self.bind.color_bind = color_bind;
         self.render_bundle = self.rebuild_bundle(device);
     }

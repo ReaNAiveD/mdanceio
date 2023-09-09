@@ -1,15 +1,21 @@
-use std::{collections::{HashMap, HashSet}, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
-use cgmath::{ElementWise, Vector2, Vector3, Vector4};
+use cgmath::{ElementWise, Matrix4, Vector2, Vector3, Vector4};
 
 use crate::{
     audio_player::{AudioPlayer, ClockAudioPlayer},
     camera::{Camera, PerspectiveCamera},
-    drawable::{DrawContext, DrawType, Drawable},
-    effect::{technique::TechniqueType, Effect, ScriptOrder, render_target::{ScreenRenderTarget, RenderTargetBuilder, RendererConfig}, RenderFormat},
     error::MdanceioError,
+    graphics::effect::{
+        render_target::{DrawType, RenderTargetBuilder, RendererConfig, ScreenRenderTarget},
+        technique::TechniqueType,
+        Effect, RenderFormat,
+    },
+    graphics::physics_debug::PhysicsDrawerBuilder,
     graphics::ClearPass,
-    graphics::{physics_debug::PhysicsDrawerBuilder, ModelProgramBundle},
     grid::Grid,
     injector::Injector,
     light::{DirectionalLight, Light},
@@ -297,10 +303,10 @@ pub struct Project {
     self_shadow_motion: Motion,
     model_to_motion: HashMap<ModelHandle, Motion>,
     last_save_state: Option<SaveState>,
-    model_program_bundle: Box<ModelProgramBundle>,
+    // model_program_bundle: Box<ModelProgramBundle>,
+    main_render_target: Box<ScreenRenderTarget>,
     clear_pass: Box<ClearPass>,
     viewport_texture_format: (wgpu::TextureFormat, wgpu::TextureFormat),
-    draw_type: DrawType,
     editing_mode: EditingMode,
     playing_segment: TimeLineSegment,
     selection_segment: TimeLineSegment,
@@ -314,13 +320,12 @@ pub struct Project {
     texture_bind_group_layout: wgpu::BindGroupLayout,
     shadow_bind_group_layout: wgpu::BindGroupLayout,
     fallback_texture_bind: wgpu::BindGroup,
-    fallback_shadow_bind: wgpu::BindGroup,
+    fallback_shadow_bind: Rc<wgpu::BindGroup>,
     object_handler_allocator: HandleAllocator,
     model_handle_map: HashMap<ModelHandle, Model>,
     viewport_primary_pass: Pass,
     viewport_secondary_pass: Pass,
     preferred_motion_fps: FpsUnit,
-    depends_on_script_external: Vec<Box<dyn Drawable + Send>>,
     transform_performed_at: (u32, i32),
     local_frame_index: (u32, u32),
     time_step_factor: f32,
@@ -497,7 +502,7 @@ impl Project {
                     },
                 ],
             });
-        let shadow_fallback_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let shadow_fallback_bind = Rc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("BindGroup/ShadowFallbackBindGroup"),
             layout: &shadow_bind_group_layout,
             entries: &[
@@ -510,7 +515,7 @@ impl Project {
                     resource: wgpu::BindingResource::Sampler(&shadow_sampler),
                 },
             ],
-        });
+        }));
 
         let mut camera = PerspectiveCamera::new();
 
@@ -547,19 +552,34 @@ impl Project {
                 include_str!("../resources/shaders/model_zplot.wgsl"),
             ),
         ]);
-        let model_effect = Rc::new(Effect::new(shaders, true, device));
-        let main_render_target = ScreenRenderTarget::new(RenderTargetBuilder {
-            clear_color: Vector4::new(1., 1., 1., 1.),
-            clear_depth: 0.,
-            config: RendererConfig {
-                format: RenderFormat {
-                    color: injector.texture_format(),
-                    depth: Some(wgpu::TextureFormat::Depth16Unorm),
+        let model_effect = Rc::new(Effect::new(shaders, true, &shadow_fallback_bind, device));
+        let main_render_target = ScreenRenderTarget::new(
+            RenderTargetBuilder {
+                clear_color: Vector4::new(1., 1., 1., 1.),
+                clear_depth: 0.,
+                config: RendererConfig {
+                    format: RenderFormat {
+                        color: injector.texture_format(),
+                        depth: Some(wgpu::TextureFormat::Depth16Unorm),
+                    },
+                    size: wgpu::Extent3d {
+                        width: injector.viewport_size[0],
+                        height: injector.viewport_size[1],
+                        depth_or_array_layers: 1,
+                    },
+                    draw_types: HashSet::from([
+                        DrawType::Color(true),
+                        DrawType::Edge,
+                        DrawType::GroundShadow,
+                        DrawType::ShadowMap,
+                    ]),
                 },
-                size: wgpu::Extent3d { width: injector.viewport_size[0], height: injector.viewport_size[1], depth_or_array_layers: 1 },
-                techniques: HashSet::from([TechniqueType::Object, TechniqueType::Edge, TechniqueType::Shadow, TechniqueType::Zplot]),
-            }
-        }, &HashMap::new(), shadow_camera.bind_group(), &model_effect, device);
+            },
+            &HashMap::new(),
+            shadow_camera.bind_group(),
+            &model_effect,
+            device,
+        );
 
         let object_handler_allocator = HandleAllocator::new();
 
@@ -586,13 +606,12 @@ impl Project {
             light_motion,
             self_shadow_motion,
             model_to_motion: HashMap::new(),
-            model_program_bundle: Box::new(ModelProgramBundle::new(
-                injector.texture_format(),
-                wgpu::TextureFormat::Depth16Unorm,
-                device,
-            )),
-            draw_type: DrawType::Color,
-            depends_on_script_external: vec![],
+            // model_program_bundle: Box::new(ModelProgramBundle::new(
+            //     injector.texture_format(),
+            //     wgpu::TextureFormat::Depth16Unorm,
+            //     device,
+            // )),
+            main_render_target: Box::new(main_render_target),
             clear_pass: Box::new(ClearPass::new(
                 &[Some(injector.texture_format())],
                 Some(wgpu::TextureFormat::Depth16Unorm),
@@ -1206,31 +1225,25 @@ impl Project {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<ModelHandle, MdanceioError> {
-        let color_format = self.viewport_texture_format();
         Model::new_from_bytes(
             model_data,
             self.parse_language(),
             &mut self.physics_engine,
             &self.camera,
-            &mut self.model_program_bundle,
             &self.fallback_texture,
             &self.shared_sampler,
             &self.texture_bind_group_layout,
-            color_format,
-            self.shadow_camera.bind_group(),
-            &self.fallback_texture_bind,
-            &self.fallback_shadow_bind,
             device,
             queue,
         )
         .map(|model| {
-            let handle = self.add_model(model);
+            let handle = self.add_model(model, device);
             self.set_active_model(Some(handle));
             handle
         })
     }
 
-    pub fn add_model(&mut self, model: Model) -> ModelHandle {
+    pub fn add_model(&mut self, model: Model, device: &wgpu::Device) -> ModelHandle {
         // model.clear_all_bone_bounds_rigid_bodies();
         // if !self.state_flags.disable_hidden_bone_bounds_rigid_body {
         //     model.create_all_bone_bounds_rigid_bodies();
@@ -1244,6 +1257,14 @@ impl Project {
         // TODO: clear model undo stack
         self.add_model_motion(motion, model_handle);
         // TODO: applyAllOffscreenRenderTargetEffectsToDrawable
+        let model = self.model_handle_map.get(&model_handle).unwrap();
+        self.main_render_target.add_model(
+            model_handle,
+            model,
+            None,
+            self.shadow_camera.bind_group(),
+            device,
+        );
         model_handle
     }
 
@@ -1391,7 +1412,6 @@ impl Project {
             height: dimensions.1,
             depth_or_array_layers: 1,
         };
-        let color_format = self.viewport_texture_format();
         let texture = self
             .loaded_texture_map
             .entry(key.to_owned())
@@ -1429,38 +1449,39 @@ impl Project {
         );
         if update_bind {
             for (handle, model) in &mut self.model_handle_map {
-                model.update_image(
+                let updated_materials = model.update_image(
                     key,
                     texture,
-                    &mut self.model_program_bundle,
                     &self.fallback_texture,
                     &self.shared_sampler,
                     &self.texture_bind_group_layout,
-                    color_format,
-                    &self.shadow_camera.bind_group(),
-                    &self.fallback_texture_bind,
-                    &self.fallback_shadow_bind,
                     device,
-                )
+                );
+                for idx in updated_materials {
+                    if let Some(material) = model.materials.get(idx) {
+                        let bind = material.bind_group();
+                        self.main_render_target
+                            .update_bind(*handle, idx, bind, device);
+                    }
+                }
             }
         }
     }
 
     pub fn update_bind_texture(&mut self, device: &wgpu::Device) {
-        let color_format = self.viewport_texture_format();
         for (handle, model) in &mut self.model_handle_map {
             model.create_all_images(
                 &self.loaded_texture_map,
-                &mut self.model_program_bundle,
                 &self.fallback_texture,
                 &self.shared_sampler,
                 &self.texture_bind_group_layout,
-                color_format,
-                &self.shadow_camera.bind_group(),
-                &self.fallback_texture_bind,
-                &self.fallback_shadow_bind,
                 device,
             );
+            for (idx, material) in model.materials.iter().enumerate() {
+                let bind = material.bind_group();
+                self.main_render_target
+                    .update_bind(*handle, idx, bind, device);
+            }
         }
     }
 
@@ -1510,57 +1531,6 @@ impl Project {
         fallback_texture
     }
 
-    fn has_any_depends_on_script_external_effect(&self) -> bool {
-        self.depends_on_script_external
-            .iter()
-            .any(|drawable| drawable.is_visible())
-    }
-
-    fn draw_all_effects_depends_on_script_external(
-        &mut self,
-        view: &wgpu::TextureView,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
-        // TODO: now use device from arg
-        if self.has_any_depends_on_script_external_effect() {
-            let mut encoder =
-                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-            encoder.push_debug_group(
-                format!(
-                    "Project::drawDependsOnScriptExternal(size={})",
-                    self.depends_on_script_external.len()
-                )
-                .as_str(),
-            );
-            for drawable in &self.depends_on_script_external {
-                drawable.draw(
-                    view,
-                    Some(&self.viewport_primary_pass.depth_view),
-                    DrawType::ScriptExternalColor,
-                    DrawContext {
-                        camera: &self.camera,
-                        world: None,
-                        shadow: &self.shadow_camera,
-                        light: &self.light,
-                        shared_fallback_texture: &self.fallback_texture,
-                        viewport_texture_format: self.viewport_texture_format(),
-                        is_render_pass_viewport: self.is_render_pass_viewport(),
-                        all_models: &self.model_handle_map.values(),
-                        effect: &mut self.model_program_bundle,
-                        texture_bind_layout: &self.texture_bind_group_layout,
-                        shadow_bind_layout: &self.shadow_bind_group_layout,
-                        texture_fallback_bind: &self.fallback_texture_bind,
-                        shadow_fallback_bind: &self.fallback_shadow_bind,
-                    },
-                    device,
-                    queue,
-                );
-            }
-            encoder.pop_debug_group();
-        }
-    }
-
     fn clear_view_port_primary_pass(
         &self,
         view: &wgpu::TextureView,
@@ -1588,40 +1558,16 @@ impl Project {
 
     pub fn draw_shadow_map(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if self.shadow_camera.is_enabled() {
-            let (light_view, light_projection) = self
-                .shadow_camera
-                .get_view_projection(&self.camera, &self.light);
             self.shadow_camera.clear(device, queue);
-            // if self.editing_mode != EditingMode::Select {
-            // scope(m_currentOffscreenRenderPass, pass), scope2(m_originOffscreenRenderPass, pass)
-            for (handle, drawable) in &self.model_handle_map {
-                // TODO: judge effect script class
-                let color_view = self.shadow_camera.color_image();
-                let depth_view = self.shadow_camera.depth_image();
-                drawable.draw(
-                    color_view,
-                    Some(depth_view),
-                    DrawType::ShadowMap,
-                    DrawContext {
-                        camera: &self.camera,
-                        world: None,
-                        shadow: &self.shadow_camera,
-                        light: &self.light,
-                        shared_fallback_texture: &self.fallback_texture,
-                        viewport_texture_format: self.viewport_texture_format(),
-                        is_render_pass_viewport: self.is_render_pass_viewport(),
-                        all_models: &self.model_handle_map.values(),
-                        effect: &mut self.model_program_bundle,
-                        texture_bind_layout: &self.texture_bind_group_layout,
-                        shadow_bind_layout: &self.shadow_bind_group_layout,
-                        texture_fallback_bind: &self.fallback_texture_bind,
-                        shadow_fallback_bind: &self.fallback_shadow_bind,
-                    },
-                    device,
-                    queue,
-                )
-            }
-            // }
+            let color_view = self.shadow_camera.color_image();
+            let depth_view = self.shadow_camera.depth_image();
+            self._draw_viewport(
+                DrawType::ShadowMap,
+                color_view,
+                Some(depth_view),
+                device,
+                queue,
+            );
         }
     }
 
@@ -1640,32 +1586,18 @@ impl Project {
                 f32_array_to_mat4_col_major_order(camera_view),
                 f32_array_to_mat4_col_major_order(camera_projection),
             );
-            for drawable in self.model_handle_map.values() {
-                let color_view = self.shadow_camera.color_image();
-                let depth_view = self.shadow_camera.depth_image();
-                drawable.draw(
-                    color_view,
-                    Some(depth_view),
-                    DrawType::ShadowMap,
-                    DrawContext {
-                        camera: &new_camera,
-                        world: Some(f32_array_to_mat4_col_major_order(world)),
-                        shadow: &self.shadow_camera,
-                        light: &self.light,
-                        shared_fallback_texture: &self.fallback_texture,
-                        viewport_texture_format: self.viewport_texture_format(),
-                        is_render_pass_viewport: self.is_render_pass_viewport(),
-                        all_models: &self.model_handle_map.values(),
-                        effect: &mut self.model_program_bundle,
-                        texture_bind_layout: &self.texture_bind_group_layout,
-                        shadow_bind_layout: &self.shadow_bind_group_layout,
-                        texture_fallback_bind: &self.fallback_texture_bind,
-                        shadow_fallback_bind: &self.fallback_shadow_bind,
-                    },
-                    device,
-                    queue,
-                )
-            }
+            let color_view = self.shadow_camera.color_image();
+            let depth_view = self.shadow_camera.depth_image();
+            self._draw_viewport_from(
+                world,
+                camera_view,
+                camera_projection,
+                DrawType::ShadowMap,
+                color_view,
+                Some(depth_view),
+                device,
+                queue,
+            );
         }
     }
 
@@ -1676,20 +1608,34 @@ impl Project {
         queue: &wgpu::Queue,
     ) {
         log::debug!("Start drawing viewport");
+        let shadow_map_enabled = self.shadow_camera.is_enabled();
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.push_debug_group("Project::draw_viewport");
-        let is_drawing_color_type = self.draw_type == DrawType::Color;
-        let (view_matrix, projection_matrix) = self.active_camera().get_view_transform();
-        self.draw_all_effects_depends_on_script_external(view, device, queue);
         self.clear_view_port_primary_pass(view, device, queue);
-        if is_drawing_color_type {
-            self.draw_grid(view, device, queue);
-        }
-        self._draw_viewport(ScriptOrder::Standard, self.draw_type, view, device, queue);
-        if is_drawing_color_type {
-            // TODO: 渲染前边部分
-        }
+        self.draw_grid(view, device, queue);
+        // Draw PreProcess Color
+        self._draw_viewport(
+            DrawType::Edge,
+            view,
+            Some(&self.viewport_primary_pass.depth_view),
+            device,
+            queue,
+        );
+        self._draw_viewport(
+            DrawType::Color(shadow_map_enabled),
+            view,
+            Some(&self.viewport_primary_pass.depth_view),
+            device,
+            queue,
+        );
+        self._draw_viewport(
+            DrawType::GroundShadow,
+            view,
+            Some(&self.viewport_primary_pass.depth_view),
+            device,
+            queue,
+        );
         self.local_frame_index.1 = 0;
         // self.physics_engine.debug_draw(projection_matrix*view_matrix, view, device, queue);
         encoder.pop_debug_group();
@@ -1707,6 +1653,7 @@ impl Project {
         queue: &wgpu::Queue,
     ) {
         log::debug!("Start drawing viewport from");
+        let shadow_map_enabled = self.shadow_camera.is_enabled();
         let mut encoder =
             device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         encoder.push_debug_group("Project::draw_viewport_from");
@@ -1714,93 +1661,98 @@ impl Project {
             world,
             camera_view,
             camera_projection,
-            self.draw_type,
+            DrawType::Edge,
             view,
+            Some(&self.viewport_primary_pass.depth_view),
+            device,
+            queue,
+        );
+        self._draw_viewport_from(
+            world,
+            camera_view,
+            camera_projection,
+            DrawType::Color(shadow_map_enabled),
+            view,
+            Some(&self.viewport_primary_pass.depth_view),
+            device,
+            queue,
+        );
+        self._draw_viewport_from(
+            world,
+            camera_view,
+            camera_projection,
+            DrawType::GroundShadow,
+            view,
+            Some(&self.viewport_primary_pass.depth_view),
             device,
             queue,
         );
         self.local_frame_index.1 = 0;
         encoder.pop_debug_group();
         queue.submit(Some(encoder.finish()));
-    }
-
-    pub fn draw_viewport_with_depth(
-        &mut self,
-        view: &wgpu::TextureView,
-        depth_view: &wgpu::TextureView,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
-        log::debug!("Start drawing viewport");
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        encoder.push_debug_group("Project::draw_viewport");
-        let is_drawing_color_type = self.draw_type == DrawType::Color;
-        let (view_matrix, projection_matrix) = self.active_camera().get_view_transform();
-        self.draw_all_effects_depends_on_script_external(view, device, queue);
-        self.clear_view_port_primary_pass(view, device, queue);
-        if is_drawing_color_type {
-            self.draw_grid(view, device, queue);
-        }
-        self._draw_viewport_with_depth(
-            ScriptOrder::Standard,
-            self.draw_type,
-            view,
-            depth_view,
-            device,
-            queue,
-        );
-        if is_drawing_color_type {
-            // TODO: 渲染前边部分
-        }
-        self.local_frame_index.1 = 0;
-        encoder.pop_debug_group();
-        queue.submit(Some(encoder.finish()));
-        log::debug!("Submit new viewport task");
     }
 
     fn _draw_viewport(
-        &mut self,
-        order: ScriptOrder,
-        typ: DrawType,
+        &self,
+        draw_type: DrawType,
         view: &wgpu::TextureView,
+        depth: Option<&wgpu::TextureView>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
         log::debug!("Start internal drawing viewport");
-        for (handle, drawable) in &self.model_handle_map {
-            drawable.draw(
-                view,
-                Some(&self.viewport_primary_pass.depth_view),
-                typ,
-                DrawContext {
-                    camera: &self.camera,
-                    world: None,
-                    shadow: &self.shadow_camera,
-                    light: &self.light,
-                    shared_fallback_texture: &self.fallback_texture,
-                    viewport_texture_format: self.viewport_texture_format(),
-                    is_render_pass_viewport: self.is_render_pass_viewport(),
-                    all_models: &self.model_handle_map.values(),
-                    effect: &mut self.model_program_bundle,
-                    texture_bind_layout: &self.texture_bind_group_layout,
-                    shadow_bind_layout: &self.shadow_bind_group_layout,
-                    texture_fallback_bind: &self.fallback_texture_bind,
-                    shadow_fallback_bind: &self.fallback_shadow_bind,
-                },
-                device,
-                queue,
-            );
-        }
+        self.main_render_target.draw(
+            draw_type,
+            &|model_handle, uniform_data| {
+                if let Some(model) = self.model_handle_map.get(&model_handle) {
+                    let world: Matrix4<f32> = match draw_type {
+                        DrawType::GroundShadow | DrawType::ShadowMap => {
+                            self.light.get_shadow_transform()
+                        }
+                        _ => Model::INITIAL_WORLD_MATRIX,
+                    };
+                    uniform_data.set_camera_parameters(&self.camera, &world, model);
+                    uniform_data.set_light_parameters(&self.light);
+                    uniform_data.set_all_model_parameters(model, &self.model_handle_map.values());
+                    for (idx, material) in model.materials.iter().enumerate() {
+                        uniform_data.set_material_parameters(idx, material);
+                        if let DrawType::Edge = draw_type {
+                            let edge_size_scale_factor = model.edge_size(&self.camera);
+                            uniform_data.set_edge_parameters(idx, material, edge_size_scale_factor);
+                        }
+                    }
+                    if let DrawType::GroundShadow = draw_type {
+                        uniform_data.set_ground_shadow_parameters(
+                            &self.light,
+                            &self.camera,
+                            &world,
+                        );
+                    }
+                    if matches!(draw_type, DrawType::Color(_) | DrawType::ShadowMap) {
+                        uniform_data.set_shadow_map_parameters(
+                            &self.shadow_camera,
+                            &world,
+                            &self.camera,
+                            &self.light,
+                        );
+                    }
+                }
+            },
+            view,
+            depth,
+            device,
+            queue,
+        );
     }
 
     fn _draw_viewport_from(
-        &mut self,
+        &self,
         world: [f32; 16],
         camera_view: [f32; 16],
         camera_projection: [f32; 16],
-        typ: DrawType,
+        draw_type: DrawType,
         view: &wgpu::TextureView,
+        depth: Option<&wgpu::TextureView>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
@@ -1810,65 +1762,43 @@ impl Project {
             f32_array_to_mat4_col_major_order(camera_view),
             f32_array_to_mat4_col_major_order(camera_projection),
         );
-        for drawable in self.model_handle_map.values() {
-            drawable.draw(
-                view,
-                Some(&self.viewport_primary_pass.depth_view),
-                typ,
-                DrawContext {
-                    camera: &new_camera,
-                    world: Some(f32_array_to_mat4_col_major_order(world)),
-                    shadow: &self.shadow_camera,
-                    light: &self.light,
-                    shared_fallback_texture: &self.fallback_texture,
-                    viewport_texture_format: self.viewport_texture_format(),
-                    is_render_pass_viewport: self.is_render_pass_viewport(),
-                    all_models: &self.model_handle_map.values(),
-                    effect: &mut self.model_program_bundle,
-                    texture_bind_layout: &self.texture_bind_group_layout,
-                    shadow_bind_layout: &self.shadow_bind_group_layout,
-                    texture_fallback_bind: &self.fallback_texture_bind,
-                    shadow_fallback_bind: &self.fallback_shadow_bind,
-                },
-                device,
-                queue,
-            );
-        }
-    }
-
-    fn _draw_viewport_with_depth(
-        &mut self,
-        order: ScriptOrder,
-        typ: DrawType,
-        view: &wgpu::TextureView,
-        depth_view: &wgpu::TextureView,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
-        log::debug!("Start internal drawing viewport");
-        for (handle, drawable) in &self.model_handle_map {
-            drawable.draw(
-                view,
-                Some(depth_view),
-                typ,
-                DrawContext {
-                    camera: &self.camera,
-                    world: None,
-                    shadow: &self.shadow_camera,
-                    light: &self.light,
-                    shared_fallback_texture: &self.fallback_texture,
-                    viewport_texture_format: self.viewport_texture_format(),
-                    is_render_pass_viewport: self.is_render_pass_viewport(),
-                    all_models: &self.model_handle_map.values(),
-                    effect: &mut self.model_program_bundle,
-                    texture_bind_layout: &self.texture_bind_group_layout,
-                    shadow_bind_layout: &self.shadow_bind_group_layout,
-                    texture_fallback_bind: &self.fallback_texture_bind,
-                    shadow_fallback_bind: &self.fallback_shadow_bind,
-                },
-                device,
-                queue,
-            );
-        }
+        self.main_render_target.draw(
+            draw_type,
+            &|model_handle, uniform_data| {
+                if let Some(model) = self.model_handle_map.get(&model_handle) {
+                    let world: Matrix4<f32> = match draw_type {
+                        DrawType::GroundShadow | DrawType::ShadowMap => {
+                            self.light.get_shadow_transform()
+                        }
+                        _ => f32_array_to_mat4_col_major_order(world),
+                    };
+                    uniform_data.set_camera_parameters(&new_camera, &world, model);
+                    uniform_data.set_light_parameters(&self.light);
+                    uniform_data.set_all_model_parameters(model, &self.model_handle_map.values());
+                    for (idx, material) in model.materials.iter().enumerate() {
+                        uniform_data.set_material_parameters(idx, material);
+                        if let DrawType::Edge = draw_type {
+                            let edge_size_scale_factor = model.edge_size(&new_camera);
+                            uniform_data.set_edge_parameters(idx, material, edge_size_scale_factor);
+                        }
+                    }
+                    if let DrawType::GroundShadow = draw_type {
+                        uniform_data.set_ground_shadow_parameters(&self.light, &new_camera, &world);
+                    }
+                    if matches!(draw_type, DrawType::Color(_) | DrawType::ShadowMap) {
+                        uniform_data.set_shadow_map_parameters(
+                            &self.shadow_camera,
+                            &world,
+                            &new_camera,
+                            &self.light,
+                        );
+                    }
+                }
+            },
+            view,
+            depth,
+            device,
+            queue,
+        );
     }
 }

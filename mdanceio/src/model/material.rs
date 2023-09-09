@@ -2,30 +2,14 @@ use std::{collections::HashMap, rc::Rc};
 
 use cgmath::{ElementWise, Vector3, Vector4, VectorSpace};
 
-use crate::{
-    graphics::{
-        common_pass::{CPassBindGroup, CPassVertexBuffer},
-        technique::{EdgePassKey, ObjectPassKey, ShadowPassKey, ZplotPassKey},
-        ModelProgramBundle,
-    },
-    utils::{f128_to_vec3, f128_to_vec4, lerp_f32},
-};
+use crate::utils::{f128_to_vec3, f128_to_vec4, lerp_f32};
 
 use super::{MaterialIndex, NanoemMaterial, NanoemTexture};
 
-pub struct MaterialDrawContext<'a> {
-    pub effect: &'a mut ModelProgramBundle,
+pub struct MaterialContext<'a> {
     pub fallback_texture: &'a wgpu::TextureView,
     pub sampler: &'a wgpu::Sampler,
     pub bind_group_layout: &'a wgpu::BindGroupLayout,
-    pub color_format: wgpu::TextureFormat,
-    pub is_add_blend: bool,
-    pub uniform_bind: &'a wgpu::BindGroup,
-    pub shadow_bind: &'a wgpu::BindGroup,
-    pub fallback_texture_bind: &'a wgpu::BindGroup,
-    pub fallback_shadow_bind: &'a wgpu::BindGroup,
-    pub vertex_buffer: &'a wgpu::Buffer,
-    pub index_buffer: &'a wgpu::Buffer,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -93,7 +77,6 @@ pub struct MaterialStates {
     pub display_sphere_map_texture_uv_mesh_enabled: bool,
 }
 
-#[derive(Debug)]
 pub struct Material {
     // TODO
     color: MaterialBlendColor,
@@ -102,10 +85,6 @@ pub struct Material {
     sphere_map_image: Option<wgpu::TextureView>,
     toon_image: Option<wgpu::TextureView>,
     texture_bind: Rc<wgpu::BindGroup>,
-    pub object_bundle: wgpu::RenderBundle,
-    pub edge_bundle: wgpu::RenderBundle,
-    pub shadow_bundle: wgpu::RenderBundle,
-    pub zplot_bundle: wgpu::RenderBundle,
     pub name: String,
     pub canonical_name: String,
     pub index_offset: u32,
@@ -113,6 +92,7 @@ pub struct Material {
     index_hash: HashMap<u32, u32>,
     toon_color: Vector4<f32>,
     states: MaterialStates,
+    on_bind_updated: Option<Box<dyn Fn()>>,
     pub origin: NanoemMaterial,
 }
 
@@ -122,7 +102,7 @@ impl Material {
     pub fn from_nanoem(
         material: &NanoemMaterial,
         language_type: nanoem::common::LanguageType,
-        ctx: &mut MaterialDrawContext,
+        ctx: &mut MaterialContext,
         index_offset: u32,
         num_indices: u32,
         device: &wgpu::Device,
@@ -168,25 +148,6 @@ impl Material {
             ],
         });
         let flags = material.flags;
-        let (object_bundle, edge_bundle, shadow_bundle, zplot_bundle) = Self::build_bundles(
-            material.get_index(),
-            ctx.effect,
-            ctx.color_format,
-            ctx.is_add_blend,
-            flags.is_line_draw_enabled,
-            flags.is_point_draw_enabled,
-            flags.is_culling_disabled,
-            &bind_group,
-            ctx.uniform_bind,
-            ctx.shadow_bind,
-            ctx.fallback_texture_bind,
-            ctx.fallback_shadow_bind,
-            &ctx.vertex_buffer,
-            ctx.index_buffer,
-            index_offset,
-            num_indices,
-            device,
-        );
         Self {
             color: MaterialBlendColor {
                 base: MaterialColor {
@@ -215,10 +176,6 @@ impl Material {
             sphere_map_image: None,
             toon_image: None,
             texture_bind: Rc::new(bind_group),
-            object_bundle,
-            edge_bundle,
-            shadow_bundle,
-            zplot_bundle,
             name,
             canonical_name,
             num_indices,
@@ -230,8 +187,13 @@ impl Material {
                 display_diffuse_texture_uv_mesh_enabled: true,
                 ..Default::default()
             },
+            on_bind_updated: None,
             origin: material.clone(),
         }
+    }
+
+    pub fn set_on_bind_updated(&mut self, f: Box<dyn Fn()>) {
+        self.on_bind_updated = Some(f);
     }
 
     pub fn reset(&mut self) {
@@ -435,13 +397,7 @@ impl Material {
         self.toon_image.as_ref()
     }
 
-    pub fn update_bind(
-        &mut self,
-        ctx: &mut MaterialDrawContext,
-        num_offset: u32,
-        num_indices: u32,
-        device: &wgpu::Device,
-    ) {
+    pub fn update_bind(&mut self, ctx: &mut MaterialContext, device: &wgpu::Device) {
         self.texture_bind = Rc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some(format!("Model/TextureBindGroup/Material").as_str()),
             layout: ctx.bind_group_layout,
@@ -478,41 +434,6 @@ impl Material {
                 },
             ],
         }));
-        self.rebuild_bundles(ctx, num_offset, num_indices, device);
-    }
-
-    pub fn rebuild_bundles(
-        &mut self,
-        ctx: &mut MaterialDrawContext,
-        num_offset: u32,
-        num_indices: u32,
-        device: &wgpu::Device,
-    ) {
-        let material_idx = self.origin.get_index();
-        let flags = self.origin.flags;
-        let (object_bundle, edge_bundle, shadow_bundle, zplot_bundle) = Self::build_bundles(
-            material_idx,
-            ctx.effect,
-            ctx.color_format,
-            ctx.is_add_blend,
-            flags.is_line_draw_enabled,
-            flags.is_point_draw_enabled,
-            flags.is_culling_disabled,
-            &self.texture_bind,
-            ctx.uniform_bind,
-            ctx.shadow_bind,
-            ctx.fallback_texture_bind,
-            ctx.fallback_shadow_bind,
-            &ctx.vertex_buffer,
-            ctx.index_buffer,
-            num_offset,
-            num_indices,
-            device,
-        );
-        self.object_bundle = object_bundle;
-        self.edge_bundle = edge_bundle;
-        self.shadow_bundle = shadow_bundle;
-        self.zplot_bundle = zplot_bundle;
     }
 
     pub fn bind_group(&self) -> Rc<wgpu::BindGroup> {
@@ -550,123 +471,6 @@ impl Material {
     }
 }
 
-impl Material {
-    fn build_bundles(
-        material_idx: usize,
-        effect: &mut ModelProgramBundle,
-        color_format: wgpu::TextureFormat,
-        is_add_blend: bool,
-        line_draw_enabled: bool,
-        point_draw_enabled: bool,
-        culling_disabled: bool,
-        color_bind: &wgpu::BindGroup,
-        uniform_bind: &wgpu::BindGroup,
-        shadow_bind: &wgpu::BindGroup,
-        fallback_texture_bind: &wgpu::BindGroup,
-        fallback_shadow_bind: &wgpu::BindGroup,
-        vertex_buffer: &wgpu::Buffer,
-        index_buffer: &wgpu::Buffer,
-        num_offset: u32,
-        num_indices: u32,
-        device: &wgpu::Device,
-    ) -> (
-        wgpu::RenderBundle,
-        wgpu::RenderBundle,
-        wgpu::RenderBundle,
-        wgpu::RenderBundle,
-    ) {
-        let object_bundle = effect.ensure_get_object_render_bundle(
-            ObjectPassKey {
-                color_format,
-                is_add_blend,
-                depth_enabled: true,
-                line_draw_enabled,
-                point_draw_enabled,
-                culling_disabled,
-            },
-            material_idx,
-            CPassBindGroup {
-                color_bind,
-                uniform_bind,
-                shadow_bind,
-            },
-            CPassVertexBuffer {
-                vertex_buffer,
-                index_buffer,
-                num_offset,
-                num_indices,
-            },
-            device,
-        );
-        let edge_bundle = effect.ensure_get_edge_render_bundle(
-            EdgePassKey {
-                color_format,
-                is_add_blend,
-                depth_enabled: true,
-                line_draw_enabled,
-                point_draw_enabled,
-            },
-            material_idx,
-            CPassBindGroup {
-                color_bind,
-                uniform_bind,
-                shadow_bind,
-            },
-            CPassVertexBuffer {
-                vertex_buffer,
-                index_buffer,
-                num_offset,
-                num_indices,
-            },
-            device,
-        );
-        let shadow_bundle = effect.ensure_get_shadow_render_bundle(
-            ShadowPassKey {
-                color_format,
-                is_add_blend,
-                depth_enabled: true,
-                line_draw_enabled,
-                point_draw_enabled,
-            },
-            material_idx,
-            CPassBindGroup {
-                color_bind,
-                uniform_bind,
-                shadow_bind,
-            },
-            CPassVertexBuffer {
-                vertex_buffer,
-                index_buffer,
-                num_offset,
-                num_indices,
-            },
-            device,
-        );
-        let zplot_bundle = effect.ensure_get_zplot_render_bundle(
-            ZplotPassKey {
-                depth_enabled: true,
-                line_draw_enabled,
-                point_draw_enabled,
-                culling_disabled,
-            },
-            material_idx,
-            CPassBindGroup {
-                color_bind: fallback_texture_bind,
-                uniform_bind,
-                shadow_bind: fallback_shadow_bind,
-            },
-            CPassVertexBuffer {
-                vertex_buffer,
-                index_buffer,
-                num_offset,
-                num_indices,
-            },
-            device,
-        );
-        (object_bundle, edge_bundle, shadow_bundle, zplot_bundle)
-    }
-}
-
 pub struct MaterialSet {
     materials: Vec<Material>,
     textures: Vec<NanoemTexture>,
@@ -677,7 +481,7 @@ impl MaterialSet {
         nanoem_materials: &[NanoemMaterial],
         textures: &[NanoemTexture],
         language_type: nanoem::common::LanguageType,
-        draw_ctx: &mut MaterialDrawContext,
+        draw_ctx: &mut MaterialContext,
         device: &wgpu::Device,
     ) -> Self {
         let mut materials = vec![];
@@ -723,13 +527,10 @@ impl MaterialSet {
     pub fn create_all_images(
         &mut self,
         texture_lut: &HashMap<String, wgpu::Texture>,
-        draw_ctx: &mut MaterialDrawContext,
+        draw_ctx: &mut MaterialContext,
         device: &wgpu::Device,
     ) {
-        // TODO: 创建所有材质贴图并绑定到Material上
-        let mut index_offset = 0;
         for material in &mut self.materials {
-            let num_indices = material.origin.num_vertex_indices as u32;
             material.diffuse_image = material
                 .origin
                 .get_diffuse_texture_object(&self.textures)
@@ -745,8 +546,7 @@ impl MaterialSet {
                 .get_toon_texture_object(&self.textures)
                 .and_then(|texture_object| texture_lut.get(&texture_object.path))
                 .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
-            material.update_bind(draw_ctx, index_offset, num_indices, device);
-            index_offset += num_indices;
+            material.update_bind(draw_ctx, device);
         }
     }
 
@@ -754,12 +554,11 @@ impl MaterialSet {
         &mut self,
         texture_key: &str,
         texture: &wgpu::Texture,
-        draw_ctx: &mut MaterialDrawContext,
+        draw_ctx: &mut MaterialContext,
         device: &wgpu::Device,
-    ) {
-        let mut index_offset = 0;
-        for material in &mut self.materials {
-            let num_indices = material.origin.num_vertex_indices as u32;
+    ) -> Vec<MaterialIndex> {
+        let mut updated_indices = vec![];
+        for (idx, material) in self.materials.iter_mut().enumerate() {
             let mut updated = false;
             if let Some(texture) = material
                 .origin
@@ -807,9 +606,10 @@ impl MaterialSet {
                 updated = true;
             }
             if updated {
-                material.update_bind(draw_ctx, index_offset, num_indices, device);
+                material.update_bind(draw_ctx, device);
+                updated_indices.push(idx);
             }
-            index_offset += num_indices;
         }
+        updated_indices
     }
 }

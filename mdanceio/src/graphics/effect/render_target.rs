@@ -12,7 +12,8 @@ use crate::{
 
 use super::{
     effect::Effect,
-    technique::{DrawPass, DrawPassModelContext, Technique, TechniqueType},
+    technique::{DrawPass, DrawPassModelContext, TechniqueType},
+    uniform::UniformBindData,
     RenderFormat,
 };
 
@@ -22,11 +23,19 @@ pub enum ObjectKey {
     Material((ModelHandle, usize)),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DrawType {
+    Color(bool), // (shadow_map_enabled)
+    Edge,
+    GroundShadow,
+    ShadowMap,
+}
+
 #[derive(Debug, Clone)]
 pub struct RendererConfig {
     pub format: RenderFormat,
     pub size: wgpu::Extent3d,
-    pub techniques: HashSet<TechniqueType>,
+    pub draw_types: HashSet<DrawType>,
 }
 
 pub struct OffscreenRenderTarget {
@@ -51,8 +60,6 @@ pub struct RenderTargetBuilder {
 pub struct ScreenRenderTarget {
     pub clear_color: Vector4<f32>,
     pub clear_depth: f32,
-    pub depth: Option<wgpu::Texture>,
-    pub depth_view: Option<wgpu::TextureView>,
     pub config: RendererConfig,
     renderers: HashMap<ModelHandle, ModelRenderer>,
     fallback_effect: Rc<Effect>,
@@ -78,14 +85,9 @@ impl ScreenRenderTarget {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             })
         });
-        let depth_view = depth
-            .as_ref()
-            .map(|depth| depth.create_view(&wgpu::TextureViewDescriptor::default()));
         let mut rt = Self {
             clear_color: builder.clear_color,
             clear_depth: builder.clear_depth,
-            depth,
-            depth_view,
             config: builder.config,
             renderers: HashMap::new(),
             fallback_effect: fallback_effect.clone(),
@@ -160,110 +162,84 @@ impl ScreenRenderTarget {
         todo!("update_format")
     }
 
-    pub fn depth_view(&self) -> Option<wgpu::TextureView> {
-        todo!("depth")
+    pub fn update_bind(
+        &mut self,
+        model: ModelHandle,
+        material_idx: usize,
+        bind: Rc<wgpu::BindGroup>,
+        device: &wgpu::Device,
+    ) {
+        if let Some(renderer) = self
+            .renderers
+            .get_mut(&model)
+            .and_then(|model| model.renderers.get_mut(material_idx))
+        {
+            renderer.update_color_bind(bind, device);
+        }
     }
 
-    pub fn render_bundles(
-        &self,
-        technique_type: TechniqueType,
-    ) -> impl Iterator<Item = &wgpu::RenderBundle> {
+    pub fn render_bundles(&self, draw_type: DrawType) -> impl Iterator<Item = &wgpu::RenderBundle> {
         self.renderers
             .values()
             .flat_map(|renderer| &renderer.renderers)
-            .filter_map(move |renderer| renderer.passes.get(&technique_type))
+            .filter_map(move |renderer| renderer.find_pass(draw_type))
             .map(|pass| &pass.render_bundle)
     }
 
     pub fn draw(
         &self,
-        technique_type: TechniqueType,
+        draw_type: DrawType,
+        updater: &dyn Fn(ModelHandle, &mut UniformBindData),
         view: &wgpu::TextureView,
+        depth_view: Option<&wgpu::TextureView>,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
+        for (model_handle, renderer) in &self.renderers {
+            for renderer in &renderer.renderers {
+                if let Some(technique) = renderer.effect.find_technique(draw_type) {
+                    technique.update_uniform(
+                        *model_handle,
+                        &|data| updater(*model_handle, data),
+                        queue,
+                    );
+                }
+            }
+        }
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("ScreenRenderTarget/CommandEncoder"),
+            label: Some(format!("ScreenRenderTarget/{:?}/CommandEncoder", draw_type).as_str()),
         });
         let color_attachments = wgpu::RenderPassColorAttachment {
             view,
             resolve_target: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                load: wgpu::LoadOp::Load,
                 store: true,
             },
         };
         {
             let mut _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ScreenRenderTarget/RenderPass"),
+                label: Some(format!("ScreenRenderTarget/{:?}/RenderPass", draw_type).as_str()),
                 color_attachments: &[Some(color_attachments)],
-                depth_stencil_attachment: self.depth_view.as_ref().map(|tv| {
+                depth_stencil_attachment: depth_view.map(|tv| {
                     wgpu::RenderPassDepthStencilAttachment {
                         view: tv,
                         depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1f32),
+                            load: wgpu::LoadOp::Load,
                             store: true,
                         }),
                         stencil_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(0),
+                            load: wgpu::LoadOp::Load,
                             store: true,
                         }),
                     }
                 }),
             });
-            _rpass.execute_bundles(self.render_bundles(technique_type));
+            _rpass.execute_bundles(self.render_bundles(draw_type));
         }
         queue.submit(Some(encoder.finish()));
     }
 }
-
-// impl ScreenRenderTarget {
-//     pub fn draw_color(
-//         &self,
-//         models: &HashMap<u32, Model>,
-//         shadow_map_enabled: bool,
-//         set_uniform: impl Fn(&mut UniformBindData),
-//         device: &wgpu::Device,
-//         queue: &wgpu::Queue,
-//     ) {
-//         // Clear
-//         // Initialize Fallback Uniform
-//         // let mut bundles = vec![];
-//         for (handle, model) in models {
-//             let technique_type = if shadow_map_enabled {
-//                 TechniqueType::Object
-//             } else {
-//                 TechniqueType::ObjectSs
-//             };
-//             if let Some(effect) = self.objects.get(&ObjectKey::Model(*handle)) {
-//                 if let Some(technique) = effect.technique.get(&technique_type) {
-//                     if let Some(pass) = technique.passes.get(handle) {
-//                         let mut uniform = pass.uniform_bind.get_empty_uniform_data();
-//                         set_uniform(&mut uniform);
-//                         pass.uniform_bind.update(&uniform, queue);
-//                     }
-//                 }
-//             } else {
-//                 let mut initialized_effect = vec![];
-//                 for idx in 0..model.materials.len() {
-//                     if let Some(effect) = self.objects.get(&ObjectKey::Material((*handle, idx))) {
-//                         if let Some(technique) = effect.technique.get(&technique_type) {
-//                             if !initialized_effect.iter().any(|e| Rc::ptr_eq(effect, e)) {
-//                                 if let Some(pass) = technique.passes.get(handle) {
-//                                     let mut uniform = pass.uniform_bind.get_empty_uniform_data();
-//                                     set_uniform(&mut uniform);
-//                                     pass.uniform_bind.update(&uniform, queue);
-//                                 }
-//                                 initialized_effect.push(effect.clone());
-//                             }
-//                         }
-//                     }
-//                 }
-//                 drop(initialized_effect);
-//             }
-//         }
-//     }
-// }
 
 pub struct ModelRenderer {
     pub effect: Option<Rc<Effect>>,
@@ -366,7 +342,7 @@ pub struct MaterialRenderer {
     model_ctx: DrawPassModelContext,
     material_idx: usize,
     shadow_bind: Rc<wgpu::BindGroup>,
-    pub passes: HashMap<TechniqueType, DrawPass>,
+    pub passes: HashMap<DrawType, DrawPass>,
 }
 
 impl MaterialRenderer {
@@ -380,8 +356,8 @@ impl MaterialRenderer {
         device: &wgpu::Device,
     ) -> Self {
         let mut passes = HashMap::new();
-        for technique_type in &config.techniques {
-            if let Some(technique) = effect.technique.get(technique_type) {
+        for draw_type in &config.draw_types {
+            if let Some(technique) = effect.find_technique(*draw_type) {
                 let draw_pass = technique.get_draw_pass(
                     config,
                     model_ctx,
@@ -390,7 +366,7 @@ impl MaterialRenderer {
                     shadow_bind,
                     device,
                 );
-                passes.insert(*technique_type, draw_pass);
+                passes.insert(*draw_type, draw_pass);
             }
         }
         Self {
@@ -405,8 +381,8 @@ impl MaterialRenderer {
 
     pub fn set_effect(&mut self, material: &Material, effect: &Rc<Effect>, device: &wgpu::Device) {
         self.effect = effect.clone();
-        for (technique_type, draw_pass) in self.passes.iter_mut() {
-            if let Some(technique) = effect.technique.get(technique_type) {
+        for (draw_type, draw_pass) in self.passes.iter_mut() {
+            if let Some(technique) = effect.find_technique(*draw_type) {
                 *draw_pass = technique.get_draw_pass(
                     &self.config,
                     &self.model_ctx,
@@ -417,5 +393,28 @@ impl MaterialRenderer {
                 );
             }
         }
+    }
+
+    pub fn update_color_bind(&mut self, color_bind: Rc<wgpu::BindGroup>, device: &wgpu::Device) {
+        for draw_pass in self.passes.values_mut() {
+            draw_pass.update_color_bind(color_bind.clone(), device);
+        }
+    }
+
+    pub fn update_uniform(
+        &self,
+        model_handle: ModelHandle,
+        draw_type: DrawType,
+        updater: &dyn Fn(&mut UniformBindData),
+        queue: &wgpu::Queue,
+    ) {
+        self.effect
+            .find_technique(draw_type)
+            .unwrap()
+            .update_uniform(model_handle, updater, queue);
+    }
+
+    fn find_pass(&self, draw_type: DrawType) -> Option<&DrawPass> {
+        self.passes.get(&draw_type)
     }
 }

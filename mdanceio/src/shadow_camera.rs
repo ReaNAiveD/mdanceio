@@ -92,32 +92,6 @@ impl ShadowCamera {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        // let fallback_color_texture = device.create_texture(&wgpu::TextureDescriptor {
-        //     label: Some("ShadowCamera/FallbackColor"),
-        //     size: wgpu::Extent3d {
-        //         width: 1,
-        //         height: 1,
-        //         depth_or_array_layers: 1,
-        //     },
-        //     mip_level_count: 1,
-        //     sample_count: 1,
-        //     dimension: wgpu::TextureDimension::D2,
-        //     format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        //     usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        // });
-        // let fallback_depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-        //     label: Some("ShadowCamera/FallbackDepth"),
-        //     size: wgpu::Extent3d {
-        //         width: 1,
-        //         height: 1,
-        //         depth_or_array_layers: 1,
-        //     },
-        //     mip_level_count: 1,
-        //     sample_count: 1,
-        //     dimension: wgpu::TextureDimension::D2,
-        //     format: wgpu::TextureFormat::Depth16Unorm,
-        //     usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        // });
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("ShadowCamera/BindGroup/Texture"),
             layout: bind_group_layout,
