@@ -1,26 +1,17 @@
 use std::{
     collections::{HashMap, HashSet},
-    iter,
+    sync::Arc,
 };
 
-use cgmath::{ElementWise, InnerSpace, Matrix4, Vector3, Vector4, VectorSpace, Zero};
-use nanoem::{
-    model::ModelRigidBodyTransformType,
-    motion::{MotionBoneKeyframe, MotionModelKeyframe, MotionTrackBundle},
-};
+use cgmath::{InnerSpace, Matrix4, Vector4, VectorSpace};
+use nanoem::motion::{MotionBoneKeyframe, MotionModelKeyframe, MotionTrackBundle};
 
 use crate::{
     bounding_box::BoundingBox,
     camera::{Camera, PerspectiveCamera},
     deformer::{CommonDeformer, Deformer, WgpuDeformer},
-    drawable::{DrawContext, DrawType, Drawable},
     error::MdanceioError,
-    graphics::{
-        model_program_bundle::{ModelProgramBundle, UniformBind},
-        technique::TechniqueType,
-    },
-    light::Light,
-    model::{material::MaterialDrawContext, VertexUnit},
+    model::{material::MaterialContext, VertexUnit},
     motion::Motion,
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
     utils::{f128_to_vec4, lerp_f32},
@@ -33,57 +24,56 @@ use super::{
 };
 
 #[derive(Debug, Clone, Copy, Default, Hash)]
-struct ModelStates {
-    visible: bool,
-    uploaded: bool,
-    vertex_shader_skinning: bool,
-    show_all_bones: bool,
-    show_all_vertex_points: bool,
-    show_all_vertex_faces: bool,
-    show_all_rigid_body_shapes: bool,
-    show_all_rigid_body_shapes_color_by_shape: bool,
-    compute_shader_skinning: bool,
-    morph_weight_focus: bool,
-    enable_shadow: bool,
-    enable_shadow_map: bool,
-    enable_add_blend: bool,
-    show_all_joint_shapes: bool,
-    dirty: bool,
-    dirty_staging_buffer: bool,
-    dirty_morph: bool,
-    physics_simulation: bool,
-    enable_ground_shadow: bool,
-    show_all_material_shapes: bool,
-    show_all_vertex_weights: bool,
-    blending_vertex_weights_enabled: bool,
-    show_all_vertex_normals: bool,
+pub struct ModelStates {
+    pub visible: bool,
+    pub uploaded: bool,
+    pub vertex_shader_skinning: bool,
+    pub show_all_bones: bool,
+    pub show_all_vertex_points: bool,
+    pub show_all_vertex_faces: bool,
+    pub show_all_rigid_body_shapes: bool,
+    pub show_all_rigid_body_shapes_color_by_shape: bool,
+    pub compute_shader_skinning: bool,
+    pub morph_weight_focus: bool,
+    pub enable_shadow: bool,
+    pub enable_shadow_map: bool,
+    pub enable_add_blend: bool,
+    pub show_all_joint_shapes: bool,
+    pub dirty: bool,
+    pub dirty_staging_buffer: bool,
+    pub dirty_morph: bool,
+    pub physics_simulation: bool,
+    pub enable_ground_shadow: bool,
+    pub show_all_material_shapes: bool,
+    pub show_all_vertex_weights: bool,
+    pub blending_vertex_weights_enabled: bool,
+    pub show_all_vertex_normals: bool,
 }
 
 pub struct Model {
     camera: Box<PerspectiveCamera>,
     skin_deformer: Deformer,
     opaque: Box<NanoemModel>,
-    materials: MaterialSet,
-    vertices: VertexSet,
-    bones: BoneSet,
-    morphs: MorphSet,
-    labels: Vec<Label>,
-    rigid_bodies: RigidBodySet,
-    joints: JointSet,
-    soft_bodies: Vec<SoftBody>,
+    pub materials: MaterialSet,
+    pub vertices: VertexSet,
+    pub bones: BoneSet,
+    pub morphs: MorphSet,
+    pub labels: Vec<Label>,
+    pub rigid_bodies: RigidBodySet,
+    pub joints: JointSet,
+    pub soft_bodies: Vec<SoftBody>,
     bone_index_hash_map: HashMap<MaterialIndex, HashMap<BoneIndex, usize>>,
     /// Map from target bone to constraint containing it
     outside_parents: HashMap<BoneIndex, (String, String)>,
     pub shared_fallback_bone: Bone,
     bounding_box: BoundingBox,
-    uniform_bind: UniformBind,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
+    pub vertex_buffer: Arc<wgpu::Buffer>,
+    pub index_buffer: Arc<wgpu::Buffer>,
     edge_color: Vector4<f32>,
     name: String,
     comment: String,
     canonical_name: String,
-    states: ModelStates,
+    pub states: ModelStates,
     edge_size_scale_factor: f32,
     opacity: f32,
     count_vertex_skinning_needed: i32,
@@ -109,14 +99,9 @@ impl Model {
         language_type: nanoem::common::LanguageType,
         physics_engine: &mut PhysicsEngine,
         global_camera: &PerspectiveCamera,
-        effect: &mut ModelProgramBundle,
         fallback_texture: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
         bind_group_layout: &wgpu::BindGroupLayout,
-        color_format: wgpu::TextureFormat,
-        shadow_bind: &wgpu::BindGroup,
-        fallback_texture_bind: &wgpu::BindGroup,
-        fallback_shadow_bind: &wgpu::BindGroup,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<Self, MdanceioError> {
@@ -142,7 +127,7 @@ impl Model {
                 }
 
                 // TODO: 共享fallback骨骼
-                // let shared_fallback_bone = Rc::new(RefCell::new(Bone::new(
+                // let shared_fallback_bone = Arc::new(RefCell::new(Bone::new(
                 //     "SharedFallbackBone",
                 //     "SharedFallbackBone",
                 // )));
@@ -168,24 +153,14 @@ impl Model {
                         usage: wgpu::BufferUsages::INDEX,
                     },
                 );
-                let uniform_bind = effect.get_uniform_bind(opaque.materials.len(), device);
                 let materials = MaterialSet::new(
                     &opaque.materials,
                     &opaque.textures,
                     language_type,
-                    &mut MaterialDrawContext {
-                        effect,
+                    &mut MaterialContext {
                         fallback_texture,
                         sampler,
                         bind_group_layout,
-                        color_format,
-                        is_add_blend: initial_states.enable_add_blend,
-                        uniform_bind: uniform_bind.bind_group(),
-                        shadow_bind,
-                        fallback_texture_bind,
-                        fallback_shadow_bind,
-                        vertex_buffer: &vertex_buffer,
-                        index_buffer: &index_buffer,
                     },
                     device,
                 );
@@ -342,9 +317,8 @@ impl Model {
                     soft_bodies,
                     outside_parents: HashMap::new(),
                     // shared_fallback_bone,
-                    vertex_buffer,
-                    index_buffer,
-                    uniform_bind,
+                    vertex_buffer: Arc::new(vertex_buffer),
+                    index_buffer: Arc::new(index_buffer),
                     shared_fallback_bone,
                     name,
                     comment,
@@ -378,32 +352,18 @@ impl Model {
     pub fn create_all_images(
         &mut self,
         texture_lut: &HashMap<String, wgpu::Texture>,
-        effect: &mut ModelProgramBundle,
         fallback_texture: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
         bind_group_layout: &wgpu::BindGroupLayout,
-        color_format: wgpu::TextureFormat,
-        shadow_bind: &wgpu::BindGroup,
-        fallback_texture_bind: &wgpu::BindGroup,
-        fallback_shadow_bind: &wgpu::BindGroup,
         device: &wgpu::Device,
     ) {
         let is_add_blend = self.is_add_blend_enabled();
         self.materials.create_all_images(
             texture_lut,
-            &mut MaterialDrawContext {
-                effect,
+            &mut MaterialContext {
                 fallback_texture,
                 sampler,
                 bind_group_layout,
-                color_format,
-                is_add_blend,
-                uniform_bind: self.uniform_bind.bind_group(),
-                shadow_bind,
-                fallback_texture_bind,
-                fallback_shadow_bind,
-                vertex_buffer: &self.vertex_buffer,
-                index_buffer: &self.index_buffer,
             },
             device,
         );
@@ -413,36 +373,22 @@ impl Model {
         &mut self,
         texture_key: &str,
         texture: &wgpu::Texture,
-        effect: &mut ModelProgramBundle,
         fallback_texture: &wgpu::TextureView,
         sampler: &wgpu::Sampler,
         bind_group_layout: &wgpu::BindGroupLayout,
-        color_format: wgpu::TextureFormat,
-        shadow_bind: &wgpu::BindGroup,
-        fallback_texture_bind: &wgpu::BindGroup,
-        fallback_shadow_bind: &wgpu::BindGroup,
         device: &wgpu::Device,
-    ) {
+    ) -> Vec<MaterialIndex> {
         let is_add_blend = self.is_add_blend_enabled();
         self.materials.update_image(
             texture_key,
             texture,
-            &mut MaterialDrawContext {
-                effect,
+            &mut MaterialContext {
                 fallback_texture,
                 sampler,
                 bind_group_layout,
-                color_format,
-                is_add_blend,
-                uniform_bind: self.uniform_bind.bind_group(),
-                shadow_bind,
-                fallback_texture_bind,
-                fallback_shadow_bind,
-                vertex_buffer: &self.vertex_buffer,
-                index_buffer: &self.index_buffer,
             },
             device,
-        );
+        )
     }
 
     pub fn reset_physics_simulation(&mut self, physics_engine: &mut PhysicsEngine) {
@@ -918,56 +864,8 @@ impl Model {
     pub fn contains_morph(&self, name: &str) -> bool {
         self.morphs.contains(name)
     }
-}
 
-impl Drawable for Model {
-    fn draw(
-        &self,
-        color_view: &wgpu::TextureView,
-        depth_view: Option<&wgpu::TextureView>,
-        typ: DrawType,
-        context: DrawContext,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
-        if self.is_visible() {
-            match typ {
-                DrawType::Color | DrawType::ScriptExternalColor => self.draw_color(
-                    typ == DrawType::ScriptExternalColor,
-                    color_view,
-                    depth_view,
-                    context,
-                    device,
-                    queue,
-                ),
-                DrawType::Edge => {
-                    let edge_size_scale_factor = self.edge_size(context.camera);
-                    if edge_size_scale_factor > 0f32 {
-                        self.draw_edge(
-                            edge_size_scale_factor,
-                            color_view,
-                            depth_view,
-                            context,
-                            device,
-                            queue,
-                        );
-                    }
-                }
-                DrawType::GroundShadow => {
-                    if self.states.enable_ground_shadow {
-                        self.draw_ground_shadow(color_view, depth_view, context, device, queue)
-                    }
-                }
-                DrawType::ShadowMap => {
-                    if self.states.enable_shadow_map {
-                        self.draw_shadow_map(color_view, depth_view, context, device, queue)
-                    }
-                }
-            }
-        }
-    }
-
-    fn is_visible(&self) -> bool {
+    pub fn is_visible(&self) -> bool {
         self.states.visible
     }
 }
@@ -998,233 +896,6 @@ impl Model {
             self.states.dirty_staging_buffer = false;
         }
     }
-
-    fn draw_color(
-        &self,
-        script_external_color: bool,
-        color_view: &wgpu::TextureView,
-        depth_view: Option<&wgpu::TextureView>,
-        context: DrawContext,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
-        let mut uniform_data = self.uniform_bind.get_empty_uniform_data();
-        uniform_data.set_camera_parameters(
-            context.camera,
-            &context.world.unwrap_or(Self::INITIAL_WORLD_MATRIX),
-            self,
-        );
-        uniform_data.set_light_parameters(context.light);
-        uniform_data.set_all_model_parameters(self, context.all_models);
-        for (idx, material) in self.materials.iter().enumerate() {
-            uniform_data.set_material_parameters(idx, material);
-        }
-        uniform_data.set_shadow_map_parameters(
-            context.shadow,
-            &context.world.unwrap_or(Self::INITIAL_WORLD_MATRIX),
-            context.camera,
-            context.light,
-            TechniqueType::Color,
-        );
-        self.uniform_bind.update(&uniform_data, queue);
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Model/CommandEncoder/Color"),
-        });
-        {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Model/RenderPass/Color"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: color_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: depth_view.map(|view| {
-                    wgpu::RenderPassDepthStencilAttachment {
-                        view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: true,
-                        }),
-                        stencil_ops: None,
-                    }
-                }),
-            });
-            let bundles = self
-                .materials
-                .iter()
-                .map(|material| &material.object_bundle);
-            rpass.execute_bundles(bundles);
-        }
-        queue.submit(iter::once(encoder.finish()));
-    }
-
-    fn draw_edge(
-        &self,
-        edge_size_scale_factor: f32,
-        color_view: &wgpu::TextureView,
-        depth_view: Option<&wgpu::TextureView>,
-        context: DrawContext,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
-        let mut uniform_data = self.uniform_bind.get_empty_uniform_data();
-        uniform_data.set_camera_parameters(
-            context.camera,
-            &context.world.unwrap_or(Self::INITIAL_WORLD_MATRIX),
-            self,
-        );
-        uniform_data.set_light_parameters(context.light);
-        uniform_data.set_all_model_parameters(self, context.all_models);
-        for (idx, material) in self.materials.iter().enumerate() {
-            uniform_data.set_material_parameters(idx, material);
-            uniform_data.set_edge_parameters(idx, material, edge_size_scale_factor);
-        }
-        self.uniform_bind.update(&uniform_data, queue);
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Model/CommandEncoder/Edge"),
-        });
-        {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Model/RenderPass/Edge"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: color_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: depth_view.map(|view| {
-                    wgpu::RenderPassDepthStencilAttachment {
-                        view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: true,
-                        }),
-                        stencil_ops: None,
-                    }
-                }),
-            });
-            let bundles = self.materials.iter().map(|material| &material.edge_bundle);
-            rpass.execute_bundles(bundles);
-        }
-        queue.submit(iter::once(encoder.finish()));
-    }
-
-    fn draw_ground_shadow(
-        &self,
-        color_view: &wgpu::TextureView,
-        depth_view: Option<&wgpu::TextureView>,
-        context: DrawContext,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
-        let world = context.light.get_shadow_transform();
-        let mut uniform_data = self.uniform_bind.get_empty_uniform_data();
-        uniform_data.set_camera_parameters(context.camera, &world, self);
-        uniform_data.set_light_parameters(context.light);
-        uniform_data.set_all_model_parameters(self, context.all_models);
-        for (idx, material) in self.materials.iter().enumerate() {
-            uniform_data.set_material_parameters(idx, &material);
-        }
-        uniform_data.set_ground_shadow_parameters(context.light, context.camera, &world);
-        self.uniform_bind.update(&uniform_data, queue);
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Model/CommandEncoder/GroundShadow"),
-        });
-        {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Model/RenderPass/GroundShadow"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: color_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: depth_view.map(|view| {
-                    wgpu::RenderPassDepthStencilAttachment {
-                        view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: true,
-                        }),
-                        stencil_ops: None,
-                    }
-                }),
-            });
-            let bundles = self
-                .materials
-                .iter()
-                .map(|material| &material.shadow_bundle);
-            rpass.execute_bundles(bundles);
-        }
-        queue.submit(iter::once(encoder.finish()));
-    }
-
-    fn draw_shadow_map(
-        &self,
-        color_view: &wgpu::TextureView,
-        depth_view: Option<&wgpu::TextureView>,
-        context: DrawContext,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-    ) {
-        let world: Matrix4<f32> = context.light.get_shadow_transform();
-        let mut uniform_data = self.uniform_bind.get_empty_uniform_data();
-        uniform_data.set_camera_parameters(
-            context.camera,
-            &context.world.unwrap_or(Self::INITIAL_WORLD_MATRIX),
-            self,
-        );
-        uniform_data.set_light_parameters(context.light);
-        uniform_data.set_all_model_parameters(self, context.all_models);
-        uniform_data.set_shadow_map_parameters(
-            context.shadow,
-            &context.world.unwrap_or(Self::INITIAL_WORLD_MATRIX),
-            context.camera,
-            context.light,
-            TechniqueType::Zplot,
-        );
-        self.uniform_bind.update(&uniform_data, queue);
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Model/CommandEncoder/ShadowMap"),
-        });
-        {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Model/RenderPass/ShadowMap"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: color_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: true,
-                    },
-                })],
-                depth_stencil_attachment: depth_view.map(|view| {
-                    wgpu::RenderPassDepthStencilAttachment {
-                        view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: true,
-                        }),
-                        stencil_ops: None,
-                    }
-                }),
-            });
-            let bundles = self.materials.iter().map(|material| &material.zplot_bundle);
-            rpass.execute_bundles(bundles);
-        }
-        queue.submit(iter::once(encoder.finish()));
-    }
-
-    // pub fn draw_bones(&self, device: &wgpu::Device) {
-
-    // }
 }
 
 pub struct Label {

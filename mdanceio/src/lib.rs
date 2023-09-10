@@ -4,8 +4,6 @@ mod bezier_curve;
 mod bounding_box;
 mod camera;
 mod deformer;
-mod drawable;
-mod effect;
 pub mod error;
 mod event_publisher;
 mod forward;
