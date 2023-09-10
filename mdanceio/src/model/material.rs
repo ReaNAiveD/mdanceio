@@ -92,7 +92,6 @@ pub struct Material {
     index_hash: HashMap<u32, u32>,
     toon_color: Vector4<f32>,
     states: MaterialStates,
-    on_bind_updated: Option<Box<dyn Fn()>>,
     pub origin: NanoemMaterial,
 }
 
@@ -187,13 +186,8 @@ impl Material {
                 display_diffuse_texture_uv_mesh_enabled: true,
                 ..Default::default()
             },
-            on_bind_updated: None,
             origin: material.clone(),
         }
-    }
-
-    pub fn set_on_bind_updated(&mut self, f: Box<dyn Fn()>) {
-        self.on_bind_updated = Some(f);
     }
 
     pub fn reset(&mut self) {
