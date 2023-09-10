@@ -53,7 +53,6 @@ impl WasmClient {
         wasm_bindgen_futures::future_to_promise(async move {
             let adapter = wgpu::util::initialize_adapter_from_env_or_default(
                 &instance,
-                backends,
                 Some(&surface),
             )
             .await
