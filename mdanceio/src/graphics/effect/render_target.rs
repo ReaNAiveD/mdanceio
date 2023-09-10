@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    rc::Rc,
+    sync::Arc,
 };
 
 use cgmath::Vector4;
@@ -47,7 +47,7 @@ pub struct OffscreenRenderTarget {
     depth: Option<wgpu::Texture>,
     color_format: wgpu::TextureFormat,
     depth_format: Option<wgpu::TextureFormat>,
-    objects: HashMap<ObjectKey, Rc<Effect>>,
+    objects: HashMap<ObjectKey, Arc<Effect>>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,15 +62,15 @@ pub struct ScreenRenderTarget {
     pub clear_depth: f32,
     pub config: RendererConfig,
     renderers: HashMap<ModelHandle, ModelRenderer>,
-    fallback_effect: Rc<Effect>,
+    fallback_effect: Arc<Effect>,
 }
 
 impl ScreenRenderTarget {
     pub fn new(
         builder: RenderTargetBuilder,
         models: &HashMap<ModelHandle, Model>,
-        shadow_bind: &Rc<wgpu::BindGroup>,
-        fallback_effect: &Rc<Effect>,
+        shadow_bind: &Arc<wgpu::BindGroup>,
+        fallback_effect: &Arc<Effect>,
         device: &wgpu::Device,
     ) -> Self {
         let depth = builder.config.format.depth.map(|depth_format| {
@@ -102,8 +102,8 @@ impl ScreenRenderTarget {
         &mut self,
         model_handle: ModelHandle,
         model: &Model,
-        effect: Option<&Rc<Effect>>,
-        shadow_bind: &Rc<wgpu::BindGroup>,
+        effect: Option<&Arc<Effect>>,
+        shadow_bind: &Arc<wgpu::BindGroup>,
         device: &wgpu::Device,
     ) {
         let renderer = ModelRenderer::new(
@@ -125,7 +125,7 @@ impl ScreenRenderTarget {
         &mut self,
         model_handle: ModelHandle,
         model: &Model,
-        effect: &Rc<Effect>,
+        effect: &Arc<Effect>,
         device: &wgpu::Device,
     ) {
         if let Some(renderer) = self.renderers.get_mut(&model_handle) {
@@ -138,7 +138,7 @@ impl ScreenRenderTarget {
         model_handle: ModelHandle,
         model: &Model,
         material_idx: usize,
-        effect: &Rc<Effect>,
+        effect: &Arc<Effect>,
         device: &wgpu::Device,
     ) {
         if let Some(renderer) = self.renderers.get_mut(&model_handle) {
@@ -150,7 +150,7 @@ impl ScreenRenderTarget {
         }
     }
 
-    pub fn remove_effect(&mut self, effect: Rc<Effect>, fallback_effect: Rc<Effect>) {
+    pub fn remove_effect(&mut self, effect: Arc<Effect>, fallback_effect: Arc<Effect>) {
         todo!("remove_effect")
     }
 
@@ -166,7 +166,7 @@ impl ScreenRenderTarget {
         &mut self,
         model: ModelHandle,
         material_idx: usize,
-        bind: Rc<wgpu::BindGroup>,
+        bind: Arc<wgpu::BindGroup>,
         device: &wgpu::Device,
     ) {
         if let Some(renderer) = self
@@ -242,9 +242,9 @@ impl ScreenRenderTarget {
 }
 
 pub struct ModelRenderer {
-    pub effect: Option<Rc<Effect>>,
+    pub effect: Option<Arc<Effect>>,
     pub model_ctx: DrawPassModelContext,
-    pub shadow_bind: Rc<wgpu::BindGroup>,
+    pub shadow_bind: Arc<wgpu::BindGroup>,
     pub config: RendererConfig,
     pub renderers: Vec<MaterialRenderer>,
 }
@@ -253,8 +253,8 @@ impl ModelRenderer {
     pub fn new(
         model_handle: ModelHandle,
         model: &Model,
-        effect: &Rc<Effect>,
-        shadow_bind: &Rc<wgpu::BindGroup>,
+        effect: &Arc<Effect>,
+        shadow_bind: &Arc<wgpu::BindGroup>,
         config: &RendererConfig,
         device: &wgpu::Device,
     ) -> Self {
@@ -286,7 +286,7 @@ impl ModelRenderer {
         }
     }
 
-    pub fn set_effect(&mut self, model: &Model, effect: &Rc<Effect>, device: &wgpu::Device) {
+    pub fn set_effect(&mut self, model: &Model, effect: &Arc<Effect>, device: &wgpu::Device) {
         self.effect = Some(effect.clone());
         for (idx, renderer) in self.renderers.iter_mut().enumerate() {
             let material = model.materials.get(idx).expect("material idx out of range");
@@ -297,19 +297,19 @@ impl ModelRenderer {
     pub fn remove_effect(
         &mut self,
         model: &Model,
-        effect: &Rc<Effect>,
-        fallback_effect: &Rc<Effect>,
+        effect: &Arc<Effect>,
+        fallback_effect: &Arc<Effect>,
         device: &wgpu::Device,
     ) {
         if let Some(origin_effect) = &self.effect {
-            if Rc::ptr_eq(origin_effect, effect) {
+            if Arc::ptr_eq(origin_effect, effect) {
                 self.effect = Some(fallback_effect.clone());
                 self.set_effect(model, fallback_effect, device);
                 return;
             }
         }
         for (idx, renderer) in self.renderers.iter_mut().enumerate() {
-            if Rc::ptr_eq(&renderer.effect, effect) {
+            if Arc::ptr_eq(&renderer.effect, effect) {
                 let material = model.materials.get(idx).expect("material idx out of range");
                 renderer.set_effect(material, effect, device);
             }
@@ -321,11 +321,11 @@ impl ModelRenderer {
         &mut self,
         material_idx: usize,
         material: &Material,
-        effect: &Rc<Effect>,
+        effect: &Arc<Effect>,
         device: &wgpu::Device,
     ) {
         if let Some(origin_effect) = &self.effect {
-            if Rc::ptr_eq(origin_effect, effect) {
+            if Arc::ptr_eq(origin_effect, effect) {
                 return;
             }
         }
@@ -337,22 +337,22 @@ impl ModelRenderer {
 }
 
 pub struct MaterialRenderer {
-    pub effect: Rc<Effect>,
+    pub effect: Arc<Effect>,
     config: RendererConfig,
     model_ctx: DrawPassModelContext,
     material_idx: usize,
-    shadow_bind: Rc<wgpu::BindGroup>,
+    shadow_bind: Arc<wgpu::BindGroup>,
     pub passes: HashMap<DrawType, DrawPass>,
 }
 
 impl MaterialRenderer {
     pub fn new(
-        effect: &Rc<Effect>,
+        effect: &Arc<Effect>,
         config: &RendererConfig,
         model_ctx: &DrawPassModelContext,
         material_idx: usize,
         material: &Material,
-        shadow_bind: &Rc<wgpu::BindGroup>,
+        shadow_bind: &Arc<wgpu::BindGroup>,
         device: &wgpu::Device,
     ) -> Self {
         let mut passes = HashMap::new();
@@ -379,7 +379,7 @@ impl MaterialRenderer {
         }
     }
 
-    pub fn set_effect(&mut self, material: &Material, effect: &Rc<Effect>, device: &wgpu::Device) {
+    pub fn set_effect(&mut self, material: &Material, effect: &Arc<Effect>, device: &wgpu::Device) {
         self.effect = effect.clone();
         for (draw_type, draw_pass) in self.passes.iter_mut() {
             if let Some(technique) = effect.find_technique(*draw_type) {
@@ -395,7 +395,7 @@ impl MaterialRenderer {
         }
     }
 
-    pub fn update_color_bind(&mut self, color_bind: Rc<wgpu::BindGroup>, device: &wgpu::Device) {
+    pub fn update_color_bind(&mut self, color_bind: Arc<wgpu::BindGroup>, device: &wgpu::Device) {
         for draw_pass in self.passes.values_mut() {
             draw_pass.update_color_bind(color_bind.clone(), device);
         }

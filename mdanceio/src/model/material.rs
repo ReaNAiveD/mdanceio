@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, sync::Arc};
 
 use cgmath::{ElementWise, Vector3, Vector4, VectorSpace};
 
@@ -84,7 +84,7 @@ pub struct Material {
     diffuse_image: Option<wgpu::TextureView>,
     sphere_map_image: Option<wgpu::TextureView>,
     toon_image: Option<wgpu::TextureView>,
-    texture_bind: Rc<wgpu::BindGroup>,
+    texture_bind: Arc<wgpu::BindGroup>,
     pub name: String,
     pub canonical_name: String,
     pub index_offset: u32,
@@ -175,7 +175,7 @@ impl Material {
             diffuse_image: None,
             sphere_map_image: None,
             toon_image: None,
-            texture_bind: Rc::new(bind_group),
+            texture_bind: Arc::new(bind_group),
             name,
             canonical_name,
             num_indices,
@@ -398,7 +398,7 @@ impl Material {
     }
 
     pub fn update_bind(&mut self, ctx: &mut MaterialContext, device: &wgpu::Device) {
-        self.texture_bind = Rc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+        self.texture_bind = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some(format!("Model/TextureBindGroup/Material").as_str()),
             layout: ctx.bind_group_layout,
             entries: &[
@@ -436,7 +436,7 @@ impl Material {
         }));
     }
 
-    pub fn bind_group(&self) -> Rc<wgpu::BindGroup> {
+    pub fn bind_group(&self) -> Arc<wgpu::BindGroup> {
         self.texture_bind.clone()
     }
 

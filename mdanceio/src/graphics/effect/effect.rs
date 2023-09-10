@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap, sync::Arc};
 
 use super::{
     layout::RendererLayout,
@@ -14,7 +14,7 @@ pub struct EffectConfig {
 
 pub struct Effect {
     config: EffectConfig,
-    layout: Rc<RendererLayout>,
+    layout: Arc<RendererLayout>,
     pub technique: HashMap<TechniqueType, Technique>,
 }
 
@@ -22,10 +22,10 @@ impl Effect {
     pub fn new(
         shaders: HashMap<TechniqueType, &str>,
         depth_enabled: bool,
-        fallback_shadow_bind: &Rc<wgpu::BindGroup>,
+        fallback_shadow_bind: &Arc<wgpu::BindGroup>,
         device: &wgpu::Device,
     ) -> Self {
-        let layout = Rc::new(RendererLayout::new(device));
+        let layout = Arc::new(RendererLayout::new(device));
         let depth_compare = if depth_enabled {
             wgpu::CompareFunction::Less
         } else {

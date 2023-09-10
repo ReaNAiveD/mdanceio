@@ -1,4 +1,4 @@
-use std::{num::NonZeroU64, rc::Rc};
+use std::{num::NonZeroU64, sync::Arc};
 
 use bytemuck::Zeroable;
 use cgmath::Matrix4;
@@ -204,7 +204,7 @@ pub struct UniformBind {
     material_size: usize,
     model_buffer: wgpu::Buffer,
     material_buffer: wgpu::Buffer,
-    bind_group: Rc<wgpu::BindGroup>,
+    bind_group: Arc<wgpu::BindGroup>,
 }
 
 impl UniformBind {
@@ -253,7 +253,7 @@ impl UniformBind {
             material_size,
             model_buffer,
             material_buffer,
-            bind_group: Rc::new(uniform_bind_group),
+            bind_group: Arc::new(uniform_bind_group),
         }
     }
 
@@ -274,7 +274,7 @@ impl UniformBind {
         );
     }
 
-    pub fn bind_group(&self) -> Rc<wgpu::BindGroup> {
+    pub fn bind_group(&self) -> Arc<wgpu::BindGroup> {
         self.bind_group.clone()
     }
 }

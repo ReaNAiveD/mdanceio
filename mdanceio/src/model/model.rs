@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    rc::Rc,
+    sync::Arc,
 };
 
 use cgmath::{InnerSpace, Matrix4, Vector4, VectorSpace};
@@ -67,8 +67,8 @@ pub struct Model {
     outside_parents: HashMap<BoneIndex, (String, String)>,
     pub shared_fallback_bone: Bone,
     bounding_box: BoundingBox,
-    pub vertex_buffer: Rc<wgpu::Buffer>,
-    pub index_buffer: Rc<wgpu::Buffer>,
+    pub vertex_buffer: Arc<wgpu::Buffer>,
+    pub index_buffer: Arc<wgpu::Buffer>,
     edge_color: Vector4<f32>,
     name: String,
     comment: String,
@@ -127,7 +127,7 @@ impl Model {
                 }
 
                 // TODO: 共享fallback骨骼
-                // let shared_fallback_bone = Rc::new(RefCell::new(Bone::new(
+                // let shared_fallback_bone = Arc::new(RefCell::new(Bone::new(
                 //     "SharedFallbackBone",
                 //     "SharedFallbackBone",
                 // )));
@@ -317,8 +317,8 @@ impl Model {
                     soft_bodies,
                     outside_parents: HashMap::new(),
                     // shared_fallback_bone,
-                    vertex_buffer: Rc::new(vertex_buffer),
-                    index_buffer: Rc::new(index_buffer),
+                    vertex_buffer: Arc::new(vertex_buffer),
+                    index_buffer: Arc::new(index_buffer),
                     shared_fallback_bone,
                     name,
                     comment,

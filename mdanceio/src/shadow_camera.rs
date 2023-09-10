@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use cgmath::{InnerSpace, Matrix, Matrix3, Matrix4, Vector2, Vector3};
 
@@ -37,7 +37,7 @@ impl From<CoverageMode> for u32 {
 
 pub struct ShadowCamera {
     shadow_color_texture: wgpu::TextureView,
-    bind_group: Rc<wgpu::BindGroup>,
+    bind_group: Arc<wgpu::BindGroup>,
     // fallback_color_texture: wgpu::Texture,
     shadow_depth_texture: wgpu::TextureView,
     // fallback_depth_texture: wgpu::Texture,
@@ -114,7 +114,7 @@ impl ShadowCamera {
         Self {
             shadow_color_texture: color_texture
                 .create_view(&wgpu::TextureViewDescriptor::default()),
-            bind_group: Rc::new(bind_group),
+            bind_group: Arc::new(bind_group),
             // fallback_color_texture,
             shadow_depth_texture: depth_texture
                 .create_view(&wgpu::TextureViewDescriptor::default()),
@@ -290,7 +290,7 @@ impl ShadowCamera {
         self.enabled
     }
 
-    pub fn bind_group(&self) -> &Rc<wgpu::BindGroup> {
+    pub fn bind_group(&self) -> &Arc<wgpu::BindGroup> {
         &self.bind_group
     }
 

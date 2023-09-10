@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    rc::Rc,
+    sync::Arc,
 };
 
 use cgmath::{ElementWise, Matrix4, Vector2, Vector3, Vector4};
@@ -320,7 +320,7 @@ pub struct Project {
     texture_bind_group_layout: wgpu::BindGroupLayout,
     shadow_bind_group_layout: wgpu::BindGroupLayout,
     fallback_texture_bind: wgpu::BindGroup,
-    fallback_shadow_bind: Rc<wgpu::BindGroup>,
+    fallback_shadow_bind: Arc<wgpu::BindGroup>,
     object_handler_allocator: HandleAllocator,
     model_handle_map: HashMap<ModelHandle, Model>,
     viewport_primary_pass: Pass,
@@ -502,7 +502,7 @@ impl Project {
                     },
                 ],
             });
-        let shadow_fallback_bind = Rc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let shadow_fallback_bind = Arc::new(device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("BindGroup/ShadowFallbackBindGroup"),
             layout: &shadow_bind_group_layout,
             entries: &[
@@ -552,7 +552,7 @@ impl Project {
                 include_str!("../resources/shaders/model_zplot.wgsl"),
             ),
         ]);
-        let model_effect = Rc::new(Effect::new(shaders, true, &shadow_fallback_bind, device));
+        let model_effect = Arc::new(Effect::new(shaders, true, &shadow_fallback_bind, device));
         let main_render_target = ScreenRenderTarget::new(
             RenderTargetBuilder {
                 clear_color: Vector4::new(1., 1., 1., 1.),

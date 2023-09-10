@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
-    rc::{Rc, Weak},
-    sync::RwLock,
+    sync::{Arc, RwLock, Weak},
 };
 
 use crate::{model::Material, project::ModelHandle};
@@ -36,8 +35,8 @@ pub struct DrawPassModelContext {
     pub handle: ModelHandle,
     pub material_size: usize,
     pub add_blend: bool,
-    pub buffer: Rc<wgpu::Buffer>,
-    pub index_buffer: Rc<wgpu::Buffer>,
+    pub buffer: Arc<wgpu::Buffer>,
+    pub index_buffer: Arc<wgpu::Buffer>,
 }
 
 impl DrawPassModelContext {
@@ -56,8 +55,8 @@ pub struct Technique {
     pub typ: TechniqueType,
     config: EffectConfig,
     shader: wgpu::ShaderModule,
-    layout: Rc<RendererLayout>,
-    fallback_shadow_bind: Rc<wgpu::BindGroup>,
+    layout: Arc<RendererLayout>,
+    fallback_shadow_bind: Arc<wgpu::BindGroup>,
     pipelines: RwLock<HashMap<PipelineKey, Weak<wgpu::RenderPipeline>>>,
     uniforms: RwLock<HashMap<ModelHandle, UniformBind>>,
 }
@@ -67,8 +66,8 @@ impl Technique {
         typ: TechniqueType,
         config: EffectConfig,
         shader: wgpu::ShaderModule,
-        layout: &Rc<RendererLayout>,
-        fallback_shadow_bind: &Rc<wgpu::BindGroup>,
+        layout: &Arc<RendererLayout>,
+        fallback_shadow_bind: &Arc<wgpu::BindGroup>,
     ) -> Self {
         Self {
             typ,
@@ -87,7 +86,7 @@ impl Technique {
         color_blend: wgpu::BlendState,
         material: &Material,
         device: &wgpu::Device,
-    ) -> Rc<wgpu::RenderPipeline> {
+    ) -> Arc<wgpu::RenderPipeline> {
         let cull_mode = match self.typ {
             TechniqueType::Edge => Some(wgpu::Face::Front),
             TechniqueType::Shadow => None,
@@ -118,16 +117,16 @@ impl Technique {
             color_blend,
         };
         self.get_sharing_pipeline(&key).unwrap_or_else(|| {
-            let pipeline = Rc::new(self.build_pipeline(&key, device));
+            let pipeline = Arc::new(self.build_pipeline(&key, device));
             self.pipelines
                 .write()
                 .unwrap()
-                .insert(key, Rc::downgrade(&pipeline));
+                .insert(key, Arc::downgrade(&pipeline));
             pipeline
         })
     }
 
-    pub fn get_sharing_pipeline(&self, key: &PipelineKey) -> Option<Rc<wgpu::RenderPipeline>> {
+    pub fn get_sharing_pipeline(&self, key: &PipelineKey) -> Option<Arc<wgpu::RenderPipeline>> {
         self.pipelines
             .read()
             .ok()
@@ -178,7 +177,7 @@ impl Technique {
         handle: ModelHandle,
         material_size: usize,
         device: &wgpu::Device,
-    ) -> Rc<wgpu::BindGroup> {
+    ) -> Arc<wgpu::BindGroup> {
         self.get_sharing_uniform(handle).unwrap_or_else(|| {
             let bind = UniformBind::new(&self.layout.uniform_bind_layout, material_size, device);
             let bg = bind.bind_group().clone();
@@ -187,7 +186,7 @@ impl Technique {
         })
     }
 
-    pub fn get_sharing_uniform(&self, handle: ModelHandle) -> Option<Rc<wgpu::BindGroup>> {
+    pub fn get_sharing_uniform(&self, handle: ModelHandle) -> Option<Arc<wgpu::BindGroup>> {
         self.uniforms
             .read()
             .ok()
@@ -220,7 +219,7 @@ impl Technique {
         model_ctx: &DrawPassModelContext,
         material_idx: usize,
         material: &Material,
-        shadow_bind: &Rc<wgpu::BindGroup>,
+        shadow_bind: &Arc<wgpu::BindGroup>,
         device: &wgpu::Device,
     ) -> DrawPass {
         let color_blend = if model_ctx.add_blend {
@@ -260,23 +259,23 @@ impl Technique {
 
 #[derive(Debug, Clone)]
 pub struct DrawPassBind {
-    pub color_bind: Rc<wgpu::BindGroup>,
-    pub shadow_bind: Rc<wgpu::BindGroup>,
-    pub uniform_bind: Rc<wgpu::BindGroup>,
+    pub color_bind: Arc<wgpu::BindGroup>,
+    pub shadow_bind: Arc<wgpu::BindGroup>,
+    pub uniform_bind: Arc<wgpu::BindGroup>,
     pub material_idx: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct DrawPassVertex {
-    pub buffer: Rc<wgpu::Buffer>,
-    pub index_buffer: Rc<wgpu::Buffer>,
+    pub buffer: Arc<wgpu::Buffer>,
+    pub index_buffer: Arc<wgpu::Buffer>,
     pub offset: u32,
     pub num: u32,
 }
 
 #[derive(Debug)]
 pub struct DrawPass {
-    pub pipeline: Rc<wgpu::RenderPipeline>,
+    pub pipeline: Arc<wgpu::RenderPipeline>,
     pub format: RenderFormat,
     pub bind: DrawPassBind,
     pub vertex: DrawPassVertex,
@@ -285,7 +284,7 @@ pub struct DrawPass {
 
 impl DrawPass {
     fn new(
-        pipeline: Rc<wgpu::RenderPipeline>,
+        pipeline: Arc<wgpu::RenderPipeline>,
         format: RenderFormat,
         bind: DrawPassBind,
         vertex: DrawPassVertex,
@@ -301,7 +300,7 @@ impl DrawPass {
         }
     }
 
-    pub fn update_color_bind(&mut self, color_bind: Rc<wgpu::BindGroup>, device: &wgpu::Device) {
+    pub fn update_color_bind(&mut self, color_bind: Arc<wgpu::BindGroup>, device: &wgpu::Device) {
         self.bind.color_bind = color_bind;
         self.render_bundle = self.rebuild_bundle(device);
     }
