@@ -228,10 +228,7 @@ impl ScreenRenderTarget {
                             load: wgpu::LoadOp::Load,
                             store: true,
                         }),
-                        stencil_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: true,
-                        }),
+                        stencil_ops: None,
                     }
                 }),
             });

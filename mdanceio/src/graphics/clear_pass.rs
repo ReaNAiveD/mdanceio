@@ -78,10 +78,7 @@ impl ClearPass {
                             load: wgpu::LoadOp::Clear(1f32),
                             store: true,
                         }),
-                        stencil_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(0),
-                            store: true,
-                        }),
+                        stencil_ops: None,
                     }
                 }),
             });
@@ -185,7 +182,7 @@ impl ClearPass {
                 depth_stencil: depth_format.map(|format| wgpu::RenderBundleDepthStencil {
                     format,
                     depth_read_only: false,
-                    stencil_read_only: false,
+                    stencil_read_only: true,
                 }),
                 sample_count: 1,
                 ..Default::default()

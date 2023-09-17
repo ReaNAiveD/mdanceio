@@ -9,11 +9,9 @@ use super::{
 #[derive(Debug, Clone, Copy)]
 pub struct EffectConfig {
     pub depth_enabled: bool,
-    pub depth_compare: wgpu::CompareFunction,
 }
 
 pub struct Effect {
-    config: EffectConfig,
     layout: Arc<RendererLayout>,
     pub technique: HashMap<TechniqueType, Technique>,
 }
@@ -26,14 +24,8 @@ impl Effect {
         device: &wgpu::Device,
     ) -> Self {
         let layout = Arc::new(RendererLayout::new(device));
-        let depth_compare = if depth_enabled {
-            wgpu::CompareFunction::Less
-        } else {
-            wgpu::CompareFunction::Always
-        };
         let config = EffectConfig {
-            depth_enabled: true,
-            depth_compare,
+            depth_enabled,
         };
         let technique = shaders
             .iter()
@@ -48,7 +40,6 @@ impl Effect {
             })
             .collect();
         Self {
-            config,
             layout,
             technique,
         }
