@@ -28,6 +28,7 @@ pub struct PipelineKey {
     pub cull_mode: Option<wgpu::Face>,
     pub primitive_type: wgpu::PrimitiveTopology,
     pub color_blend: Option<wgpu::BlendState>,
+    pub depth_compare: wgpu::CompareFunction,
 }
 
 #[derive(Debug, Clone)]
@@ -110,11 +111,20 @@ impl Technique {
         } else {
             wgpu::PrimitiveTopology::TriangleList
         };
+        let depth_compare = if self.config.depth_enabled {
+            match self.typ {
+                TechniqueType::Object | TechniqueType::ObjectSs => wgpu::CompareFunction::LessEqual,
+                _ => wgpu::CompareFunction::Less,
+            }
+        } else {
+            wgpu::CompareFunction::Always
+        };
         let key = PipelineKey {
             format: render_format,
             cull_mode,
             primitive_type,
             color_blend,
+            depth_compare,
         };
         self.get_sharing_pipeline(&key).unwrap_or_else(|| {
             let pipeline = Arc::new(self.build_pipeline(&key, device));
@@ -163,7 +173,7 @@ impl Technique {
             depth_stencil: key.format.depth.map(|format| wgpu::DepthStencilState {
                 format,
                 depth_write_enabled: self.config.depth_enabled,
-                depth_compare: self.config.depth_compare,
+                depth_compare: key.depth_compare,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
