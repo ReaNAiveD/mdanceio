@@ -568,7 +568,7 @@ impl Project {
                         depth_or_array_layers: 1,
                     },
                     draw_types: HashSet::from([
-                        DrawType::Color(true),
+                        DrawType::Color(shadow_camera.is_enabled()),
                         DrawType::Edge,
                         DrawType::GroundShadow,
                         DrawType::ShadowMap,

@@ -81,7 +81,7 @@ impl State {
             &device,
             &queue,
             mdanceio::injector::Injector {
-                pixel_format: wgpu::TextureFormat::Bgra8UnormSrgb,
+                pixel_format: surface_format,
                 viewport_size: [size.width, size.height],
             },
         );
