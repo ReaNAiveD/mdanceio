@@ -9,6 +9,7 @@ plugins {
 android {
     ndkVersion rootProject.ext.build.ndkVersion
     compileSdkVersion rootProject.ext.build.compileSdkVersion
+    namespace "cn.svecri.mdanceio"
 
     defaultConfig {
         minSdkVersion rootProject.ext.build['minSdkVersion']
@@ -23,6 +24,10 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {
@@ -56,10 +61,11 @@ android {
         outputs.dir "${project.rootDir}/target/jniLibs"
         // Re-generate if the interface definition changes.
         inputs.dir "${project.projectDir}/../src"
+        inputs.dir "${project.projectDir}/../../mdanceio/src"
         // Re-generate if our uniffi-bindgen version changes.
         inputs.file "${project.rootDir}/Cargo.lock"
     }
-
+    
     libraryVariants.all  { variant ->
         def uniffiGeneratedPath = "generated/source/uniffi/${variant.name}/java"
         def t = tasks.register("generate${variant.name.capitalize()}UniFFIBindings", Exec) {
@@ -68,16 +74,22 @@ android {
             outputs.dir "${buildDir}/${uniffiGeneratedPath}"
             // Re-generate if the interface definition changes.
             inputs.file "${project.projectDir}/../src/mdanceio.udl"
+            inputs.file "${project.projectDir}/../uniffi.toml"
             // Re-generate if our uniffi-bindgen version changes.
             inputs.file "${project.rootDir}/Cargo.lock"
         }
         variant.registerJavaGeneratingTask(t.get(), new File(buildDir, uniffiGeneratedPath))
+    }
+}
+
+afterEvaluate {
+    android.libraryVariants.all  { variant ->
         def productFlavor = ""
         variant.productFlavors.each {
             productFlavor += "${it.name.capitalize()}"
         }
         def buildType = "${variant.buildType.name.capitalize()}"
-        tasks["merge${productFlavor}${buildType}JniLibFolders"].dependsOn(tso.get())
+        tasks["merge${productFlavor}${buildType}JniLibFolders"].dependsOn(tasks["generateSoBindings"])
     }
 }
 
@@ -98,7 +110,7 @@ dependencies {
 
 task sourcesJar(type: Jar) {
     from android.sourceSets.main.java.srcDirs
-    classifier = 'sources'
+    archiveClassifier = 'sources'
 }
 
 publishing {

@@ -1,24 +1,24 @@
 buildscript {
     ext.library = [
-        version: '0.1.2',
+        version: '0.2.0-SNAPSHOT',
         groupId: 'cn.svecri',
     ]
 
     ext {
-        kotlin_version = '1.7.0'
-        jna_version = '5.8.0'
-        android_gradle_plugin_version = '7.2.2'
-        androidx_test_version = '1.4.0'
-        junit_version = '4.13'
-        rust_android_gradle_plugin_version = '0.9.2'
+        kotlin_version = '1.8.21'
+        jna_version = '5.13.0'
+        android_gradle_plugin_version = '8.0.2'
+        androidx_test_version = '1.5.0'
+        junit_version = '4.13.2'
+        rust_android_gradle_plugin_version = '0.9.3'
     }
 
     ext.build = [
-        ndkVersion: "25.1.8937393",
-        compileSdkVersion: 33,
+        ndkVersion: "25.2.9519653",
+        compileSdkVersion: 34,
         targetSdkVersion: 33,
-        minSdkVersion: 29,
-        jvmTargetCompatibility: "1.8",
+        minSdkVersion: 21,
+        jvmTargetCompatibility: "17",
     ]
 
     repositories {
