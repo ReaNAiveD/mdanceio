@@ -1193,9 +1193,9 @@ dependencies = [
 
 [[package]]
 name = "khronos-egl"
-version = "5.0.0"
+version = "6.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1382b16c04aeb821453d6215a3c80ba78f24c6595c5aa85653378aabe0c83e3"
+checksum = "6aae1df220ece3c0ada96b8153459b67eebe9ae9212258bb0134ae60416fdf76"
 dependencies = [
  "libc",
  "libloading 0.8.0",
@@ -1342,7 +1342,7 @@ dependencies = [
  "android_logger",
  "futures",
  "glow",
- "khronos-egl 5.0.0",
+ "khronos-egl 6.0.0",
  "libloading 0.8.0",
  "log",
  "mdanceio",

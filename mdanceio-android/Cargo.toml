@@ -28,7 +28,7 @@ wgpu-hal = "0.17.0"
 wgt = { package = "wgpu-types", version="0.17.0"}
 android_logger = "0.13"
 futures = "0.3"
-egl = { package = "khronos-egl", version = "5.0", features = ["dynamic"] }
+egl = { package = "khronos-egl", version = "6.0", features = ["dynamic"] }
 libloading = { version = "0.8" }
 
 [dependencies.mdanceio]
