@@ -46,7 +46,7 @@ android {
     }
     
     sourceSets {
-        main.jniLibs.srcDirs += "${project.rootDir}/target/jniLibs"
+        test.jniLibs.srcDirs += "$buildDir/rustJniLibs/android"
     }
 
     publishing {
@@ -54,19 +54,8 @@ android {
             withSourcesJar()
         }
     }
-
-    def tso = tasks.register("generateSoBindings", Exec) {
-        workingDir project.rootDir
-        commandLine 'cargo', 'ndk', "-t", 'arm64-v8a', '-t', 'armeabi-v7a', '-t', 'x86_64', '-t', 'x86', '-o', "${project.rootDir}/target/jniLibs", "build", "--release", "-p", "mdanceio-android"
-        outputs.dir "${project.rootDir}/target/jniLibs"
-        // Re-generate if the interface definition changes.
-        inputs.dir "${project.projectDir}/../src"
-        inputs.dir "${project.projectDir}/../../mdanceio/src"
-        // Re-generate if our uniffi-bindgen version changes.
-        inputs.file "${project.rootDir}/Cargo.lock"
-    }
     
-    libraryVariants.all  { variant ->
+    libraryVariants.configureEach { variant ->
         def uniffiGeneratedPath = "generated/source/uniffi/${variant.name}/java"
         def t = tasks.register("generate${variant.name.capitalize()}UniFFIBindings", Exec) {
             workingDir project.rootDir
@@ -82,21 +71,29 @@ android {
     }
 }
 
+cargo {
+    module  = "../.."       // Or whatever directory contains your Cargo.toml
+    libname = "mdanceio-android"          // Or whatever matches Cargo.toml's [package] name.
+    targets = ["x86_64", "x86", "arm", "arm64"]  // See bellow for a longer list of options
+    prebuiltToolchains = true
+    profile = 'release'
+    targetDirectory = '../../target'
+    targetIncludes = ['libmdanceio_android.so']
+    apiLevel = "${rootProject.ext.build.targetSdkVersion}" as Integer
+}
+
 afterEvaluate {
-    android.libraryVariants.all  { variant ->
+    // The `cargoBuild` task isn't available until after evaluation.
+    android.libraryVariants.configureEach { variant ->
         def productFlavor = ""
         variant.productFlavors.each {
             productFlavor += "${it.name.capitalize()}"
         }
         def buildType = "${variant.buildType.name.capitalize()}"
-        tasks["merge${productFlavor}${buildType}JniLibFolders"].dependsOn(tasks["generateSoBindings"])
+        tasks.named("pre${buildType}Build"){
+            dependsOn(tasks.named("cargoBuild"))
+        }
     }
-}
-
-cargo {
-    module  = ".."       // Or whatever directory contains your Cargo.toml
-    libname = "mdanceio-android"          // Or whatever matches Cargo.toml's [package] name.
-    targets = ["x86","arm"]  // See bellow for a longer list of options
 }
 
 dependencies {
@@ -108,7 +105,7 @@ dependencies {
     androidTestImplementation "androidx.test:runner:$androidx_test_version"
 }
 
-task sourcesJar(type: Jar) {
+tasks.register('sourcesJar', Jar) {
     from android.sourceSets.main.java.srcDirs
     archiveClassifier = 'sources'
 }

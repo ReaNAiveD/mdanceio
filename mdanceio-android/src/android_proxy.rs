@@ -127,7 +127,7 @@ impl AndroidProxy {
         }
         .expect("GL adapter can't be initialized");
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::empty(),
+            backends: wgpu::Backends::GL,
             ..Default::default()
         });
         let adapter = unsafe { instance.create_adapter_from_hal(exposed) };
