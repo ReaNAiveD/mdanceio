@@ -3,12 +3,11 @@ resolver = "2"
 members = [
     "mdanceio",
     "nanoem",
-    "mdanceio-android",
     "mdanceio-wasm",
 ]
 exclude = [
     "mdance-demo",
 ]
-default-members = ["mdanceio", "nanoem", "mdanceio-android", "mdanceio-wasm"]
+default-members = ["mdanceio", "nanoem", "mdanceio-wasm"]
 
 [patch.crates-io]
