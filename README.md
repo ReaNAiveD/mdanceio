@@ -92,14 +92,6 @@ The service uses WebRTC to communicate with the browser.
 
 You can follow its guidance to play with it. 
 
-### Cooperate with Arcore
-
-A demo project is provided about how to use mdanceio-ar in Android project. 
-
-[ReaNAiveD/MdanceIO-arcore-demo](https://github.com/ReaNAiveD/MdanceIO-arcore-demo)
-
-![ArcoreDemoGIF](./etc/Sucrose_on_arcore.gif)
-
 ## Target Platform Support
 
 | Platform | Support |
@@ -109,7 +101,7 @@ A demo project is provided about how to use mdanceio-ar in Android project.
 | MacOS | 🆗 |
 | Browser(WebGPU) | ✅ |
 | Browser(WebGL) | 🆗 |
-| Android | 🆗 |
+| Android | 🛠️ |
 | OpenXR | 🛠️ |
 
 > ✅ = First Class Support
