@@ -882,12 +882,12 @@ impl Motion {
     ) {
         let last_duration = self.duration();
         for updater in updaters {
-            let bone_name = updater.name;
+            let bone_name = updater.name.clone();
             if let Some(track) = self
                 .opaque
                 .local_bone_motion_track_bundle
                 .tracks
-                .get(&bone_name)
+                .get_mut(&bone_name)
             {
                 track.apply_add(updater, model.find_bone_mut(&bone_name));
             }
