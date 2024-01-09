@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use cgmath::{Deg, One, Quaternion, Rad, Vector1, Vector2, Vector3, Vector4, VectorSpace, Zero};
+use cgmath::{Deg, One, Quaternion, Rad, Vector1, Vector2, Vector3, VectorSpace, Zero};
 use nanoem::{
     common::NanoemError,
     motion::{
@@ -12,14 +12,18 @@ use nanoem::{
 };
 
 use crate::{
-    bezier_curve::{BezierCurve, BezierCurveCache, BezierCurveFactory, Curve},
+    bezier_curve::{BezierCurveCache, BezierCurveFactory, Curve},
     camera::PerspectiveCamera,
     error::MdanceioError,
+    keyframe::update::{
+        bone::{BoneKeyframeUpdater, BoneKeyframeUpdaterArg},
+        updater::{AddKeyframe, Updatable},
+    },
     light::{DirectionalLight, Light},
     model::{Bone, Model},
     project::Project,
     shadow_camera::{CoverageMode, ShadowCamera},
-    utils::{f128_to_quat, f128_to_vec3, f128_to_vec4, lerp_element_wise, lerp_f32, lerp_rad},
+    utils::{f128_to_quat, f128_to_vec3, lerp_element_wise, lerp_f32, lerp_rad},
 };
 
 pub type NanoemMotion = nanoem::motion::Motion;
@@ -579,100 +583,6 @@ pub struct KeyframeBound {
     pub next: Option<u32>,
 }
 
-pub struct BoneKeyframeBezierControlPointParameter {
-    pub translation_x: Vector4<u8>,
-    pub translation_y: Vector4<u8>,
-    pub translation_z: Vector4<u8>,
-    pub orientation: Vector4<u8>,
-}
-
-pub struct BoneKeyframeTranslationBezierControlPointParameter {
-    pub x: Vector4<u8>,
-    pub y: Vector4<u8>,
-    pub z: Vector4<u8>,
-}
-
-pub struct BoneKeyframeState {
-    pub translation: Vector4<f32>,
-    pub orientation: Quaternion<f32>,
-    pub stage_index: u32,
-    pub bezier_param: BoneKeyframeBezierControlPointParameter,
-    pub enable_physics_simulation: bool,
-}
-
-impl BoneKeyframeState {
-    fn from_bone(bone: &Bone, enable_physics_simulation: bool) -> Self {
-        Self {
-            translation: bone.local_user_translation.extend(1f32),
-            orientation: bone.local_user_orientation,
-            stage_index: 0,
-            bezier_param: BoneKeyframeBezierControlPointParameter {
-                translation_x: bone
-                    .interpolation
-                    .translation
-                    .x
-                    .bezier_control_point()
-                    .into(),
-                translation_y: bone
-                    .interpolation
-                    .translation
-                    .y
-                    .bezier_control_point()
-                    .into(),
-                translation_z: bone
-                    .interpolation
-                    .translation
-                    .z
-                    .bezier_control_point()
-                    .into(),
-                orientation: bone.interpolation.orientation.bezier_control_point().into(),
-            },
-            enable_physics_simulation,
-        }
-    }
-
-    fn from_keyframe(keyframe: &MotionBoneKeyframe) -> Self {
-        Self {
-            translation: f128_to_vec4(keyframe.translation),
-            orientation: f128_to_quat(keyframe.orientation),
-            stage_index: keyframe.stage_index,
-            bezier_param: BoneKeyframeBezierControlPointParameter {
-                translation_x: keyframe.interpolation.translation_x.into(),
-                translation_y: keyframe.interpolation.translation_y.into(),
-                translation_z: keyframe.interpolation.translation_z.into(),
-                orientation: keyframe.interpolation.orientation.into(),
-            },
-            enable_physics_simulation: keyframe.is_physics_simulation_enabled,
-        }
-    }
-}
-
-pub struct BoneKeyframeOverrideInterpolation {
-    pub target_frame_index: u32,
-    pub translation_params: (
-        BoneKeyframeTranslationBezierControlPointParameter,
-        BoneKeyframeTranslationBezierControlPointParameter,
-    ),
-}
-
-pub struct BoneKeyframeUpdater {
-    pub name: String,
-    pub state: (BoneKeyframeState, Option<BoneKeyframeState>),
-    pub bezier_curve_override: Option<BoneKeyframeOverrideInterpolation>,
-    pub was_dirty: bool,
-    pub frame_index: u32,
-}
-
-impl BoneKeyframeUpdater {
-    pub fn updated(&self) -> bool {
-        self.state.1.is_some()
-    }
-
-    pub fn selected(&self) -> bool {
-        self.state.1.is_none()
-    }
-}
-
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 struct CurveCacheKey {
     next: [u8; 4],
@@ -926,89 +836,6 @@ impl Motion {
         self.dirty = true;
     }
 
-    pub fn build_bone_keyframe_updater(
-        &self,
-        bone: &Bone,
-        bound: &KeyframeBound,
-        enable_bezier_curve_adjustment: bool,
-        enable_physics_simulation: bool,
-    ) -> BoneKeyframeUpdater {
-        let name = bone.name.clone();
-        let mut new_state = BoneKeyframeState::from_bone(bone, enable_physics_simulation);
-        let old_state;
-        let bezier_curve_override;
-        if let Some(keyframe) = self.find_bone_keyframe(&name, bound.current) {
-            old_state = Some(BoneKeyframeState::from_keyframe(keyframe));
-            bezier_curve_override = None;
-        } else {
-            old_state = None;
-            if let Some(prev_frame_index) = bound.previous {
-                let prev_keyframe = self.find_bone_keyframe(&name, prev_frame_index).unwrap();
-                let movable = bone.origin.flags.is_movable;
-                let prev_interpolation_translation_x: Vector4<u8> =
-                    prev_keyframe.interpolation.translation_x.into();
-                let prev_interpolation_translation_y: Vector4<u8> =
-                    prev_keyframe.interpolation.translation_y.into();
-                let prev_interpolation_translation_z: Vector4<u8> =
-                    prev_keyframe.interpolation.translation_z.into();
-                let mut get_new_interpolation = |prev_interpolation_value: Vector4<u8>| {
-                    if enable_bezier_curve_adjustment && movable {
-                        if KeyframeInterpolationPoint::is_linear_interpolation(
-                            &prev_keyframe.interpolation.translation_x,
-                        ) {
-                            Bone::DEFAULT_AUTOMATIC_BAZIER_CONTROL_POINT.into()
-                        } else if bound.next.is_some() && bound.next.unwrap() > prev_frame_index {
-                            let next_frame_index = bound.next.unwrap();
-                            let interval = next_frame_index - prev_frame_index;
-                            let bezier_curve =
-                                BezierCurve::from_parameters(prev_interpolation_value, interval);
-                            let amount =
-                                (bound.current - prev_frame_index) as f32 / (interval as f32);
-                            let pair = bezier_curve.split(amount);
-                            new_state.bezier_param.translation_x = pair.1.to_parameters();
-                            pair.0.to_parameters()
-                        } else {
-                            prev_interpolation_value
-                        }
-                    } else {
-                        prev_interpolation_value
-                    }
-                };
-                let new_interpolation_translation_x =
-                    get_new_interpolation(prev_interpolation_translation_x);
-                let new_interpolation_translation_y =
-                    get_new_interpolation(prev_interpolation_translation_y);
-                let new_interpolation_translation_z =
-                    get_new_interpolation(prev_interpolation_translation_z);
-                let bezier_curve_override_target_frame_index = prev_frame_index;
-                bezier_curve_override = Some(BoneKeyframeOverrideInterpolation {
-                    target_frame_index: prev_frame_index,
-                    translation_params: (
-                        BoneKeyframeTranslationBezierControlPointParameter {
-                            x: new_interpolation_translation_x,
-                            y: new_interpolation_translation_y,
-                            z: new_interpolation_translation_z,
-                        },
-                        BoneKeyframeTranslationBezierControlPointParameter {
-                            x: prev_interpolation_translation_x,
-                            y: prev_interpolation_translation_y,
-                            z: prev_interpolation_translation_z,
-                        },
-                    ),
-                })
-            } else {
-                bezier_curve_override = None
-            }
-        }
-        BoneKeyframeUpdater {
-            name,
-            state: (new_state, old_state),
-            bezier_curve_override,
-            was_dirty: false,
-            frame_index: bound.current,
-        }
-    }
-
     pub fn build_add_bone_keyframes_updaters(
         &self,
         model: &Model,
@@ -1027,16 +854,21 @@ impl Motion {
                     let (prev, next) = self
                         .opaque
                         .search_closest_bone_keyframes(name, *frame_index);
-                    updaters.push(self.build_bone_keyframe_updater(
-                        bone,
-                        &KeyframeBound {
-                            previous: prev.map(|frame| frame.base.frame_index),
-                            current: *frame_index,
-                            next: next.map(|frame| frame.base.frame_index),
-                        },
-                        enable_bezier_curve_adjustment,
-                        enable_physics_simulation,
-                    ));
+                    if let Some(track) = self.opaque.local_bone_motion_track_bundle.tracks.get(name)
+                    {
+                        updaters.push(track.build_updater_add(
+                            bone,
+                            &KeyframeBound {
+                                previous: prev.map(|frame| frame.base.frame_index),
+                                current: *frame_index,
+                                next: next.map(|frame| frame.base.frame_index),
+                            },
+                            BoneKeyframeUpdaterArg {
+                                enable_bezier_curve_adjustment,
+                                enable_physics_simulation,
+                            },
+                        ));
+                    }
                 }
             }
         }
@@ -1050,36 +882,14 @@ impl Motion {
     ) {
         let last_duration = self.duration();
         for updater in updaters {
-            let old = self.opaque.local_bone_motion_track_bundle.insert_keyframe(
-                MotionBoneKeyframe {
-                    base: MotionKeyframeBase {
-                        frame_index: updater.frame_index,
-                        annotations: HashMap::new(),
-                    },
-                    translation: updater.state.0.translation.into(),
-                    orientation: updater.state.0.orientation.into(),
-                    interpolation: MotionBoneKeyframeInterpolation {
-                        translation_x: updater.state.0.bezier_param.translation_x.into(),
-                        translation_y: updater.state.0.bezier_param.translation_y.into(),
-                        translation_z: updater.state.0.bezier_param.translation_z.into(),
-                        orientation: updater.state.0.bezier_param.orientation.into(),
-                    },
-                    stage_index: updater.state.0.stage_index,
-                    is_physics_simulation_enabled: updater.state.0.enable_physics_simulation,
-                },
-                &updater.name,
-            );
-            if old.is_none() && updater.updated() {
-                log::warn!("No existing keyframe when update bone keyframe")
-            }
-            if !updater.updated() && updater.selected() {
-                // TODO: add keyframe to motion selection
-            }
-            if let Some(bone) = model.find_bone_mut(&updater.name) {
-                if bone.states.dirty {
-                    updater.was_dirty = true;
-                    bone.states.dirty = false;
-                }
+            let bone_name = updater.name;
+            if let Some(track) = self
+                .opaque
+                .local_bone_motion_track_bundle
+                .tracks
+                .get(&bone_name)
+            {
+                track.apply_add(updater, model.find_bone_mut(&bone_name));
             }
         }
         self.set_dirty(true);

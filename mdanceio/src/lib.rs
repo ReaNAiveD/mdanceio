@@ -9,6 +9,7 @@ mod event_publisher;
 mod forward;
 mod grid;
 pub mod injector;
+mod keyframe;
 mod light;
 mod model;
 mod model_object_selection;

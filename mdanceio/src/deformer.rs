@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 
 use crate::{
     camera::Camera,
-    model::{Bone, Model, Morph, Vertex, VertexUnit, bone::BoneSet, vertex::VertexSet, morph::MorphSet},
+    model::{Bone, Model, VertexUnit, bone::BoneSet, vertex::VertexSet, morph::MorphSet},
     utils::{f128_to_vec3, mat4_truncate},
 };
 
