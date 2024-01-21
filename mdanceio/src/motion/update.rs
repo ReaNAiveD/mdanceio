@@ -41,7 +41,7 @@ impl From<MotionBoneKeyframe> for BoneUpdater {
 }
 
 impl BoneUpdater {
-    pub fn into_keyframe(self, frame_index: u32) -> MotionBoneKeyframe {
+    pub fn into_keyframe(&self, frame_index: u32) -> MotionBoneKeyframe {
         MotionBoneKeyframe {
             base: MotionKeyframeBase {
                 frame_index,
@@ -147,7 +147,7 @@ impl From<MotionCameraKeyframe> for CameraUpdater {
 
 impl CameraUpdater {
     pub fn into_keyframe(
-        self,
+        &self,
         frame_index: u32,
     ) -> MotionCameraKeyframe {
         MotionCameraKeyframe {
@@ -215,7 +215,7 @@ impl From<MotionLightKeyframe> for LightUpdater {
 }
 
 impl LightUpdater {
-    pub fn into_keyframe(self, frame_index: u32) -> MotionLightKeyframe {
+    pub fn into_keyframe(&self, frame_index: u32) -> MotionLightKeyframe {
         MotionLightKeyframe {
             base: MotionKeyframeBase {
                 frame_index,
@@ -268,7 +268,7 @@ impl From<MotionSelfShadowKeyframe> for SelfShadowUpdater {
 }
 
 impl SelfShadowUpdater {
-    pub fn into_keyframe(self, frame_index: u32) -> MotionSelfShadowKeyframe {
+    pub fn into_keyframe(&self, frame_index: u32) -> MotionSelfShadowKeyframe {
         MotionSelfShadowKeyframe {
             base: MotionKeyframeBase {
                 frame_index,

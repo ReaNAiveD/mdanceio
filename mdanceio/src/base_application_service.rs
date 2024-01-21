@@ -208,22 +208,22 @@ impl BaseApplicationService {
         }
     }
 
-    pub fn register_all_selected_bone_keyframes(
-        &mut self,
-        model_handle: Option<ModelHandle>,
-        bone_names: &[&str],
-    ) {
-        let bones = bone_names
-            .iter()
-            .map(|bone_name| {
-                (
-                    (*bone_name).to_owned(),
-                    vec![self.project.current_frame_index()],
-                )
-            })
-            .collect::<HashMap<_, _>>();
-        self.project.register_bone_keyframes(model_handle, &bones);
-    }
+    // pub fn register_all_selected_bone_keyframes(
+    //     &mut self,
+    //     model_handle: Option<ModelHandle>,
+    //     bone_names: &[&str],
+    // ) {
+    //     let bones = bone_names
+    //         .iter()
+    //         .map(|bone_name| {
+    //             (
+    //                 (*bone_name).to_owned(),
+    //                 vec![self.project.current_frame_index()],
+    //             )
+    //         })
+    //         .collect::<HashMap<_, _>>();
+    //     self.project.register_bone_keyframes(model_handle, &bones);
+    // }
 
     pub fn load_texture(
         &mut self,

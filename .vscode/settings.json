@@ -1,10 +1,13 @@
 {
     "cSpell.words": [
         "bezier",
+        "cgmath",
         "coef",
+        "lerp",
         "lookat",
         "Mdanceio",
         "Nanoem",
+        "slerp",
         "Vocaloid",
         "Zplot"
     ],

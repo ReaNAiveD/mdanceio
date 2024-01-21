@@ -14,10 +14,6 @@ use crate::{
     bezier_curve::BezierCurveCache,
     camera::PerspectiveCamera,
     error::MdanceioError,
-    keyframe::update::{
-        bone::{BoneKeyframeUpdater, BoneKeyframeUpdaterArg},
-        updater::{AddKeyframe, Updatable},
-    },
     light::{DirectionalLight, Light},
     model::{Bone, Model},
     project::Project,
@@ -290,68 +286,68 @@ impl Motion {
         self.dirty = true;
     }
 
-    pub fn build_add_bone_keyframes_updaters(
-        &self,
-        model: &Model,
-        bones: &HashMap<String, Vec<u32>>,
-        enable_bezier_curve_adjustment: bool,
-        enable_physics_simulation: bool,
-    ) -> Vec<BoneKeyframeUpdater> {
-        if bones.is_empty() {
-            // (m_project->isPlaying() || m_project->isModelEditingEnabled())
-            return vec![];
-        }
-        let mut updaters = vec![];
-        for (name, frame_indices) in bones {
-            if let Some(bone) = model.find_bone(name) {
-                for frame_index in frame_indices {
-                    let (prev, next) = self
-                        .opaque
-                        .search_closest_bone_keyframes(name, *frame_index);
-                    if let Some(track) = self.opaque.local_bone_motion_track_bundle.tracks.get(name)
-                    {
-                        updaters.push(track.build_updater_add(
-                            bone,
-                            &KeyframeBound {
-                                previous: prev.map(|frame| frame.base.frame_index),
-                                current: *frame_index,
-                                next: next.map(|frame| frame.base.frame_index),
-                            },
-                            BoneKeyframeUpdaterArg {
-                                enable_bezier_curve_adjustment,
-                                enable_physics_simulation,
-                            },
-                        ));
-                    }
-                }
-            }
-        }
-        updaters
-    }
+    // pub fn build_add_bone_keyframes_updaters(
+    //     &self,
+    //     model: &Model,
+    //     bones: &HashMap<String, Vec<u32>>,
+    //     enable_bezier_curve_adjustment: bool,
+    //     enable_physics_simulation: bool,
+    // ) -> Vec<BoneKeyframeUpdater> {
+    //     if bones.is_empty() {
+    //         // (m_project->isPlaying() || m_project->isModelEditingEnabled())
+    //         return vec![];
+    //     }
+    //     let mut updaters = vec![];
+    //     for (name, frame_indices) in bones {
+    //         if let Some(bone) = model.find_bone(name) {
+    //             for frame_index in frame_indices {
+    //                 let (prev, next) = self
+    //                     .opaque
+    //                     .search_closest_bone_keyframes(name, *frame_index);
+    //                 if let Some(track) = self.opaque.local_bone_motion_track_bundle.tracks.get(name)
+    //                 {
+    //                     updaters.push(track.build_updater_add(
+    //                         bone,
+    //                         &KeyframeBound {
+    //                             previous: prev.map(|frame| frame.base.frame_index),
+    //                             current: *frame_index,
+    //                             next: next.map(|frame| frame.base.frame_index),
+    //                         },
+    //                         BoneKeyframeUpdaterArg {
+    //                             enable_bezier_curve_adjustment,
+    //                             enable_physics_simulation,
+    //                         },
+    //                     ));
+    //                 }
+    //             }
+    //         }
+    //     }
+    //     updaters
+    // }
 
-    pub fn apply_add_bone_keyframes_updaters(
-        &mut self,
-        model: &mut Model,
-        updaters: &mut [BoneKeyframeUpdater],
-    ) {
-        let last_duration = self.duration();
-        for updater in updaters {
-            let bone_name = updater.name.clone();
-            if let Some(track) = self
-                .opaque
-                .local_bone_motion_track_bundle
-                .tracks
-                .get_mut(&bone_name)
-            {
-                track.apply_add(updater, model.find_bone_mut(&bone_name));
-            }
-        }
-        self.set_dirty(true);
-        let current_duration = self.duration();
-        if last_duration != current_duration {
-            // TODO: publish duration updated event
-        }
-    }
+    // pub fn apply_add_bone_keyframes_updaters(
+    //     &mut self,
+    //     model: &mut Model,
+    //     updaters: &mut [BoneKeyframeUpdater],
+    // ) {
+    //     let last_duration = self.duration();
+    //     for updater in updaters {
+    //         let bone_name = updater.name.clone();
+    //         if let Some(track) = self
+    //             .opaque
+    //             .local_bone_motion_track_bundle
+    //             .tracks
+    //             .get_mut(&bone_name)
+    //         {
+    //             track.apply_add(updater, model.find_bone_mut(&bone_name));
+    //         }
+    //     }
+    //     self.set_dirty(true);
+    //     let current_duration = self.duration();
+    //     if last_duration != current_duration {
+    //         // TODO: publish duration updated event
+    //     }
+    // }
 
     pub fn is_dirty(&self) -> bool {
         self.dirty
