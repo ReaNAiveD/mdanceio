@@ -35,4 +35,4 @@ pub use morph::Morph;
 pub use rigid_body::RigidBody;
 pub use vertex::{Vertex, VertexUnit};
 pub use material::Material;
-pub use  joint::Joint;
+pub use joint::Joint;

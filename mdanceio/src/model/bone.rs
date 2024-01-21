@@ -6,7 +6,7 @@ use cgmath::{
 };
 
 use crate::{
-    motion::{BoneKeyframeInterpolation, Motion},
+    motion::{interpolation::BoneKeyframeInterpolation, Motion},
     physics_engine::PhysicsEngine,
     utils::{f128_to_quat, f128_to_vec3, mat4_truncate},
 };
@@ -75,7 +75,7 @@ pub struct Bone {
 
 impl Bone {
     pub const DEFAULT_BEZIER_CONTROL_POINT: [u8; 4] = [20, 20, 107, 107];
-    pub const DEFAULT_AUTOMATIC_BAZIER_CONTROL_POINT: [u8; 4] = [64, 0, 64, 127];
+    pub const DEFAULT_AUTOMATIC_BEZIER_CONTROL_POINT: [u8; 4] = [64, 0, 64, 127];
     pub const NAME_ROOT_PARENT_IN_JAPANESE: &'static str = "全ての親";
     pub const NAME_CENTER_IN_JAPANESE: &'static str = "センター";
     pub const NAME_CENTER_OF_VIEWPOINT_IN_JAPANESE: &'static str = "操作中心";

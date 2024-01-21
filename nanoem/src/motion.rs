@@ -906,6 +906,32 @@ impl Default for MotionEffectParameterValue {
     }
 }
 
+impl MotionEffectParameterValue {
+    fn lerp(a: f32, b: f32, amount: f32) -> f32 {
+        (1f32 - amount) * a + amount * b
+    }
+
+    pub fn lerp_or_first(self, other: Self, amount: f32) -> Self {
+        match (self, other) {
+            (MotionEffectParameterValue::INT(a), MotionEffectParameterValue::INT(b)) => {
+                MotionEffectParameterValue::INT(Self::lerp(a as f32, b as f32, amount) as i32)
+            }
+            (MotionEffectParameterValue::FLOAT(a), MotionEffectParameterValue::FLOAT(b)) => {
+                MotionEffectParameterValue::FLOAT(Self::lerp(a, b, amount))
+            }
+            (MotionEffectParameterValue::VECTOR4(a), MotionEffectParameterValue::VECTOR4(b)) => {
+                MotionEffectParameterValue::VECTOR4([
+                    Self::lerp(a[0], b[0], amount),
+                    Self::lerp(a[1], b[1], amount),
+                    Self::lerp(a[2], b[2], amount),
+                    Self::lerp(a[3], b[3], amount),
+                ])
+            }
+            _ => self,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MotionEffectParameter {
     pub parameter_id: i32,
@@ -914,7 +940,7 @@ pub struct MotionEffectParameter {
 }
 
 impl MotionEffectParameter {
-    fn get_name<'a: 'b, 'b>(&self, parent_motion: &'a mut Motion) -> Option<&'b String> {
+    fn get_name<'a: 'b, 'b>(&self, parent_motion: &'a Motion) -> Option<&'b String> {
         parent_motion
             .global_motion_track_bundle
             .resolve_id(self.parameter_id)

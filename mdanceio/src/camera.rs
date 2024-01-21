@@ -5,6 +5,7 @@ use cgmath::{
 
 use crate::{
     model::{Bone, Model},
+    motion::interpolation::CameraKeyframeInterpolation,
     project::Project,
     ray::Ray,
     utils::{f128_to_vec3, infinite_perspective, intersect_ray_plane, project, un_project, Invert},
@@ -46,20 +47,21 @@ struct CurveCacheKey {
 #[derive(Debug, Clone)]
 pub struct PerspectiveCamera {
     // TODO: undo_stack_t *m_undoStack;
-    outside_parent: (String, String),
-    transform_coordinate_type: TransformCoordinateType,
-    view_matrix: Matrix4<f32>,
-    projection_matrix: Matrix4<f32>,
-    position: Vector3<f32>,
-    direction: Vector3<f32>,
-    look_at: Vector3<f32>,
-    angle: Vector3<f32>,
-    distance: f32,
-    fov: (i32, f32),
-    following_type: FollowingType,
-    perspective: bool,
-    locked: bool,
-    dirty: bool,
+    pub outside_parent: (String, String),
+    pub transform_coordinate_type: TransformCoordinateType,
+    pub view_matrix: Matrix4<f32>,
+    pub projection_matrix: Matrix4<f32>,
+    pub position: Vector3<f32>,
+    pub direction: Vector3<f32>,
+    pub look_at: Vector3<f32>,
+    pub angle: Vector3<f32>,
+    pub distance: f32,
+    pub fov: (i32, f32),
+    pub following_type: FollowingType,
+    pub interpolation: CameraKeyframeInterpolation,
+    pub perspective: bool,
+    pub locked: bool,
+    pub dirty: bool,
 }
 
 impl Default for PerspectiveCamera {
@@ -76,6 +78,7 @@ impl Default for PerspectiveCamera {
             distance: Self::INITIAL_DISTANCE,
             fov: (Self::INITIAL_FOV, Self::INITIAL_FOV_RADIAN),
             following_type: FollowingType::None,
+            interpolation: CameraKeyframeInterpolation::zero(),
             perspective: true,
             locked: false,
             dirty: false,

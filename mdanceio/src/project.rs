@@ -1194,28 +1194,28 @@ impl Project {
         }
     }
 
-    pub fn register_bone_keyframes(
-        &mut self,
-        model: Option<ModelHandle>,
-        bones: &HashMap<String, Vec<u32>>,
-    ) {
-        self.reset_transform_performed_at();
-        if let Some((handle, model)) = model.or(self.active_model_pair.0).and_then(|handle| {
-            self.model_handle_map
-                .get_mut(&handle)
-                .map(|model| (handle, model))
-        }) {
-            if let Some(motion) = self.model_to_motion.get_mut(&handle) {
-                let mut updaters = motion.build_add_bone_keyframes_updaters(
-                    model,
-                    bones,
-                    self.state_flags.enable_bezier_curve_adjustment,
-                    self.state_flags.enable_physics_simulation_for_bone_keyframe,
-                );
-                motion.apply_add_bone_keyframes_updaters(model, &mut updaters);
-            }
-        }
-    }
+    // pub fn register_bone_keyframes(
+    //     &mut self,
+    //     model: Option<ModelHandle>,
+    //     bones: &HashMap<String, Vec<u32>>,
+    // ) {
+    //     self.reset_transform_performed_at();
+    //     if let Some((handle, model)) = model.or(self.active_model_pair.0).and_then(|handle| {
+    //         self.model_handle_map
+    //             .get_mut(&handle)
+    //             .map(|model| (handle, model))
+    //     }) {
+    //         if let Some(motion) = self.model_to_motion.get_mut(&handle) {
+    //             let mut updaters = motion.build_add_bone_keyframes_updaters(
+    //                 model,
+    //                 bones,
+    //                 self.state_flags.enable_bezier_curve_adjustment,
+    //                 self.state_flags.enable_physics_simulation_for_bone_keyframe,
+    //             );
+    //             motion.apply_add_bone_keyframes_updaters(model, &mut updaters);
+    //         }
+    //     }
+    // }
 }
 
 impl Project {
