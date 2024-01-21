@@ -1,5 +1,6 @@
 use crate::motion::KeyframeBound;
 
+
 pub trait Updatable {
     type Object;
     type ObjectUpdater: KeyframeUpdater;

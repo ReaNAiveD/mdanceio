@@ -12,7 +12,7 @@ use crate::{
     deformer::{CommonDeformer, Deformer, WgpuDeformer},
     error::MdanceioError,
     model::{material::MaterialContext, VertexUnit},
-    motion::Motion,
+    motion::{Motion, interpolation::coefficient},
     physics_engine::{PhysicsEngine, RigidBodyFollowBone, SimulationMode, SimulationTiming},
     utils::{f128_to_vec4, lerp_f32},
 };
@@ -443,7 +443,7 @@ impl Model {
                 if let (Some(prev_frame), Some(next_frame)) =
                     motion.opaque.search_closest_model_keyframes(frame_index)
                 {
-                    let coef = Motion::coefficient(
+                    let coef = coefficient(
                         prev_frame.base.frame_index,
                         next_frame.base.frame_index,
                         frame_index,

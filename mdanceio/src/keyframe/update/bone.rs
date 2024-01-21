@@ -8,11 +8,14 @@ use nanoem::motion::{
 use crate::{
     bezier_curve::BezierCurve,
     model::Bone,
-    motion::{BoneKeyframeInterpolation, KeyframeBound, KeyframeInterpolationPoint},
+    motion::{
+        interpolation::BoneKeyframeInterpolation, interpolation::KeyframeInterpolationPoint,
+        KeyframeBound,
+    },
     utils::{f128_to_quat, f128_to_vec4},
 };
 
-use super::updater::{KeyframeUpdater, Updatable, AddKeyframe, RemoveKeyframe};
+use super::updater::{AddKeyframe, KeyframeUpdater, RemoveKeyframe, Updatable};
 
 pub struct BoneKeyframeBezierControlPointParameter {
     pub translation: Vector3<Vector4<u8>>,
@@ -102,7 +105,7 @@ pub struct BoneKeyframeOverrideInterpolation {
 
 pub struct BoneKeyframeUpdater {
     pub name: String,
-    pub added_state: BoneKeyframeState, 
+    pub added_state: BoneKeyframeState,
     pub removed_state: Option<BoneKeyframeState>,
     pub bezier_curve_override: Option<BoneKeyframeOverrideInterpolation>,
     pub was_dirty: bool,
@@ -127,7 +130,6 @@ pub struct BoneKeyframeUpdaterArg {
 impl Updatable for MotionTrack<MotionBoneKeyframe> {
     type Object = Bone;
     type ObjectUpdater = BoneKeyframeUpdater;
-
 
     fn apply_add(&mut self, updater: &mut Self::ObjectUpdater, object: Option<&mut Self::Object>) {
         let old = self.insert_keyframe(updater.added_state.to_keyframe(updater.frame_index));
@@ -199,7 +201,7 @@ impl AddKeyframe for MotionTrack<MotionBoneKeyframe> {
                             if KeyframeInterpolationPoint::is_linear_interpolation(
                                 &prev_keyframe.interpolation.translation_x,
                             ) {
-                                Bone::DEFAULT_AUTOMATIC_BAZIER_CONTROL_POINT.into()
+                                Bone::DEFAULT_AUTOMATIC_BEZIER_CONTROL_POINT.into()
                             } else if bound.next.is_some() && bound.next.unwrap() > prev_frame_index
                             {
                                 let next_frame_index = bound.next.unwrap();

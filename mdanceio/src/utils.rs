@@ -19,6 +19,10 @@ pub fn f128_to_quat(v: [f32; 4]) -> Quaternion<f32> {
     v.into()
 }
 
+pub fn quat_to_f128(v: Quaternion<f32>) -> [f32; 4] {
+    v.into()
+}
+
 pub fn f32_array_to_mat4_col_major_order(v: [f32; 16]) -> Matrix4<f32> {
     Matrix4::new(
         v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9], v[10], v[11], v[12], v[13],

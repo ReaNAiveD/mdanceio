@@ -1,7 +1,7 @@
 use cgmath::{Vector3, Vector4};
 use nanoem::motion::{MotionCameraKeyframe, MotionTrack};
 
-use crate::{camera::PerspectiveCamera, model::Model, motion::CameraKeyframeInterpolation};
+use crate::{camera::PerspectiveCamera, model::Model, motion::interpolation::CameraKeyframeInterpolation};
 
 use super::updater::{KeyframeUpdater, Updatable};
 
