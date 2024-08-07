@@ -2056,7 +2056,7 @@ impl ModelMorphBone {
                 base: ModelObject { index },
                 bone_index: buffer.read_integer_nullable(bone_index_size)?,
                 translation: buffer.read_f32_3_little_endian()?,
-                orientation: buffer.read_f32_3_little_endian()?,
+                orientation: buffer.read_f32_4_little_endian()?,
             };
             vec.push(item);
         }
